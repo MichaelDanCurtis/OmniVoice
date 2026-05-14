@@ -1,0 +1,106 @@
+@preconcurrency import AVFoundation
+import Foundation
+
+final class AudioCaptureService: @unchecked Sendable {
+    private let engine = AVAudioEngine()
+    private let queue = DispatchQueue(label: "omnivoice.audio.capture")
+    private var buffers: [AVAudioPCMBuffer] = []
+
+    var onLevel: ((Float) -> Void)?
+    var onPCMChunk: ((Data) -> Void)?
+
+    func inputSampleRate() -> Double {
+        engine.inputNode.outputFormat(forBus: 0).sampleRate
+    }
+
+    func start() throws {
+        queue.sync {
+            buffers.removeAll()
+        }
+
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+
+        input.removeTap(onBus: 0)
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            guard let self else { return }
+            let copied = Self.copy(buffer: buffer)
+            let level = Self.level(buffer: buffer)
+            let chunk = Self.float32MonoData(buffer: buffer)
+
+            queue.async {
+                if let copied {
+                    self.buffers.append(copied)
+                }
+                self.onLevel?(level)
+                if let chunk {
+                    self.onPCMChunk?(chunk)
+                }
+            }
+        }
+
+        engine.prepare()
+        try engine.start()
+    }
+
+    func stopWAVData() throws -> Data {
+        engine.stop()
+        engine.inputNode.removeTap(onBus: 0)
+
+        let captured = queue.sync { buffers }
+        guard let first = captured.first else { return Data() }
+
+        let tempURL = FileManager.default.temporaryDirectory.appending(path: "omnivoice-\(UUID().uuidString).wav")
+        let file = try AVAudioFile(forWriting: tempURL, settings: first.format.settings)
+        for buffer in captured {
+            try file.write(from: buffer)
+        }
+        let data = try Data(contentsOf: tempURL)
+        try? FileManager.default.removeItem(at: tempURL)
+        return data
+    }
+
+    private static func copy(buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let copied = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameCapacity) else {
+            return nil
+        }
+        copied.frameLength = buffer.frameLength
+
+        let frameCount = Int(buffer.frameLength)
+        let channelCount = Int(buffer.format.channelCount)
+
+        if let source = buffer.floatChannelData, let destination = copied.floatChannelData {
+            for channel in 0..<channelCount {
+                destination[channel].update(from: source[channel], count: frameCount)
+            }
+        } else if let source = buffer.int16ChannelData, let destination = copied.int16ChannelData {
+            for channel in 0..<channelCount {
+                destination[channel].update(from: source[channel], count: frameCount)
+            }
+        } else if let source = buffer.int32ChannelData, let destination = copied.int32ChannelData {
+            for channel in 0..<channelCount {
+                destination[channel].update(from: source[channel], count: frameCount)
+            }
+        }
+
+        return copied
+    }
+
+    private static func float32MonoData(buffer: AVAudioPCMBuffer) -> Data? {
+        guard let channel = buffer.floatChannelData?[0] else { return nil }
+        let frameCount = Int(buffer.frameLength)
+        return Data(bytes: channel, count: frameCount * MemoryLayout<Float>.size)
+    }
+
+    private static func level(buffer: AVAudioPCMBuffer) -> Float {
+        guard let channel = buffer.floatChannelData?[0] else { return 0 }
+        let frameCount = Int(buffer.frameLength)
+        guard frameCount > 0 else { return 0 }
+
+        var sum: Float = 0
+        for index in 0..<frameCount {
+            sum += abs(channel[index])
+        }
+        return sum / Float(frameCount)
+    }
+}

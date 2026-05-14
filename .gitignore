@@ -1,0 +1,13 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+
+engine/.venv/
+engine/.pytest_cache/
+engine/*.egg-info/
+engine/**/*.pyc
+engine/**/__pycache__/
+
+models/
+dist/
