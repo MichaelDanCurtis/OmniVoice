@@ -24,6 +24,28 @@ public struct TranscribeResult: Codable, Equatable, Sendable {
     }
 }
 
+public struct EngineHealth: Codable, Equatable, Sendable {
+    public let status: String
+
+    public init(status: String) {
+        self.status = status
+    }
+}
+
+public struct EngineProviderInfo: Codable, Equatable, Identifiable, Sendable {
+    public let id: String
+    public let label: String
+    public let available: Bool
+    public let reason: String?
+
+    public init(id: String, label: String, available: Bool, reason: String? = nil) {
+        self.id = id
+        self.label = label
+        self.available = available
+        self.reason = reason
+    }
+}
+
 public struct EngineClient: Sendable {
     public enum EngineError: Error, Equatable {
         case badStatus(Int)
@@ -36,6 +58,20 @@ public struct EngineClient: Sendable {
     public init(baseURL: URL = URL(string: "http://127.0.0.1:8765")!, urlSession: URLSession = .shared) {
         self.baseURL = baseURL
         self.urlSession = urlSession
+    }
+
+    public func health() async throws -> EngineHealth {
+        let endpoint = baseURL.appending(path: "health")
+        let (data, response) = try await urlSession.data(from: endpoint)
+        try validate(response)
+        return try EngineCoding.decoder.decode(EngineHealth.self, from: data)
+    }
+
+    public func providers() async throws -> [EngineProviderInfo] {
+        let endpoint = baseURL.appending(path: "providers")
+        let (data, response) = try await urlSession.data(from: endpoint)
+        try validate(response)
+        return try EngineCoding.decoder.decode([EngineProviderInfo].self, from: data)
     }
 
     public func cleanup(_ request: CleanupRequest) async throws -> CleanupResult {

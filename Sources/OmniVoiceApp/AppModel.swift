@@ -2,6 +2,31 @@ import Foundation
 import Observation
 import OmniVoiceCore
 
+enum EngineConnectionState: Equatable {
+    case unknown
+    case checking
+    case online
+    case offline(String)
+
+    var label: String {
+        switch self {
+        case .unknown: "Unknown"
+        case .checking: "Checking"
+        case .online: "Online"
+        case .offline: "Offline"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .unknown: "Not checked yet"
+        case .checking: "Checking local engine"
+        case .online: "127.0.0.1:8765"
+        case .offline(let message): message
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -9,33 +34,95 @@ final class AppModel {
     var session: DictationSession
     var captionText: String
     var statusText: String
+    var engineState: EngineConnectionState
+    var providerStatuses: [EngineProviderInfo]
+    var lastTestResult: String
 
     private let preferencesStore: PreferencesStore
+    private let engineClient: EngineClient
 
     init(
         preferences: OmniVoicePreferences? = nil,
         preferencesStore: PreferencesStore = PreferencesStore(),
+        engineClient: EngineClient = EngineClient(),
         session: DictationSession = DictationSession(),
         captionText: String = "",
-        statusText: String = "Ready"
+        statusText: String = "Ready",
+        engineState: EngineConnectionState = .unknown,
+        providerStatuses: [EngineProviderInfo] = [],
+        lastTestResult: String = "No test run yet"
     ) {
         self.preferencesStore = preferencesStore
+        self.engineClient = engineClient
         self.preferences = preferences ?? (try? preferencesStore.load()) ?? .defaults
         self.session = session
         self.captionText = captionText
         self.statusText = statusText
+        self.engineState = engineState
+        self.providerStatuses = providerStatuses
+        self.lastTestResult = lastTestResult
     }
 
     func cycleStyle() {
-        preferences.cycleStyle()
-        persistPreferences()
-        statusText = "Style: \(preferences.style.displayName)"
+        setStyle(preferences.style.next())
     }
 
     func cycleASRProvider() {
         preferences.cycleASRProvider()
         persistPreferences()
         statusText = "ASR: \(preferences.asrProvider.rawValue)"
+    }
+
+    func setStyle(_ style: StyleProfile) {
+        preferences.style = style
+        persistPreferences()
+        statusText = "Style: \(style.displayName)"
+    }
+
+    func setASRProvider(_ provider: ASRProviderKind) {
+        preferences.asrProvider = provider
+        persistPreferences()
+        statusText = "ASR: \(provider.rawValue)"
+    }
+
+    func refreshEngineStatus() async {
+        engineState = .checking
+        do {
+            _ = try await engineClient.health()
+            providerStatuses = try await engineClient.providers()
+            engineState = .online
+            statusText = "Engine online"
+        } catch {
+            providerStatuses = []
+            engineState = .offline(error.localizedDescription)
+            statusText = "Engine offline"
+        }
+    }
+
+    func runCleanupTest() async {
+        lastTestResult = "Running..."
+        do {
+            let result = try await engineClient.cleanup(
+                CleanupRequest(
+                    rawTranscript: "I am going to the store. No wait, I am going to the house.",
+                    style: preferences.style,
+                    dictionaryTerms: preferences.dictionaryTerms
+                )
+            )
+            lastTestResult = result.text
+            statusText = "Cleanup test passed"
+        } catch {
+            lastTestResult = error.localizedDescription
+            statusText = "Cleanup test failed"
+        }
+    }
+
+    func providerInfo(for provider: ASRProviderKind) -> EngineProviderInfo? {
+        providerStatuses.first { $0.id == provider.rawValue }
+    }
+
+    func label(for provider: ASRProviderKind) -> String {
+        providerInfo(for: provider)?.label ?? provider.rawValue
     }
 
     private func persistPreferences() {

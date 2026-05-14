@@ -46,6 +46,52 @@ public struct HotkeyBinding: Codable, Equatable, Sendable {
 
     public static let defaultDictation = HotkeyBinding(keyCode: 49, modifiers: 2_304)
     public static let defaultStyle = HotkeyBinding(keyCode: 1, modifiers: 2_304)
+
+    public var displayName: String {
+        "\(modifierDisplayName)\(keyDisplayName)"
+    }
+
+    private var modifierDisplayName: String {
+        var parts: [String] = []
+        if modifiers & 4_096 != 0 { parts.append("⌃") }
+        if modifiers & 2_048 != 0 { parts.append("⌥") }
+        if modifiers & 512 != 0 { parts.append("⇧") }
+        if modifiers & 256 != 0 { parts.append("⌘") }
+        return parts.joined()
+    }
+
+    private var keyDisplayName: String {
+        switch keyCode {
+        case 49: "Space"
+        case 0: "A"
+        case 1: "S"
+        case 2: "D"
+        case 3: "F"
+        case 4: "H"
+        case 5: "G"
+        case 6: "Z"
+        case 7: "X"
+        case 8: "C"
+        case 9: "V"
+        case 11: "B"
+        case 12: "Q"
+        case 13: "W"
+        case 14: "E"
+        case 15: "R"
+        case 16: "Y"
+        case 17: "T"
+        case 31: "O"
+        case 32: "U"
+        case 34: "I"
+        case 35: "P"
+        case 37: "L"
+        case 38: "J"
+        case 40: "K"
+        case 45: "N"
+        case 46: "M"
+        default: "Key \(keyCode)"
+        }
+    }
 }
 
 public struct TranscriptUpdate: Codable, Equatable, Sendable {

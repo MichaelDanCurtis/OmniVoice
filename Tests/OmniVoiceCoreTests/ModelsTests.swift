@@ -31,6 +31,11 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(HotkeyBinding.defaultStyle.modifiers, 2_304)
     }
 
+    func testHotkeyBindingsExposeReadableLabels() {
+        XCTAssertEqual(HotkeyBinding.defaultDictation.displayName, "⌥⌘Space")
+        XCTAssertEqual(HotkeyBinding.defaultStyle.displayName, "⌥⌘S")
+    }
+
     func testCleanupRequestDefaultsDictionaryTermsToEmpty() {
         let request = CleanupRequest(rawTranscript: "hello", style: .neutral)
 

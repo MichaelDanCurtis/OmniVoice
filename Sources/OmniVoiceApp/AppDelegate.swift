@@ -13,7 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let insertionService = TextInsertionService()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApplication.shared.setActivationPolicy(.accessory)
+        NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

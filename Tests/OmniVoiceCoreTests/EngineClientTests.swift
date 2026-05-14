@@ -34,6 +34,17 @@ final class EngineClientTests: XCTestCase {
         XCTAssertEqual(response.provider, .fake)
     }
 
+    func testProviderInfoDecodesEnginePayload() throws {
+        let data = #"{"id":"parakeet-tdt","label":"Parakeet TDT","available":false,"reason":"model files not found"}"#.data(using: .utf8)!
+
+        let provider = try EngineCoding.decoder.decode(EngineProviderInfo.self, from: data)
+
+        XCTAssertEqual(provider.id, "parakeet-tdt")
+        XCTAssertEqual(provider.label, "Parakeet TDT")
+        XCTAssertFalse(provider.available)
+        XCTAssertEqual(provider.reason, "model files not found")
+    }
+
     func testTranscriptUpdateDecodesStreamingPayload() throws {
         let data = #"{"text":"live words","is_final":false}"#.data(using: .utf8)!
 

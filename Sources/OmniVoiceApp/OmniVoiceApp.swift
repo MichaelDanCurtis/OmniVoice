@@ -8,33 +8,59 @@ struct OmniVoiceApp: App {
     @State private var model = AppModel()
 
     var body: some Scene {
-        MenuBarExtra("OmniVoice", systemImage: "waveform") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(model.statusText)
-                    .font(.headline)
-
-                Divider()
-
-                Text("ASR: \(model.preferences.asrProvider.rawValue)")
-                Text("Style: \(model.preferences.style.displayName)")
-
-                Button("Cycle Style") {
-                    model.cycleStyle()
+        WindowGroup("OmniVoice", id: "control-panel") {
+            SettingsView(
+                model: model,
+                showTestCaption: {
+                    appDelegate.showOverlay(
+                        text: model.lastTestResult == "No test run yet" ? "OmniVoice is running" : model.lastTestResult,
+                        styleName: model.preferences.style.displayName
+                    )
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        appDelegate.hideOverlay()
+                    }
                 }
-
-                Button("Cycle ASR Provider") {
-                    model.cycleASRProvider()
-                }
-
-                Divider()
-
-                Button("Quit") {
-                    NSApplication.shared.terminate(nil)
-                }
-            }
-            .padding(8)
+            )
             .task {
                 appDelegate.attach(model: model)
+                await model.refreshEngineStatus()
+            }
+        }
+
+        MenuBarExtra("OmniVoice", systemImage: "waveform") {
+            MenuBarControlsView(
+                model: model,
+                showTestCaption: {
+                    appDelegate.showOverlay(
+                        text: model.lastTestResult == "No test run yet" ? "OmniVoice is running" : model.lastTestResult,
+                        styleName: model.preferences.style.displayName
+                    )
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        appDelegate.hideOverlay()
+                    }
+                }
+            )
+            .task {
+                appDelegate.attach(model: model)
+                await model.refreshEngineStatus()
+            }
+        }
+
+        Settings {
+            SettingsView(
+                model: model,
+                showTestCaption: {
+                    appDelegate.showOverlay(
+                        text: model.lastTestResult == "No test run yet" ? "OmniVoice is running" : model.lastTestResult,
+                        styleName: model.preferences.style.displayName
+                    )
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        appDelegate.hideOverlay()
+                    }
+                }
+            )
+            .task {
+                await model.refreshEngineStatus()
             }
         }
     }
