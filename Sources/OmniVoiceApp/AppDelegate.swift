@@ -115,10 +115,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.showOverlay(text: update.text, styleName: model.preferences.style.displayName, level: self.lastInputLevel)
             }
         }
-        streamingClient.connect(
-            provider: model.preferences.asrProvider,
-            sampleRate: audioCapture.inputSampleRate(deviceUID: model.preferences.microphoneID)
-        )
         audioCapture.onPCMChunk = { [weak self] data in
             self?.streamingClient.sendPCMFloat32(data)
         }
@@ -129,7 +125,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         do {
-            try audioCapture.start(deviceUID: model.preferences.microphoneID)
+            let sampleRate = try audioCapture.start(deviceUID: model.preferences.microphoneID)
+            streamingClient.connect(
+                provider: model.preferences.asrProvider,
+                sampleRate: sampleRate
+            )
         } catch {
             model.session.fail("Microphone failed: \(error.localizedDescription)")
             model.statusText = "Microphone failed"

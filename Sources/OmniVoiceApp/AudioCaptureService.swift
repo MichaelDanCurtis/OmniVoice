@@ -8,6 +8,7 @@ final class AudioCaptureService: @unchecked Sendable {
     enum CaptureError: LocalizedError {
         case microphoneNotFound(String)
         case inputNodeUnavailable
+        case invalidInputFormat
         case setInputDeviceFailed(OSStatus)
 
         var errorDescription: String? {
@@ -16,6 +17,8 @@ final class AudioCaptureService: @unchecked Sendable {
                 "Microphone not found: \(id)"
             case .inputNodeUnavailable:
                 "Audio input node is unavailable"
+            case .invalidInputFormat:
+                "Could not create a compatible microphone format"
             case .setInputDeviceFailed(let status):
                 "Could not select microphone (\(status))"
             }
@@ -37,7 +40,8 @@ final class AudioCaptureService: @unchecked Sendable {
         MicrophoneDeviceService.nominalSampleRate(for: deviceUID) ?? inputSampleRate()
     }
 
-    func start(deviceUID: String?) throws {
+    @discardableResult
+    func start(deviceUID: String?) throws -> Double {
         queue.sync {
             buffers.removeAll()
         }
@@ -45,7 +49,7 @@ final class AudioCaptureService: @unchecked Sendable {
         try configureInputDevice(uid: deviceUID)
 
         let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
+        let format = try tapFormat(for: input, deviceUID: deviceUID)
 
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
@@ -67,6 +71,7 @@ final class AudioCaptureService: @unchecked Sendable {
 
         engine.prepare()
         try engine.start()
+        return format.sampleRate
     }
 
     func stopWAVData() throws -> Data {
@@ -175,6 +180,26 @@ final class AudioCaptureService: @unchecked Sendable {
             return Int16.min
         }
         return Int16(clipped * Float(Int16.max))
+    }
+
+    private func tapFormat(for input: AVAudioInputNode, deviceUID: String?) throws -> AVAudioFormat {
+        let nodeFormat = input.outputFormat(forBus: 0)
+        let sampleRate = AudioCaptureFormatResolver.sampleRate(
+            selectedDeviceSampleRate: MicrophoneDeviceService.nominalSampleRate(for: deviceUID),
+            nodeSampleRate: nodeFormat.sampleRate
+        )
+        let channelCount = max(AVAudioChannelCount(1), nodeFormat.channelCount)
+
+        guard let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: sampleRate,
+            channels: channelCount,
+            interleaved: false
+        ) else {
+            throw CaptureError.invalidInputFormat
+        }
+
+        return format
     }
 
     private func configureInputDevice(uid: String?) throws {
