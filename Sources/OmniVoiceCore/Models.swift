@@ -63,6 +63,24 @@ public struct HotkeyBinding: Codable, Equatable, Hashable, Sendable {
         "\(modifierDisplayName)\(keyDisplayName)"
     }
 
+    public var hasModifier: Bool {
+        modifiers & 6_912 != 0
+    }
+
+    public static func carbonModifiers(
+        command: Bool = false,
+        option: Bool = false,
+        control: Bool = false,
+        shift: Bool = false
+    ) -> UInt32 {
+        var result: UInt32 = 0
+        if command { result |= 256 }
+        if option { result |= 2_048 }
+        if control { result |= 4_096 }
+        if shift { result |= 512 }
+        return result
+    }
+
     private var modifierDisplayName: String {
         var parts: [String] = []
         if modifiers & 4_096 != 0 { parts.append("⌃") }
@@ -75,6 +93,20 @@ public struct HotkeyBinding: Codable, Equatable, Hashable, Sendable {
     private var keyDisplayName: String {
         switch keyCode {
         case 49: "Space"
+        case 36: "Return"
+        case 48: "Tab"
+        case 51: "Delete"
+        case 53: "Esc"
+        case 18: "1"
+        case 19: "2"
+        case 20: "3"
+        case 21: "4"
+        case 23: "5"
+        case 22: "6"
+        case 26: "7"
+        case 28: "8"
+        case 25: "9"
+        case 29: "0"
         case 0: "A"
         case 1: "S"
         case 2: "D"
@@ -101,6 +133,10 @@ public struct HotkeyBinding: Codable, Equatable, Hashable, Sendable {
         case 40: "K"
         case 45: "N"
         case 46: "M"
+        case 123: "←"
+        case 124: "→"
+        case 125: "↓"
+        case 126: "↑"
         default: "Key \(keyCode)"
         }
     }

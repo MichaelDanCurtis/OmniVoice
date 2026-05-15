@@ -43,6 +43,17 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(HotkeyBinding.stylePresets.map(\.displayName), ["⌥⌘S", "⌥⌘T", "⌥⌘Y", "⌃⌥S"])
     }
 
+    func testHotkeyBindingsBuildCarbonModifiers() {
+        XCTAssertEqual(HotkeyBinding.carbonModifiers(command: true, option: true), 2_304)
+        XCTAssertEqual(HotkeyBinding.carbonModifiers(option: true, control: true), 6_144)
+        XCTAssertEqual(HotkeyBinding.carbonModifiers(command: true, shift: true), 768)
+    }
+
+    func testHotkeyBindingsReportModifierPresence() {
+        XCTAssertTrue(HotkeyBinding(keyCode: 49, modifiers: 2_304).hasModifier)
+        XCTAssertFalse(HotkeyBinding(keyCode: 49, modifiers: 0).hasModifier)
+    }
+
     func testCleanupRequestDefaultsDictionaryTermsToEmpty() {
         let request = CleanupRequest(rawTranscript: "hello", style: .neutral)
 

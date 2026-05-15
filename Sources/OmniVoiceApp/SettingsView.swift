@@ -41,17 +41,17 @@ struct SettingsView: View {
                     }
                 }
 
-                Picker("Dictation Hotkey", selection: dictationHotkeyBinding) {
-                    ForEach(HotkeyBinding.dictationPresets, id: \.self) { binding in
-                        Text(binding.displayName).tag(binding)
-                    }
-                }
+                HotkeyRecorderView(
+                    title: "Dictation Hotkey",
+                    binding: model.preferences.dictationHotkey,
+                    onChange: model.setDictationHotkey
+                )
 
-                Picker("Style Hotkey", selection: styleHotkeyBinding) {
-                    ForEach(HotkeyBinding.stylePresets, id: \.self) { binding in
-                        Text(binding.displayName).tag(binding)
-                    }
-                }
+                HotkeyRecorderView(
+                    title: "Style Hotkey",
+                    binding: model.preferences.styleHotkey,
+                    onChange: model.setStyleHotkey
+                )
             }
 
             Section("Test") {
@@ -88,20 +88,6 @@ struct SettingsView: View {
         Binding(
             get: { model.preferences.style },
             set: { model.setStyle($0) }
-        )
-    }
-
-    private var dictationHotkeyBinding: Binding<HotkeyBinding> {
-        Binding(
-            get: { model.preferences.dictationHotkey },
-            set: { model.setDictationHotkey($0) }
-        )
-    }
-
-    private var styleHotkeyBinding: Binding<HotkeyBinding> {
-        Binding(
-            get: { model.preferences.styleHotkey },
-            set: { model.setStyleHotkey($0) }
         )
     }
 
