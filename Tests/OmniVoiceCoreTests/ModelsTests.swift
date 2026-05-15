@@ -36,6 +36,13 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(HotkeyBinding.defaultStyle.displayName, "⌥⌘S")
     }
 
+    func testHotkeyPresetsIncludeDefaultsAndReadableNames() {
+        XCTAssertTrue(HotkeyBinding.dictationPresets.contains(.defaultDictation))
+        XCTAssertTrue(HotkeyBinding.stylePresets.contains(.defaultStyle))
+        XCTAssertEqual(HotkeyBinding.dictationPresets.map(\.displayName), ["⌥⌘Space", "⌥⌘D", "⌥⌘F", "⌃⌥Space"])
+        XCTAssertEqual(HotkeyBinding.stylePresets.map(\.displayName), ["⌥⌘S", "⌥⌘T", "⌥⌘Y", "⌃⌥S"])
+    }
+
     func testCleanupRequestDefaultsDictionaryTermsToEmpty() {
         let request = CleanupRequest(rawTranscript: "hello", style: .neutral)
 

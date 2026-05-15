@@ -28,15 +28,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeys.onEvent = { [weak self] event in
             self?.handleHotkey(event)
         }
-
-        do {
-            try hotkeys.register(
-                dictation: model.preferences.dictationHotkey,
-                style: model.preferences.styleHotkey
-            )
-        } catch {
-            model.statusText = "Hotkey registration failed"
+        model.onHotkeysChanged = { [weak self] preferences in
+            self?.applyHotkeys(preferences: preferences)
         }
+
+        applyHotkeys(preferences: model.preferences)
     }
 
     func showOverlay(text: String, styleName: String) {
@@ -45,6 +41,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func hideOverlay() {
         overlay.hide()
+    }
+
+    private func applyHotkeys(preferences: OmniVoicePreferences) {
+        guard let model else { return }
+        do {
+            hotkeys.unregister()
+            try hotkeys.register(
+                dictation: preferences.dictationHotkey,
+                style: preferences.styleHotkey
+            )
+        } catch {
+            model.statusText = "Hotkey registration failed"
+        }
     }
 
     private func updatePermissionStatus() {

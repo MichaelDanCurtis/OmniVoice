@@ -35,7 +35,7 @@ public enum ASRProviderKind: String, CaseIterable, Codable, Equatable, Sendable 
     case canaryQwen25B = "canary-qwen-2.5b"
 }
 
-public struct HotkeyBinding: Codable, Equatable, Sendable {
+public struct HotkeyBinding: Codable, Equatable, Hashable, Sendable {
     public let keyCode: UInt32
     public let modifiers: UInt32
 
@@ -46,6 +46,18 @@ public struct HotkeyBinding: Codable, Equatable, Sendable {
 
     public static let defaultDictation = HotkeyBinding(keyCode: 49, modifiers: 2_304)
     public static let defaultStyle = HotkeyBinding(keyCode: 1, modifiers: 2_304)
+    public static let dictationPresets = [
+        HotkeyBinding(keyCode: 49, modifiers: 2_304),
+        HotkeyBinding(keyCode: 2, modifiers: 2_304),
+        HotkeyBinding(keyCode: 3, modifiers: 2_304),
+        HotkeyBinding(keyCode: 49, modifiers: 6_144),
+    ]
+    public static let stylePresets = [
+        HotkeyBinding(keyCode: 1, modifiers: 2_304),
+        HotkeyBinding(keyCode: 17, modifiers: 2_304),
+        HotkeyBinding(keyCode: 16, modifiers: 2_304),
+        HotkeyBinding(keyCode: 1, modifiers: 6_144),
+    ]
 
     public var displayName: String {
         "\(modifierDisplayName)\(keyDisplayName)"

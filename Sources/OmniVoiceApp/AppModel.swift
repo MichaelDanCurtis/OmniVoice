@@ -40,6 +40,7 @@ final class AppModel {
 
     private let preferencesStore: PreferencesStore
     private let engineClient: EngineClient
+    @ObservationIgnored var onHotkeysChanged: ((OmniVoicePreferences) -> Void)?
 
     init(
         preferences: OmniVoicePreferences? = nil,
@@ -83,6 +84,28 @@ final class AppModel {
         preferences.asrProvider = provider
         persistPreferences()
         statusText = "ASR: \(provider.rawValue)"
+    }
+
+    func setDictationHotkey(_ binding: HotkeyBinding) {
+        guard binding != preferences.styleHotkey else {
+            statusText = "Hotkeys must be different"
+            return
+        }
+        preferences.dictationHotkey = binding
+        persistPreferences()
+        onHotkeysChanged?(preferences)
+        statusText = "Dictation hotkey: \(binding.displayName)"
+    }
+
+    func setStyleHotkey(_ binding: HotkeyBinding) {
+        guard binding != preferences.dictationHotkey else {
+            statusText = "Hotkeys must be different"
+            return
+        }
+        preferences.styleHotkey = binding
+        persistPreferences()
+        onHotkeysChanged?(preferences)
+        statusText = "Style hotkey: \(binding.displayName)"
     }
 
     func refreshEngineStatus() async {
