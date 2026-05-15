@@ -47,6 +47,25 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(try store.load(), preferences)
     }
 
+    func testModifierOnlyHotkeysRoundTripThroughStore() throws {
+        let suiteName = "OmniVoicePreferencesStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = PreferencesStore(userDefaults: defaults)
+        let preferences = OmniVoicePreferences(
+            asrProvider: .parakeetTDT,
+            style: .neutral,
+            dictionaryTerms: [],
+            dictationHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(option: true, control: true)),
+            styleHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(control: true, shift: true))
+        )
+
+        try store.save(preferences)
+
+        XCTAssertEqual(try store.load(), preferences)
+    }
+
     func testStoreReturnsDefaultsWhenNoPreferencesAreSaved() throws {
         let suiteName = "OmniVoicePreferencesStoreTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

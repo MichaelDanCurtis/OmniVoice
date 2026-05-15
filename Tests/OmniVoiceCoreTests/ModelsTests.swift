@@ -51,7 +51,38 @@ final class ModelsTests: XCTestCase {
 
     func testHotkeyBindingsReportModifierPresence() {
         XCTAssertTrue(HotkeyBinding(keyCode: 49, modifiers: 2_304).hasModifier)
+        XCTAssertTrue(HotkeyBinding.modifierOnly(6_144).hasModifier)
         XCTAssertFalse(HotkeyBinding(keyCode: 49, modifiers: 0).hasModifier)
+    }
+
+    func testHotkeyBindingsSupportModifierOnlyChords() {
+        let controlOption = HotkeyBinding.modifierOnly(
+            HotkeyBinding.carbonModifiers(option: true, control: true)
+        )
+        let controlOptionCommand = HotkeyBinding.modifierOnly(
+            HotkeyBinding.carbonModifiers(command: true, option: true, control: true)
+        )
+        let controlShift = HotkeyBinding.modifierOnly(
+            HotkeyBinding.carbonModifiers(control: true, shift: true)
+        )
+
+        XCTAssertTrue(controlOption.isModifierOnly)
+        XCTAssertEqual(controlOption.displayName, "⌃⌥")
+        XCTAssertEqual(controlOption.modifierCount, 2)
+        XCTAssertEqual(controlOptionCommand.displayName, "⌃⌥⌘")
+        XCTAssertEqual(controlOptionCommand.modifierCount, 3)
+        XCTAssertEqual(controlShift.displayName, "⌃⇧")
+    }
+
+    func testHotkeyBindingsExposeLiveModifierLabels() {
+        let modifiers = HotkeyBinding.carbonModifiers(
+            command: true,
+            option: true,
+            control: true,
+            shift: true
+        )
+
+        XCTAssertEqual(HotkeyBinding.displayName(forModifiers: modifiers), "⌃⌥⇧⌘")
     }
 
     func testCleanupRequestDefaultsDictionaryTermsToEmpty() {

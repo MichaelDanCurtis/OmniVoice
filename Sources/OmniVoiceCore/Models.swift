@@ -36,6 +36,9 @@ public enum ASRProviderKind: String, CaseIterable, Codable, Equatable, Sendable 
 }
 
 public struct HotkeyBinding: Codable, Equatable, Hashable, Sendable {
+    public static let modifierOnlyKeyCode = UInt32.max
+    public static let modifierMask = carbonModifiers(command: true, option: true, control: true, shift: true)
+
     public let keyCode: UInt32
     public let modifiers: UInt32
 
@@ -59,12 +62,32 @@ public struct HotkeyBinding: Codable, Equatable, Hashable, Sendable {
         HotkeyBinding(keyCode: 1, modifiers: 6_144),
     ]
 
+    public static func modifierOnly(_ modifiers: UInt32) -> HotkeyBinding {
+        HotkeyBinding(keyCode: modifierOnlyKeyCode, modifiers: modifiers & modifierMask)
+    }
+
+    public var isModifierOnly: Bool {
+        keyCode == Self.modifierOnlyKeyCode
+    }
+
     public var displayName: String {
-        "\(modifierDisplayName)\(keyDisplayName)"
+        isModifierOnly ? modifierDisplayName : "\(modifierDisplayName)\(keyDisplayName)"
     }
 
     public var hasModifier: Bool {
-        modifiers & 6_912 != 0
+        modifiers & Self.modifierMask != 0
+    }
+
+    public var modifierCount: Int {
+        Self.modifierCount(in: modifiers)
+    }
+
+    public static func modifierCount(in modifiers: UInt32) -> Int {
+        [4_096, 2_048, 512, 256].filter { modifiers & UInt32($0) != 0 }.count
+    }
+
+    public static func displayName(forModifiers modifiers: UInt32) -> String {
+        modifierOnly(modifiers).displayName
     }
 
     public static func carbonModifiers(
