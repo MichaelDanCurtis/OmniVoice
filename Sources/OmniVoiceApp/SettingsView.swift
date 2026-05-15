@@ -54,6 +54,42 @@ struct SettingsView: View {
                 )
             }
 
+            Section("Model") {
+                if let modelStatus = selectedModelStatus {
+                    LabeledContent("Hugging Face", value: modelStatus.repoID)
+                    LabeledContent("Local Path", value: modelStatus.localPath)
+                    LabeledContent("Installed", value: modelStatus.installed ? "Yes" : "No")
+                    LabeledContent("Revision", value: modelStatus.installedRevision?.prefix(12).description ?? "Not installed")
+                    LabeledContent("Update", value: selectedModelUpdateText)
+
+                    HStack {
+                        Button("Check Update") {
+                            Task {
+                                await model.checkSelectedModelUpdate()
+                            }
+                        }
+                        .disabled(isModelActionRunning)
+
+                        Button(modelDownloadButtonTitle) {
+                            Task {
+                                await model.downloadSelectedModel()
+                            }
+                        }
+                        .disabled(isModelActionRunning)
+                    }
+
+                    if let message = selectedModelMessage {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                } else {
+                    Text("No downloadable model is required for this provider.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section("Test") {
                 HStack {
                     Button("Run Cleanup Test") {
@@ -101,5 +137,44 @@ struct SettingsView: View {
         }
 
         return provider.reason ?? "Unavailable"
+    }
+
+    private var selectedModelStatus: EngineModelStatus? {
+        model.modelStatus(for: model.preferences.asrProvider)
+    }
+
+    private var selectedModelUpdateText: String {
+        guard let update = model.modelUpdateInfo,
+              update.providerID == model.preferences.asrProvider.rawValue else {
+            return "Not checked"
+        }
+
+        return update.updateAvailable ? "Available" : "Current"
+    }
+
+    private var selectedModelMessage: String? {
+        if let download = model.modelDownloadStatus,
+           download.providerID == model.preferences.asrProvider.rawValue {
+            return download.message ?? download.state
+        }
+
+        guard let status = selectedModelStatus, !status.missingFiles.isEmpty else {
+            return nil
+        }
+
+        return "Missing: \(status.missingFiles.joined(separator: ", "))"
+    }
+
+    private var modelDownloadButtonTitle: String {
+        guard let status = selectedModelStatus else { return "Download" }
+        return status.installed ? "Update Model" : "Download Model"
+    }
+
+    private var isModelActionRunning: Bool {
+        guard let download = model.modelDownloadStatus,
+              download.providerID == model.preferences.asrProvider.rawValue else {
+            return false
+        }
+        return download.state == "queued" || download.state == "downloading"
     }
 }

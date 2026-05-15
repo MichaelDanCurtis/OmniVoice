@@ -36,6 +36,9 @@ final class AppModel {
     var statusText: String
     var engineState: EngineConnectionState
     var providerStatuses: [EngineProviderInfo]
+    var modelStatuses: [EngineModelStatus]
+    var modelUpdateInfo: EngineModelUpdateInfo?
+    var modelDownloadStatus: EngineModelDownloadStatus?
     var lastTestResult: String
 
     private let preferencesStore: PreferencesStore
@@ -51,6 +54,9 @@ final class AppModel {
         statusText: String = "Ready",
         engineState: EngineConnectionState = .unknown,
         providerStatuses: [EngineProviderInfo] = [],
+        modelStatuses: [EngineModelStatus] = [],
+        modelUpdateInfo: EngineModelUpdateInfo? = nil,
+        modelDownloadStatus: EngineModelDownloadStatus? = nil,
         lastTestResult: String = "No test run yet"
     ) {
         self.preferencesStore = preferencesStore
@@ -61,6 +67,9 @@ final class AppModel {
         self.statusText = statusText
         self.engineState = engineState
         self.providerStatuses = providerStatuses
+        self.modelStatuses = modelStatuses
+        self.modelUpdateInfo = modelUpdateInfo
+        self.modelDownloadStatus = modelDownloadStatus
         self.lastTestResult = lastTestResult
     }
 
@@ -83,6 +92,8 @@ final class AppModel {
     func setASRProvider(_ provider: ASRProviderKind) {
         preferences.asrProvider = provider
         persistPreferences()
+        modelUpdateInfo = nil
+        modelDownloadStatus = nil
         statusText = "ASR: \(provider.rawValue)"
     }
 
@@ -113,12 +124,53 @@ final class AppModel {
         do {
             _ = try await engineClient.health()
             providerStatuses = try await engineClient.providers()
+            modelStatuses = try await engineClient.models()
             engineState = .online
             statusText = "Engine online"
         } catch {
             providerStatuses = []
+            modelStatuses = []
             engineState = .offline(error.localizedDescription)
             statusText = "Engine offline"
+        }
+    }
+
+    func refreshModelStatus() async {
+        do {
+            modelStatuses = try await engineClient.models()
+        } catch {
+            statusText = "Model status refresh failed"
+        }
+    }
+
+    func checkSelectedModelUpdate() async {
+        guard preferences.asrProvider != .fake else {
+            statusText = "Fake ASR has no model download"
+            return
+        }
+
+        do {
+            let update = try await engineClient.checkModelUpdate(provider: preferences.asrProvider)
+            modelUpdateInfo = update
+            statusText = update.updateAvailable ? "Model update available" : "Model is current"
+        } catch {
+            statusText = "Model update check failed"
+        }
+    }
+
+    func downloadSelectedModel() async {
+        guard preferences.asrProvider != .fake else {
+            statusText = "Fake ASR has no model download"
+            return
+        }
+
+        do {
+            let download = try await engineClient.downloadModel(provider: preferences.asrProvider)
+            modelDownloadStatus = download
+            statusText = download.message ?? "Model download queued"
+            await pollModelDownload(provider: preferences.asrProvider)
+        } catch {
+            statusText = "Model download failed"
         }
     }
 
@@ -144,8 +196,31 @@ final class AppModel {
         providerStatuses.first { $0.id == provider.rawValue }
     }
 
+    func modelStatus(for provider: ASRProviderKind) -> EngineModelStatus? {
+        modelStatuses.first { $0.providerID == provider.rawValue }
+    }
+
     func label(for provider: ASRProviderKind) -> String {
         providerInfo(for: provider)?.label ?? provider.rawValue
+    }
+
+    private func pollModelDownload(provider: ASRProviderKind) async {
+        for _ in 0..<300 {
+            do {
+                let current = try await engineClient.modelDownloadStatus(provider: provider)
+                modelDownloadStatus = current
+                statusText = current.message ?? "Model \(current.state)"
+                if current.state == "completed" || current.state == "failed" {
+                    modelStatuses = try await engineClient.models()
+                    return
+                }
+            } catch {
+                statusText = "Model download status failed"
+                return
+            }
+
+            try? await Task.sleep(for: .seconds(2))
+        }
     }
 
     private func persistPreferences() {

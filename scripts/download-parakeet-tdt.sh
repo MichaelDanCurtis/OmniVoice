@@ -2,15 +2,19 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MODEL_ROOT="${ROOT_DIR}/models"
-MODEL_DIR="${MODEL_ROOT}/parakeet-tdt"
-ARCHIVE="${MODEL_ROOT}/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"
-URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"
+cd "${ROOT_DIR}/engine"
 
-mkdir -p "${MODEL_ROOT}"
-curl -L "${URL}" -o "${ARCHIVE}"
-tar -xjf "${ARCHIVE}" -C "${MODEL_ROOT}"
-rm -rf "${MODEL_DIR}"
-mv "${MODEL_ROOT}/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8" "${MODEL_DIR}"
+if [ ! -d ".venv" ]; then
+  python3.12 -m venv .venv
+fi
 
-echo "Parakeet TDT model ready at ${MODEL_DIR}"
+. .venv/bin/activate
+python -m pip install -e .
+
+OMNIVOICE_MODEL_ROOT="${ROOT_DIR}/models" python - <<'PY'
+from omnivoice_engine.model_manager import ModelManager
+
+status = ModelManager().download("parakeet-tdt")
+print(f"Parakeet TDT model ready at {status.local_path}")
+print(f"Revision: {status.revision}")
+PY

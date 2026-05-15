@@ -22,3 +22,33 @@ class ProviderInfo(BaseModel):
 class TranscribeResponse(BaseModel):
     text: str
     provider: str
+
+
+class ModelStatus(BaseModel):
+    provider_id: str
+    label: str
+    repo_id: str
+    local_path: str
+    installed: bool
+    installed_revision: str | None = None
+    remote_revision: str | None = None
+    update_available: bool | None = None
+    missing_files: list[str] = Field(default_factory=list)
+    download_state: str = "idle"
+    download_message: str | None = None
+
+
+class ModelUpdateInfo(BaseModel):
+    provider_id: str
+    repo_id: str
+    installed_revision: str | None = None
+    remote_revision: str
+    update_available: bool
+
+
+class ModelDownloadStatus(BaseModel):
+    provider_id: str
+    state: str
+    message: str | None = None
+    local_path: str
+    revision: str | None = None

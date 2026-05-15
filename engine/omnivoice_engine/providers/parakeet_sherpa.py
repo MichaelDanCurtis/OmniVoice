@@ -11,6 +11,10 @@ from .base import ASRProvider
 class ParakeetSherpaProvider(ASRProvider):
     id = "parakeet-tdt"
     label = "Parakeet TDT"
+    model_layouts = [
+        ("encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"),
+        ("encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"),
+    ]
 
     def __init__(self, model_dir: str | None = None) -> None:
         configured = model_dir or os.environ.get("OMNIVOICE_PARAKEET_MODEL_DIR")
@@ -77,14 +81,15 @@ class ParakeetSherpaProvider(ASRProvider):
         import sherpa_onnx
 
         if self._recognizer is None:
+            model_files = self._model_files()
             self._recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
-                encoder=str(self.model_dir / "encoder.onnx"),
-                decoder=str(self.model_dir / "decoder.onnx"),
-                joiner=str(self.model_dir / "joiner.onnx"),
-                tokens=str(self.model_dir / "tokens.txt"),
+                encoder=str(model_files["encoder"]),
+                decoder=str(model_files["decoder"]),
+                joiner=str(model_files["joiner"]),
+                tokens=str(model_files["tokens"]),
                 num_threads=4,
                 sample_rate=16000,
-                feature_dim=80,
+                feature_dim=128,
                 decoding_method="greedy_search",
             )
         return self._recognizer
@@ -106,9 +111,18 @@ class ParakeetSherpaProvider(ASRProvider):
         return np.interp(target_positions, source_positions, normalized).astype(np.float32)
 
     def _required_paths(self) -> list[Path]:
-        return [
-            self.model_dir / "encoder.onnx",
-            self.model_dir / "decoder.onnx",
-            self.model_dir / "joiner.onnx",
-            self.model_dir / "tokens.txt",
-        ]
+        for layout in self.model_layouts:
+            paths = [self.model_dir / filename for filename in layout]
+            if all(path.exists() for path in paths):
+                return paths
+
+        return [self.model_dir / filename for filename in self.model_layouts[0]]
+
+    def _model_files(self) -> dict[str, Path]:
+        encoder, decoder, joiner, tokens = [path for path in self._required_paths()]
+        return {
+            "encoder": encoder,
+            "decoder": decoder,
+            "joiner": joiner,
+            "tokens": tokens,
+        }

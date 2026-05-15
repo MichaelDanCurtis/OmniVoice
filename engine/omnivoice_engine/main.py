@@ -1,14 +1,24 @@
 import asyncio
 import time
 
-from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 
 from .cleanup import clean_transcript
+from .model_manager import ModelManager
 from .providers.registry import ProviderRegistry
-from .schemas import CleanupRequest, CleanupResponse, ProviderInfo, TranscribeResponse
+from .schemas import (
+    CleanupRequest,
+    CleanupResponse,
+    ModelDownloadStatus,
+    ModelStatus,
+    ModelUpdateInfo,
+    ProviderInfo,
+    TranscribeResponse,
+)
 
 app = FastAPI(title="OmniVoice Local Engine")
 registry = ProviderRegistry()
+model_manager = ModelManager()
 
 
 @app.get("/health")
@@ -19,6 +29,40 @@ def health() -> dict[str, str]:
 @app.get("/providers", response_model=list[ProviderInfo])
 def providers() -> list[ProviderInfo]:
     return registry.list_providers()
+
+
+@app.get("/models", response_model=list[ModelStatus])
+def models() -> list[ModelStatus]:
+    return model_manager.list_statuses()
+
+
+@app.get("/models/{provider_id}/update", response_model=ModelUpdateInfo)
+def model_update(provider_id: str) -> ModelUpdateInfo:
+    try:
+        return model_manager.check_update(provider_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"unknown model provider: {provider_id}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/models/{provider_id}/download", response_model=ModelDownloadStatus)
+def model_download(provider_id: str, background_tasks: BackgroundTasks) -> ModelDownloadStatus:
+    try:
+        state = model_manager.start_download(provider_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"unknown model provider: {provider_id}") from exc
+
+    background_tasks.add_task(_download_model, provider_id)
+    return state
+
+
+@app.get("/models/{provider_id}/download", response_model=ModelDownloadStatus)
+def model_download_status(provider_id: str) -> ModelDownloadStatus:
+    try:
+        return model_manager.download_state(provider_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"unknown model provider: {provider_id}") from exc
 
 
 @app.post("/cleanup", response_model=CleanupResponse)
@@ -88,4 +132,11 @@ async def stream(websocket: WebSocket, provider: str = "fake", sample_rate: int 
                     last_decode_size = len(combined)
                     last_decode_time = now
     except WebSocketDisconnect:
+        return
+
+
+def _download_model(provider_id: str) -> None:
+    try:
+        model_manager.download(provider_id)
+    except Exception:
         return

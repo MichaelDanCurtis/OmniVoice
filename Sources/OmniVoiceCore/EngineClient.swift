@@ -46,6 +46,97 @@ public struct EngineProviderInfo: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+public struct EngineModelStatus: Codable, Equatable, Identifiable, Sendable {
+    public let providerId: String
+    public let label: String
+    public let repoId: String
+    public let localPath: String
+    public let installed: Bool
+    public let installedRevision: String?
+    public let remoteRevision: String?
+    public let updateAvailable: Bool?
+    public let missingFiles: [String]
+    public let downloadState: String
+    public let downloadMessage: String?
+
+    public var id: String { providerId }
+    public var providerID: String { providerId }
+    public var repoID: String { repoId }
+
+    public init(
+        providerID: String,
+        label: String,
+        repoID: String,
+        localPath: String,
+        installed: Bool,
+        installedRevision: String? = nil,
+        remoteRevision: String? = nil,
+        updateAvailable: Bool? = nil,
+        missingFiles: [String] = [],
+        downloadState: String = "idle",
+        downloadMessage: String? = nil
+    ) {
+        self.providerId = providerID
+        self.label = label
+        self.repoId = repoID
+        self.localPath = localPath
+        self.installed = installed
+        self.installedRevision = installedRevision
+        self.remoteRevision = remoteRevision
+        self.updateAvailable = updateAvailable
+        self.missingFiles = missingFiles
+        self.downloadState = downloadState
+        self.downloadMessage = downloadMessage
+    }
+}
+
+public struct EngineModelUpdateInfo: Codable, Equatable, Sendable {
+    public let providerId: String
+    public let repoId: String
+    public let installedRevision: String?
+    public let remoteRevision: String
+    public let updateAvailable: Bool
+    public var providerID: String { providerId }
+    public var repoID: String { repoId }
+
+    public init(
+        providerID: String,
+        repoID: String,
+        installedRevision: String? = nil,
+        remoteRevision: String,
+        updateAvailable: Bool
+    ) {
+        self.providerId = providerID
+        self.repoId = repoID
+        self.installedRevision = installedRevision
+        self.remoteRevision = remoteRevision
+        self.updateAvailable = updateAvailable
+    }
+}
+
+public struct EngineModelDownloadStatus: Codable, Equatable, Sendable {
+    public let providerId: String
+    public let state: String
+    public let message: String?
+    public let localPath: String
+    public let revision: String?
+    public var providerID: String { providerId }
+
+    public init(
+        providerID: String,
+        state: String,
+        message: String? = nil,
+        localPath: String,
+        revision: String? = nil
+    ) {
+        self.providerId = providerID
+        self.state = state
+        self.message = message
+        self.localPath = localPath
+        self.revision = revision
+    }
+}
+
 public struct EngineClient: Sendable {
     public enum EngineError: Error, Equatable {
         case badStatus(Int)
@@ -72,6 +163,46 @@ public struct EngineClient: Sendable {
         let (data, response) = try await urlSession.data(from: endpoint)
         try validate(response)
         return try EngineCoding.decoder.decode([EngineProviderInfo].self, from: data)
+    }
+
+    public func models() async throws -> [EngineModelStatus] {
+        let endpoint = baseURL.appending(path: "models")
+        let (data, response) = try await urlSession.data(from: endpoint)
+        try validate(response)
+        return try EngineCoding.decoder.decode([EngineModelStatus].self, from: data)
+    }
+
+    public func checkModelUpdate(provider: ASRProviderKind) async throws -> EngineModelUpdateInfo {
+        let endpoint = baseURL
+            .appending(path: "models")
+            .appending(path: provider.rawValue)
+            .appending(path: "update")
+        let (data, response) = try await urlSession.data(from: endpoint)
+        try validate(response)
+        return try EngineCoding.decoder.decode(EngineModelUpdateInfo.self, from: data)
+    }
+
+    public func downloadModel(provider: ASRProviderKind) async throws -> EngineModelDownloadStatus {
+        let endpoint = baseURL
+            .appending(path: "models")
+            .appending(path: provider.rawValue)
+            .appending(path: "download")
+        var urlRequest = URLRequest(url: endpoint)
+        urlRequest.httpMethod = "POST"
+
+        let (data, response) = try await urlSession.data(for: urlRequest)
+        try validate(response)
+        return try EngineCoding.decoder.decode(EngineModelDownloadStatus.self, from: data)
+    }
+
+    public func modelDownloadStatus(provider: ASRProviderKind) async throws -> EngineModelDownloadStatus {
+        let endpoint = baseURL
+            .appending(path: "models")
+            .appending(path: provider.rawValue)
+            .appending(path: "download")
+        let (data, response) = try await urlSession.data(from: endpoint)
+        try validate(response)
+        return try EngineCoding.decoder.decode(EngineModelDownloadStatus.self, from: data)
     }
 
     public func cleanup(_ request: CleanupRequest) async throws -> CleanupResult {
