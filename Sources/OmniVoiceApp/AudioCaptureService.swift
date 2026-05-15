@@ -1,7 +1,26 @@
 @preconcurrency import AVFoundation
+import AudioToolbox
+import CoreAudio
 import Foundation
 
 final class AudioCaptureService: @unchecked Sendable {
+    enum CaptureError: LocalizedError {
+        case microphoneNotFound(String)
+        case inputNodeUnavailable
+        case setInputDeviceFailed(OSStatus)
+
+        var errorDescription: String? {
+            switch self {
+            case .microphoneNotFound(let id):
+                "Microphone not found: \(id)"
+            case .inputNodeUnavailable:
+                "Audio input node is unavailable"
+            case .setInputDeviceFailed(let status):
+                "Could not select microphone (\(status))"
+            }
+        }
+    }
+
     private let engine = AVAudioEngine()
     private let queue = DispatchQueue(label: "omnivoice.audio.capture")
     private var buffers: [AVAudioPCMBuffer] = []
@@ -13,10 +32,16 @@ final class AudioCaptureService: @unchecked Sendable {
         engine.inputNode.outputFormat(forBus: 0).sampleRate
     }
 
-    func start() throws {
+    func inputSampleRate(deviceUID: String?) -> Double {
+        MicrophoneDeviceService.nominalSampleRate(for: deviceUID) ?? inputSampleRate()
+    }
+
+    func start(deviceUID: String?) throws {
         queue.sync {
             buffers.removeAll()
         }
+
+        try configureInputDevice(uid: deviceUID)
 
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
@@ -102,5 +127,27 @@ final class AudioCaptureService: @unchecked Sendable {
             sum += abs(channel[index])
         }
         return sum / Float(frameCount)
+    }
+
+    private func configureInputDevice(uid: String?) throws {
+        guard let deviceID = MicrophoneDeviceService.deviceID(for: uid) else {
+            throw CaptureError.microphoneNotFound(uid ?? "system default")
+        }
+        guard let audioUnit = engine.inputNode.audioUnit else {
+            throw CaptureError.inputNodeUnavailable
+        }
+
+        var mutableDeviceID = deviceID
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &mutableDeviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        guard status == noErr else {
+            throw CaptureError.setInputDeviceFailed(status)
+        }
     }
 }

@@ -39,6 +39,7 @@ final class AppModel {
     var modelStatuses: [EngineModelStatus]
     var modelUpdateInfo: EngineModelUpdateInfo?
     var modelDownloadStatus: EngineModelDownloadStatus?
+    var microphoneDevices: [MicrophoneDevice]
     var lastTestResult: String
 
     private let preferencesStore: PreferencesStore
@@ -57,6 +58,7 @@ final class AppModel {
         modelStatuses: [EngineModelStatus] = [],
         modelUpdateInfo: EngineModelUpdateInfo? = nil,
         modelDownloadStatus: EngineModelDownloadStatus? = nil,
+        microphoneDevices: [MicrophoneDevice] = MicrophoneDeviceService.inputDevices(),
         lastTestResult: String = "No test run yet"
     ) {
         self.preferencesStore = preferencesStore
@@ -70,6 +72,7 @@ final class AppModel {
         self.modelStatuses = modelStatuses
         self.modelUpdateInfo = modelUpdateInfo
         self.modelDownloadStatus = modelDownloadStatus
+        self.microphoneDevices = microphoneDevices
         self.lastTestResult = lastTestResult
     }
 
@@ -95,6 +98,12 @@ final class AppModel {
         modelUpdateInfo = nil
         modelDownloadStatus = nil
         statusText = "ASR: \(provider.rawValue)"
+    }
+
+    func setMicrophoneID(_ microphoneID: String?) {
+        preferences.microphoneID = microphoneID
+        persistPreferences()
+        statusText = "Microphone: \(microphoneLabel(for: microphoneID))"
     }
 
     func setDictationHotkey(_ binding: HotkeyBinding) {
@@ -140,6 +149,16 @@ final class AppModel {
             modelStatuses = try await engineClient.models()
         } catch {
             statusText = "Model status refresh failed"
+        }
+    }
+
+    func refreshMicrophones() {
+        microphoneDevices = MicrophoneDeviceService.inputDevices()
+        if let microphoneID = preferences.microphoneID,
+           !microphoneDevices.contains(where: { $0.id == microphoneID }) {
+            statusText = "Selected microphone is not connected"
+        } else {
+            statusText = "Microphones refreshed"
         }
     }
 
@@ -202,6 +221,14 @@ final class AppModel {
 
     func label(for provider: ASRProviderKind) -> String {
         providerInfo(for: provider)?.label ?? provider.rawValue
+    }
+
+    func microphoneLabel(for microphoneID: String?) -> String {
+        guard let microphoneID else {
+            return "System Default"
+        }
+
+        return microphoneDevices.first { $0.id == microphoneID }?.displayName ?? "Missing: \(microphoneID)"
     }
 
     private func pollModelDownload(provider: ASRProviderKind) async {

@@ -35,6 +35,21 @@ struct SettingsView: View {
                     }
                 }
 
+                Picker("Microphone", selection: microphoneBinding) {
+                    Text("System Default").tag(String?.none)
+                    ForEach(model.microphoneDevices) { device in
+                        Text(device.displayName).tag(Optional(device.id))
+                    }
+                    if let selected = model.preferences.microphoneID,
+                       !model.microphoneDevices.contains(where: { $0.id == selected }) {
+                        Text("Missing: \(selected)").tag(Optional(selected))
+                    }
+                }
+
+                Button("Refresh Microphones") {
+                    model.refreshMicrophones()
+                }
+
                 Picker("Cleanup Style", selection: styleBinding) {
                     ForEach(StyleProfile.allCases, id: \.self) { style in
                         Text(style.displayName).tag(style)
@@ -124,6 +139,13 @@ struct SettingsView: View {
         Binding(
             get: { model.preferences.style },
             set: { model.setStyle($0) }
+        )
+    }
+
+    private var microphoneBinding: Binding<String?> {
+        Binding(
+            get: { model.preferences.microphoneID },
+            set: { model.setMicrophoneID($0) }
         )
     }
 

@@ -8,6 +8,7 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.asrProvider, .parakeetTDT)
         XCTAssertEqual(preferences.style, .neutral)
         XCTAssertEqual(preferences.dictionaryTerms, [])
+        XCTAssertNil(preferences.microphoneID)
         XCTAssertEqual(preferences.dictationHotkey, .defaultDictation)
         XCTAssertEqual(preferences.styleHotkey, .defaultStyle)
     }
@@ -38,6 +39,7 @@ final class PreferencesStoreTests: XCTestCase {
             asrProvider: .fake,
             style: .concise,
             dictionaryTerms: ["CUDA", "SwiftUI"],
+            microphoneID: "BuiltInMicrophoneDevice",
             dictationHotkey: HotkeyBinding(keyCode: 12, modifiers: 2_304),
             styleHotkey: HotkeyBinding(keyCode: 13, modifiers: 2_304)
         )
@@ -57,6 +59,7 @@ final class PreferencesStoreTests: XCTestCase {
             asrProvider: .parakeetTDT,
             style: .neutral,
             dictionaryTerms: [],
+            microphoneID: "USBMicDevice",
             dictationHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(option: true, control: true)),
             styleHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(control: true, shift: true))
         )

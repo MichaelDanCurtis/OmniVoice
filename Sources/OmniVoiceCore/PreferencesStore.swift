@@ -4,13 +4,20 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var asrProvider: ASRProviderKind
     public var style: StyleProfile
     public var dictionaryTerms: [String]
+    public var microphoneId: String?
     public var dictationHotkey: HotkeyBinding
     public var styleHotkey: HotkeyBinding
+
+    public var microphoneID: String? {
+        get { microphoneId }
+        set { microphoneId = newValue }
+    }
 
     public static let defaults = OmniVoicePreferences(
         asrProvider: .parakeetTDT,
         style: .neutral,
         dictionaryTerms: [],
+        microphoneID: nil,
         dictationHotkey: .defaultDictation,
         styleHotkey: .defaultStyle
     )
@@ -19,12 +26,14 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         asrProvider: ASRProviderKind,
         style: StyleProfile,
         dictionaryTerms: [String],
+        microphoneID: String? = nil,
         dictationHotkey: HotkeyBinding = .defaultDictation,
         styleHotkey: HotkeyBinding = .defaultStyle
     ) {
         self.asrProvider = asrProvider
         self.style = style
         self.dictionaryTerms = dictionaryTerms
+        self.microphoneId = microphoneID
         self.dictationHotkey = dictationHotkey
         self.styleHotkey = styleHotkey
     }
