@@ -47,6 +47,8 @@ class ParakeetSherpaProvider(ASRProvider):
         info = self.info()
         if not info.available:
             raise RuntimeError(info.reason)
+        if not audio_bytes:
+            return ""
 
         import tempfile
 
@@ -71,6 +73,9 @@ class ParakeetSherpaProvider(ASRProvider):
 
     def _decode_samples(self, samples, sample_rate: int) -> str:
         normalized = self._normalize_audio(samples, sample_rate)
+        if normalized.size < 8000:
+            return ""
+
         recognizer = self._get_recognizer()
         stream = recognizer.create_stream()
         stream.accept_waveform(16000, normalized)
@@ -89,8 +94,9 @@ class ParakeetSherpaProvider(ASRProvider):
                 tokens=str(model_files["tokens"]),
                 num_threads=4,
                 sample_rate=16000,
-                feature_dim=128,
+                feature_dim=80,
                 decoding_method="greedy_search",
+                model_type="nemo_transducer",
             )
         return self._recognizer
 

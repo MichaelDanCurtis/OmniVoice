@@ -11,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let engineClient = EngineClient()
     private let streamingClient = EngineStreamingClient()
     private let insertionService = TextInsertionService()
+    private var lastInputLevel: Float = 0
+    private var lastLevelOverlayUpdate = Date.distantPast
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -35,8 +37,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyHotkeys(preferences: model.preferences)
     }
 
-    func showOverlay(text: String, styleName: String) {
-        overlay.show(text: text, styleName: styleName)
+    func showOverlay(text: String, styleName: String, level: Float = 0) {
+        overlay.show(text: text, styleName: styleName, level: level)
     }
 
     func hideOverlay() {
@@ -100,13 +102,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startDictation(model: AppModel) {
         model.session.pressHotkey()
         model.captionText = ""
+        model.statusText = "Listening"
+        lastInputLevel = 0
+        lastLevelOverlayUpdate = .distantPast
+        showOverlay(text: "", styleName: model.preferences.style.displayName, level: 0)
 
         streamingClient.setOnUpdate { [weak self] update in
             Task { @MainActor [weak self] in
                 guard let self, let model = self.model else { return }
                 model.captionText = update.text
                 model.session.receivePartial(update.text)
-                self.showOverlay(text: update.text, styleName: model.preferences.style.displayName)
+                self.showOverlay(text: update.text, styleName: model.preferences.style.displayName, level: self.lastInputLevel)
             }
         }
         streamingClient.connect(
@@ -116,10 +122,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         audioCapture.onPCMChunk = { [weak self] data in
             self?.streamingClient.sendPCMFloat32(data)
         }
+        audioCapture.onLevel = { [weak self] level in
+            Task { @MainActor [weak self] in
+                self?.updateInputLevel(level)
+            }
+        }
 
         do {
             try audioCapture.start(deviceUID: model.preferences.microphoneID)
-            showOverlay(text: "", styleName: model.preferences.style.displayName)
         } catch {
             model.session.fail("Microphone failed: \(error.localizedDescription)")
             model.statusText = "Microphone failed"
@@ -134,6 +144,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let audio: Data
         do {
             audio = try audioCapture.stopWAVData()
+            model.statusText = "Transcribing"
+            showOverlay(text: "Transcribing...", styleName: model.preferences.style.displayName, level: 0)
         } catch {
             model.session.fail("Audio capture failed: \(error.localizedDescription)")
             model.statusText = "Audio capture failed"
@@ -149,26 +161,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.session.fail("Transcription failed: \(error.localizedDescription)")
             model.statusText = "Transcription failed"
             streamingClient.cancel()
-            hideOverlay()
+            showOverlay(text: error.localizedDescription, styleName: "Transcription failed", level: 0)
             return
         }
 
-        model.session.releaseHotkey(finalTranscript: transcript.text)
-        model.captionText = transcript.text
-        showOverlay(text: transcript.text, styleName: model.preferences.style.displayName)
+        let rawTranscript = transcript.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawTranscript.isEmpty else {
+            model.session.fail("No speech detected")
+            model.statusText = "No speech detected"
+            streamingClient.cancel()
+            showOverlay(text: "No speech detected", styleName: model.preferences.style.displayName, level: 0)
+            return
+        }
+
+        model.session.releaseHotkey(finalTranscript: rawTranscript)
+        model.captionText = rawTranscript
+        showOverlay(text: rawTranscript, styleName: model.preferences.style.displayName)
 
         let finalText: String
         do {
             let cleanup = try await engineClient.cleanup(
                 CleanupRequest(
-                    rawTranscript: transcript.text,
+                    rawTranscript: rawTranscript,
                     style: model.preferences.style,
                     dictionaryTerms: model.preferences.dictionaryTerms
                 )
             )
             finalText = cleanup.text
         } catch {
-            finalText = lightlyPunctuate(transcript.text)
+            finalText = lightlyPunctuate(rawTranscript)
             model.statusText = "Cleanup skipped"
         }
 
@@ -199,5 +220,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func copyToPasteboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func updateInputLevel(_ level: Float) {
+        guard let model, model.session.state == .listening else { return }
+
+        lastInputLevel = level
+        let now = Date()
+        guard now.timeIntervalSince(lastLevelOverlayUpdate) >= 0.08 else { return }
+
+        lastLevelOverlayUpdate = now
+        showOverlay(
+            text: model.captionText,
+            styleName: model.preferences.style.displayName,
+            level: level
+        )
     }
 }

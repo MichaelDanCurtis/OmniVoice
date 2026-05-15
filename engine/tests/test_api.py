@@ -48,6 +48,27 @@ class FakeModelManager:
         return self.download_state(provider_id)
 
 
+class ExplodingASRProvider:
+    id = "exploding"
+    label = "Exploding ASR"
+
+    def info(self):
+        from omnivoice_engine.schemas import ProviderInfo
+
+        return ProviderInfo(id=self.id, label=self.label, available=True)
+
+    def transcribe(self, audio_bytes: bytes):
+        raise RuntimeError("decoder exploded")
+
+    def transcribe_pcm_float32(self, pcm_bytes: bytes, sample_rate: int):
+        raise RuntimeError("decoder exploded")
+
+
+class ExplodingRegistry:
+    def get(self, provider_id: str):
+        return ExplodingASRProvider()
+
+
 def test_health_endpoint():
     response = client.get("/health")
 
@@ -126,12 +147,35 @@ def test_transcribe_endpoint_uses_fake_provider():
     assert response.json() == {"text": "fake transcript", "provider": "fake"}
 
 
+def test_transcribe_endpoint_reports_provider_failure(monkeypatch):
+    monkeypatch.setattr("omnivoice_engine.main.registry", ExplodingRegistry(), raising=False)
+
+    response = client.post("/transcribe?provider=exploding", content=b"audio-bytes")
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "transcription failed: decoder exploded"
+
+
 def test_stream_endpoint_emits_partial_and_final_caption():
     with client.websocket_connect("/stream?provider=fake&sample_rate=16000") as websocket:
         assert websocket.receive_json() == {"type": "partial", "text": "listening"}
 
-        websocket.send_bytes(b"0" * 4096)
+        websocket.send_bytes(b"0" * 64_000)
         assert websocket.receive_json() == {"type": "partial", "text": "fake transcript"}
 
         websocket.send_text("__finish__")
         assert websocket.receive_json() == {"type": "final", "text": "fake transcript"}
+
+
+def test_stream_endpoint_reports_provider_failure(monkeypatch):
+    monkeypatch.setattr("omnivoice_engine.main.registry", ExplodingRegistry(), raising=False)
+
+    with client.websocket_connect("/stream?provider=exploding&sample_rate=16000") as websocket:
+        assert websocket.receive_json() == {"type": "partial", "text": "listening"}
+
+        websocket.send_bytes(b"0" * 64_000)
+
+        assert websocket.receive_json() == {
+            "type": "error",
+            "text": "transcription failed: decoder exploded",
+        }

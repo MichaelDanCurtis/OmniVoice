@@ -2,6 +2,7 @@
 import AudioToolbox
 import CoreAudio
 import Foundation
+import OmniVoiceCore
 
 final class AudioCaptureService: @unchecked Sendable {
     enum CaptureError: LocalizedError {
@@ -73,16 +74,15 @@ final class AudioCaptureService: @unchecked Sendable {
         engine.inputNode.removeTap(onBus: 0)
 
         let captured = queue.sync { buffers }
-        guard let first = captured.first else { return Data() }
-
-        let tempURL = FileManager.default.temporaryDirectory.appending(path: "omnivoice-\(UUID().uuidString).wav")
-        let file = try AVAudioFile(forWriting: tempURL, settings: first.format.settings)
-        for buffer in captured {
-            try file.write(from: buffer)
+        guard let first = captured.first else {
+            return PCM16WAVEncoder.encode(samples: [], sampleRate: 16_000)
         }
-        let data = try Data(contentsOf: tempURL)
-        try? FileManager.default.removeItem(at: tempURL)
-        return data
+
+        var samples: [Int16] = []
+        for buffer in captured {
+            Self.appendMonoPCM16Samples(from: buffer, to: &samples)
+        }
+        return PCM16WAVEncoder.encode(samples: samples, sampleRate: Int(first.format.sampleRate.rounded()))
     }
 
     private static func copy(buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
@@ -127,6 +127,54 @@ final class AudioCaptureService: @unchecked Sendable {
             sum += abs(channel[index])
         }
         return sum / Float(frameCount)
+    }
+
+    private static func appendMonoPCM16Samples(from buffer: AVAudioPCMBuffer, to samples: inout [Int16]) {
+        let frameCount = Int(buffer.frameLength)
+        let channelCount = max(1, Int(buffer.format.channelCount))
+        guard frameCount > 0 else { return }
+
+        samples.reserveCapacity(samples.count + frameCount)
+
+        if let channels = buffer.floatChannelData {
+            for frame in 0..<frameCount {
+                var mixed: Float = 0
+                for channel in 0..<channelCount {
+                    mixed += channels[channel][frame]
+                }
+                samples.append(Self.floatToInt16(mixed / Float(channelCount)))
+            }
+            return
+        }
+
+        if let channels = buffer.int16ChannelData {
+            for frame in 0..<frameCount {
+                var mixed = 0
+                for channel in 0..<channelCount {
+                    mixed += Int(channels[channel][frame])
+                }
+                samples.append(Int16(clamping: mixed / channelCount))
+            }
+            return
+        }
+
+        if let channels = buffer.int32ChannelData {
+            for frame in 0..<frameCount {
+                var mixed: Int64 = 0
+                for channel in 0..<channelCount {
+                    mixed += Int64(channels[channel][frame] >> 16)
+                }
+                samples.append(Int16(clamping: mixed / Int64(channelCount)))
+            }
+        }
+    }
+
+    private static func floatToInt16(_ value: Float) -> Int16 {
+        let clipped = min(max(value, -1), 1)
+        if clipped == -1 {
+            return Int16.min
+        }
+        return Int16(clipped * Float(Int16.max))
     }
 
     private func configureInputDevice(uid: String?) throws {

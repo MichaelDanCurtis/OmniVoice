@@ -139,7 +139,7 @@ public struct EngineModelDownloadStatus: Codable, Equatable, Sendable {
 
 public struct EngineClient: Sendable {
     public enum EngineError: Error, Equatable {
-        case badStatus(Int)
+        case badStatus(Int, String?)
         case invalidURL
     }
 
@@ -154,21 +154,21 @@ public struct EngineClient: Sendable {
     public func health() async throws -> EngineHealth {
         let endpoint = baseURL.appending(path: "health")
         let (data, response) = try await urlSession.data(from: endpoint)
-        try validate(response)
+        try validate(response, data: data)
         return try EngineCoding.decoder.decode(EngineHealth.self, from: data)
     }
 
     public func providers() async throws -> [EngineProviderInfo] {
         let endpoint = baseURL.appending(path: "providers")
         let (data, response) = try await urlSession.data(from: endpoint)
-        try validate(response)
+        try validate(response, data: data)
         return try EngineCoding.decoder.decode([EngineProviderInfo].self, from: data)
     }
 
     public func models() async throws -> [EngineModelStatus] {
         let endpoint = baseURL.appending(path: "models")
         let (data, response) = try await urlSession.data(from: endpoint)
-        try validate(response)
+        try validate(response, data: data)
         return try EngineCoding.decoder.decode([EngineModelStatus].self, from: data)
     }
 
@@ -178,7 +178,7 @@ public struct EngineClient: Sendable {
             .appending(path: provider.rawValue)
             .appending(path: "update")
         let (data, response) = try await urlSession.data(from: endpoint)
-        try validate(response)
+        try validate(response, data: data)
         return try EngineCoding.decoder.decode(EngineModelUpdateInfo.self, from: data)
     }
 
@@ -191,7 +191,7 @@ public struct EngineClient: Sendable {
         urlRequest.httpMethod = "POST"
 
         let (data, response) = try await urlSession.data(for: urlRequest)
-        try validate(response)
+        try validate(response, data: data)
         return try EngineCoding.decoder.decode(EngineModelDownloadStatus.self, from: data)
     }
 
@@ -201,7 +201,7 @@ public struct EngineClient: Sendable {
             .appending(path: provider.rawValue)
             .appending(path: "download")
         let (data, response) = try await urlSession.data(from: endpoint)
-        try validate(response)
+        try validate(response, data: data)
         return try EngineCoding.decoder.decode(EngineModelDownloadStatus.self, from: data)
     }
 
@@ -213,7 +213,7 @@ public struct EngineClient: Sendable {
         urlRequest.httpBody = try EngineCoding.encoder.encode(request)
 
         let (data, response) = try await urlSession.data(for: urlRequest)
-        try validate(response)
+        try validate(response, data: data)
         return try EngineCoding.decoder.decode(CleanupResult.self, from: data)
     }
 
@@ -227,14 +227,41 @@ public struct EngineClient: Sendable {
         urlRequest.httpBody = audio
 
         let (data, response) = try await urlSession.data(for: urlRequest)
-        try validate(response)
+        try validate(response, data: data)
         return try EngineCoding.decoder.decode(TranscribeResult.self, from: data)
     }
 
-    private func validate(_ response: URLResponse) throws {
+    private func validate(_ response: URLResponse, data: Data) throws {
         guard let http = response as? HTTPURLResponse else { return }
         guard (200..<300).contains(http.statusCode) else {
-            throw EngineError.badStatus(http.statusCode)
+            throw EngineError.badStatus(http.statusCode, Self.errorDetail(from: data))
+        }
+    }
+
+    private static func errorDetail(from data: Data) -> String? {
+        struct ErrorPayload: Decodable {
+            let detail: String
+        }
+
+        if let payload = try? EngineCoding.decoder.decode(ErrorPayload.self, from: data) {
+            return payload.detail
+        }
+
+        let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+}
+
+extension EngineClient.EngineError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .badStatus(let status, let detail):
+            if let detail, !detail.isEmpty {
+                return "Engine returned \(status): \(detail)"
+            }
+            return "Engine returned \(status)"
+        case .invalidURL:
+            return "Invalid engine URL"
         }
     }
 }

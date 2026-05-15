@@ -5,8 +5,8 @@ import SwiftUI
 final class CaptionOverlayWindow {
     private var window: NSWindow?
 
-    func show(text: String, styleName: String) {
-        let content = NSHostingView(rootView: CaptionOverlayView(text: text, styleName: styleName))
+    func show(text: String, styleName: String, level: Float = 0) {
+        let content = NSHostingView(rootView: CaptionOverlayView(text: text, styleName: styleName, level: level))
         let targetSize = content.fittingSize
         let screenFrame = NSScreen.main?.visibleFrame ?? .zero
         let origin = CGPoint(

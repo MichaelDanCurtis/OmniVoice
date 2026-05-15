@@ -82,7 +82,10 @@ async def transcribe(request: Request, provider: str = Query(default="fake")) ->
         raise HTTPException(status_code=503, detail=info.reason or f"provider unavailable: {provider}")
 
     audio_bytes = await request.body()
-    return TranscribeResponse(text=asr.transcribe(audio_bytes), provider=provider)
+    try:
+        return TranscribeResponse(text=asr.transcribe(audio_bytes), provider=provider)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"transcription failed: {exc}") from exc
 
 
 @app.websocket("/stream")
@@ -104,7 +107,7 @@ async def stream(websocket: WebSocket, provider: str = "fake", sample_rate: int 
     chunks: list[bytes] = []
     last_decode_size = 0
     last_decode_time = 0.0
-    partial_decode_bytes = 4096
+    partial_decode_bytes = max(4096, sample_rate * 4)
     await websocket.send_json({"type": "partial", "text": "listening"})
 
     try:
@@ -115,7 +118,12 @@ async def stream(websocket: WebSocket, provider: str = "fake", sample_rate: int 
 
             if text_message == "__finish__":
                 combined = b"".join(chunks)
-                final_text = await asyncio.to_thread(asr.transcribe_pcm_float32, combined, sample_rate)
+                try:
+                    final_text = await asyncio.to_thread(asr.transcribe_pcm_float32, combined, sample_rate)
+                except Exception as exc:
+                    await websocket.send_json({"type": "error", "text": f"transcription failed: {exc}"})
+                    await websocket.close()
+                    return
                 await websocket.send_json({"type": "final", "text": final_text})
                 await websocket.close()
                 return
@@ -127,12 +135,21 @@ async def stream(websocket: WebSocket, provider: str = "fake", sample_rate: int 
                 enough_new_audio = len(combined) - last_decode_size >= partial_decode_bytes
                 enough_time = now - last_decode_time >= 1.0
                 if enough_new_audio and enough_time:
-                    partial = await asyncio.to_thread(asr.transcribe_pcm_float32, combined, sample_rate)
+                    try:
+                        partial = await asyncio.to_thread(asr.transcribe_pcm_float32, combined, sample_rate)
+                    except Exception as exc:
+                        await websocket.send_json({"type": "error", "text": f"transcription failed: {exc}"})
+                        await websocket.close()
+                        return
                     await websocket.send_json({"type": "partial", "text": partial})
                     last_decode_size = len(combined)
                     last_decode_time = now
     except WebSocketDisconnect:
         return
+    except RuntimeError as exc:
+        if "disconnect" in str(exc).lower():
+            return
+        raise
 
 
 def _download_model(provider_id: str) -> None:

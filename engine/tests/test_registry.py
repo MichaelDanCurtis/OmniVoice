@@ -1,4 +1,5 @@
 import sys
+from types import SimpleNamespace
 
 from omnivoice_engine.providers.registry import ProviderRegistry
 from omnivoice_engine.providers.parakeet_sherpa import ParakeetSherpaProvider
@@ -42,6 +43,51 @@ def test_parakeet_provider_accepts_hugging_face_int8_layout(tmp_path, monkeypatc
     info = ParakeetSherpaProvider(str(tmp_path)).info()
 
     assert info.available is True
+
+
+def test_parakeet_provider_uses_nemo_transducer_runtime_config(tmp_path, monkeypatch):
+    captured = {}
+
+    for filename in ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"]:
+        (tmp_path / filename).write_text("model")
+
+    class FakeOfflineRecognizer:
+        @staticmethod
+        def from_transducer(**kwargs):
+            captured.update(kwargs)
+            return object()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sherpa_onnx",
+        SimpleNamespace(OfflineRecognizer=FakeOfflineRecognizer),
+    )
+
+    ParakeetSherpaProvider(str(tmp_path))._get_recognizer()
+
+    assert captured["model_type"] == "nemo_transducer"
+    assert captured["feature_dim"] == 80
+
+
+def test_parakeet_provider_returns_empty_text_for_too_short_audio(monkeypatch):
+    import numpy as np
+
+    provider = ParakeetSherpaProvider("/tmp/unused")
+    monkeypatch.setattr(
+        provider,
+        "_get_recognizer",
+        lambda: (_ for _ in ()).throw(AssertionError("recognizer should not be initialized")),
+    )
+
+    assert provider._decode_samples(np.zeros(1000, dtype=np.float32), 16000) == ""
+
+
+def test_parakeet_provider_returns_empty_text_for_empty_request_body(tmp_path, monkeypatch):
+    for filename in ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"]:
+        (tmp_path / filename).write_text("model")
+    monkeypatch.setitem(sys.modules, "sherpa_onnx", object())
+
+    assert ParakeetSherpaProvider(str(tmp_path)).transcribe(b"") == ""
 
 
 def test_canary_qwen_provider_is_visible_as_installable_accuracy_mode():
