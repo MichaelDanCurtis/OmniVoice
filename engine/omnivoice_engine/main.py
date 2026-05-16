@@ -37,12 +37,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DESKTOP_APP_PATH = REPO_ROOT / "dist" / "OmniVoice.app"
 DEFAULT_THEME_CSS_VARIABLES = {
     "--ov-accent": "#38BDF8",
-    "--ov-accent-secondary": "#22D3EE",
-    "--ov-bg": "#03070D",
-    "--ov-surface": "rgba(6, 18, 28, 0.46)",
-    "--ov-surface-strong": "rgba(6, 18, 28, 0.62)",
-    "--ov-text": "#F5FAFF",
-    "--ov-muted": "#9FB2C6",
+    "--ov-accent-secondary": "#818CF8",
+    "--ov-bg": "#06121C",
+    "--ov-surface": "rgba(6, 18, 28, 0.36)",
+    "--ov-surface-strong": "rgba(6, 18, 28, 0.54)",
+    "--ov-text": "#F8FAFC",
+    "--ov-muted": "rgba(248, 250, 252, 0.64)",
     "--ov-border": "rgba(56, 189, 248, 0.26)",
     "--ov-glow": "rgba(56, 189, 248, 0.34)",
     "--ov-caption-bg": "rgba(6, 18, 28, 0.14)",

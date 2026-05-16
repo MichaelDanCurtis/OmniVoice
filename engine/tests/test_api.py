@@ -94,7 +94,15 @@ def test_default_theme_endpoint_returns_css_variables():
     assert payload["id"] == "auroraBlue"
     assert payload["name"] == "Aurora Blue"
     assert payload["css_variables"]["--ov-accent"] == "#38BDF8"
-    assert "--ov-caption-bg" in payload["css_variables"]
+    assert payload["css_variables"]["--ov-accent-secondary"] == "#818CF8"
+    assert payload["css_variables"]["--ov-bg"] == "#06121C"
+    assert payload["css_variables"]["--ov-surface"] == "rgba(6, 18, 28, 0.36)"
+    assert payload["css_variables"]["--ov-surface-strong"] == "rgba(6, 18, 28, 0.54)"
+    assert payload["css_variables"]["--ov-text"] == "#F8FAFC"
+    assert payload["css_variables"]["--ov-muted"] == "rgba(248, 250, 252, 0.64)"
+    assert payload["css_variables"]["--ov-border"] == "rgba(56, 189, 248, 0.26)"
+    assert payload["css_variables"]["--ov-glow"] == "rgba(56, 189, 248, 0.34)"
+    assert payload["css_variables"]["--ov-caption-bg"] == "rgba(6, 18, 28, 0.14)"
 
 
 def test_default_theme_returns_independent_css_mapping():

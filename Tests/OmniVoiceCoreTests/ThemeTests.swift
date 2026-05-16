@@ -17,6 +17,18 @@ final class ThemeTests: XCTestCase {
         XCTAssertEqual(theme.engineFrameSide, .right)
     }
 
+    func testBuiltInPresetModeDefaultsAreAvailable() throws {
+        let neonLime = try XCTUnwrap(OmniVoiceTheme.builtInTheme(id: .neonLime))
+        XCTAssertEqual(neonLime.waveformMode, .bars)
+        XCTAssertEqual(neonLime.commitAnimationMode, .beamSnap)
+        XCTAssertEqual(neonLime.engineFrameSide, .left)
+
+        let deepSignal = try XCTUnwrap(OmniVoiceTheme.builtInTheme(id: .deepSignal))
+        XCTAssertEqual(deepSignal.waveformMode, .spectrumLine)
+        XCTAssertEqual(deepSignal.commitAnimationMode, .glyphStream)
+        XCTAssertEqual(deepSignal.engineFrameSide, .left)
+    }
+
     func testCustomAccentDerivesReadableTheme() {
         let theme = OmniVoiceTheme.custom(accent: ThemeColor(hex: "#00A3FF"))
 
@@ -63,6 +75,20 @@ final class ThemeTests: XCTestCase {
 
         XCTAssertEqual(theme.borderOpacity, 0.26)
         XCTAssertEqual(theme.cssVariables["--ov-border"], "rgba(248, 250, 252, 0.26)")
+    }
+
+    func testReadableTextTokensDriveCSSVariables() throws {
+        let lightTheme = try XCTUnwrap(OmniVoiceTheme.builtInTheme(id: .arcticGlass))
+
+        XCTAssertEqual(lightTheme.textColor.hex, "#06121C")
+        XCTAssertEqual(lightTheme.mutedTextColor.hex, "#06121C")
+        XCTAssertEqual(lightTheme.mutedTextOpacity, 0.64)
+        XCTAssertEqual(lightTheme.cssVariables["--ov-text"], lightTheme.textColor.hex)
+        XCTAssertEqual(lightTheme.cssVariables["--ov-muted"], ThemeColor.cssRGBA(red: 6, green: 18, blue: 28, alpha: lightTheme.mutedTextOpacity))
+
+        let highContrastTheme = try XCTUnwrap(OmniVoiceTheme.builtInTheme(id: .highContrast))
+        XCTAssertEqual(highContrastTheme.textColor.hex, "#FFFFFF")
+        XCTAssertEqual(highContrastTheme.cssVariables["--ov-muted"], ThemeColor.cssRGBA(red: 255, green: 255, blue: 255, alpha: highContrastTheme.mutedTextOpacity))
     }
 
     func testCSSVariablesUseOmniVoiceNames() throws {

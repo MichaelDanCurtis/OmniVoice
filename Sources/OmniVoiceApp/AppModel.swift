@@ -127,11 +127,22 @@ final class AppModel {
     }
 
     func setThemeID(_ themeID: OmniVoiceThemeID) {
-        guard preferences.themeID != themeID else {
+        let presetTheme = themeID == .custom ? nil : OmniVoiceTheme.builtInTheme(id: themeID)
+        let waveformMode = presetTheme?.waveformMode ?? preferences.waveformMode
+        let commitAnimationMode = presetTheme?.commitAnimationMode ?? preferences.commitAnimationMode
+        let engineFrameSide = presetTheme?.engineFrameSide ?? preferences.engineFrameSide
+
+        guard preferences.themeID != themeID ||
+            preferences.waveformMode != waveformMode ||
+            preferences.commitAnimationMode != commitAnimationMode ||
+            preferences.engineFrameSide != engineFrameSide else {
             return
         }
 
         preferences.themeID = themeID
+        preferences.waveformMode = waveformMode
+        preferences.commitAnimationMode = commitAnimationMode
+        preferences.engineFrameSide = engineFrameSide
         guard persistPreferences() else {
             return
         }

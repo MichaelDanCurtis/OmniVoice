@@ -49,7 +49,7 @@ struct OmniVoiceApp: App {
 
     private var controlPanelContent: some View {
         HStack(spacing: 0) {
-            if model.preferences.engineFrameSide == .left {
+            if model.activeTheme.engineFrameSide == .left {
                 EngineFrameView(theme: model.activeTheme, side: .left)
                 settingsContent
             } else {

@@ -10,16 +10,18 @@ struct CaptionOverlayView: View {
     var body: some View {
         let accent = Color(themeColor: theme.accentColor)
         let secondary = Color(themeColor: theme.secondaryAccentColor)
+        let textColor = Color(themeColor: theme.textColor)
+        let mutedTextColor = Color(themeColor: theme.mutedTextColor)
 
         VStack(spacing: 8) {
             Text(styleName)
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.56))
+                .foregroundStyle(mutedTextColor.opacity(theme.mutedTextOpacity))
 
             VStack(spacing: 8) {
                 Text(text.isEmpty ? "Listening..." : text)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.88))
+                    .foregroundStyle(textColor.opacity(0.88))
                     .lineLimit(3)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
@@ -28,7 +30,8 @@ struct CaptionOverlayView: View {
                     mode: theme.waveformMode,
                     level: level,
                     accent: accent,
-                    secondary: secondary
+                    secondary: secondary,
+                    muted: mutedTextColor
                 )
             }
             .padding(.horizontal, 16)
@@ -46,6 +49,7 @@ private struct WaveformPreview: View {
     let level: Float
     let accent: Color
     let secondary: Color
+    let muted: Color
 
     private var normalizedLevel: Double {
         min(max(Double(level) * 45, 0), 1)
@@ -73,7 +77,7 @@ private struct WaveformPreview: View {
         HStack(spacing: 3) {
             ForEach(0..<14, id: \.self) { index in
                 Capsule()
-                    .fill(index < activeBars ? accent.opacity(0.82) : Color.white.opacity(0.10))
+                    .fill(index < activeBars ? accent.opacity(0.82) : muted.opacity(0.16))
                     .frame(width: 5, height: CGFloat(6 + (index % 5) * 3))
             }
         }
@@ -145,7 +149,7 @@ private struct WaveformPreview: View {
             ForEach(glyphs.indices, id: \.self) { index in
                 Text(glyphs[index])
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(index < activeGlyphs ? accent.opacity(0.86) : Color.white.opacity(0.16))
+                    .foregroundStyle(index < activeGlyphs ? accent.opacity(0.86) : muted.opacity(0.24))
                     .frame(width: 10, height: 16)
             }
         }

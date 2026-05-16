@@ -133,6 +133,22 @@ public struct ThemeColor: Codable, Equatable, Hashable, Sendable {
             blue: number & 0xFF
         )
     }
+
+    public static func cssRGBA(red: Int, green: Int, blue: Int, alpha: Double) -> String {
+        "rgba(\(red), \(green), \(blue), \(opacityString(alpha)))"
+    }
+
+    fileprivate static func cssRGBA(_ color: ThemeColor, alpha: Double) -> String {
+        guard let rgb = color.rgb else {
+            return cssRGBA(red: 0, green: 0, blue: 0, alpha: alpha)
+        }
+
+        return cssRGBA(red: rgb.red, green: rgb.green, blue: rgb.blue, alpha: alpha)
+    }
+
+    private static func opacityString(_ value: Double) -> String {
+        String(format: "%.2f", min(max(value, 0.0), 1.0))
+    }
 }
 
 public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
@@ -253,22 +269,7 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
         0.26
     }
 
-    public var cssVariables: [String: String] {
-        [
-            "--ov-accent": accentColor.hex,
-            "--ov-accent-secondary": secondaryAccentColor.hex,
-            "--ov-bg": surfaceTint.hex,
-            "--ov-surface": rgba(surfaceTint, glassOpacity),
-            "--ov-surface-strong": rgba(surfaceTint, min(glassOpacity + 0.18, 1.0)),
-            "--ov-text": textColor.hex,
-            "--ov-muted": rgba(textColor, 0.64),
-            "--ov-border": rgba(accentColor, borderOpacity),
-            "--ov-glow": rgba(accentColor, glowStrength),
-            "--ov-caption-bg": rgba(surfaceTint, captionOpacity)
-        ]
-    }
-
-    private var textColor: ThemeColor {
+    public var textColor: ThemeColor {
         if contrastMode == .highContrast {
             return ThemeColor(hex: "#FFFFFF")
         }
@@ -279,6 +280,29 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
 
         let luminance = (0.2126 * Double(rgb.red) + 0.7152 * Double(rgb.green) + 0.0722 * Double(rgb.blue)) / 255.0
         return luminance > 0.60 ? ThemeColor(hex: "#06121C") : ThemeColor(hex: "#F8FAFC")
+    }
+
+    public var mutedTextColor: ThemeColor {
+        textColor
+    }
+
+    public var mutedTextOpacity: Double {
+        0.64
+    }
+
+    public var cssVariables: [String: String] {
+        [
+            "--ov-accent": accentColor.hex,
+            "--ov-accent-secondary": secondaryAccentColor.hex,
+            "--ov-bg": surfaceTint.hex,
+            "--ov-surface": rgba(surfaceTint, glassOpacity),
+            "--ov-surface-strong": rgba(surfaceTint, min(glassOpacity + 0.18, 1.0)),
+            "--ov-text": textColor.hex,
+            "--ov-muted": rgba(mutedTextColor, mutedTextOpacity),
+            "--ov-border": rgba(accentColor, borderOpacity),
+            "--ov-glow": rgba(accentColor, glowStrength),
+            "--ov-caption-bg": rgba(surfaceTint, captionOpacity)
+        ]
     }
 
     private static func preset(
@@ -314,14 +338,6 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
     }
 
     private func rgba(_ color: ThemeColor, _ alpha: Double) -> String {
-        guard let rgb = color.rgb else {
-            return "rgba(0, 0, 0, \(opacityString(alpha)))"
-        }
-
-        return "rgba(\(rgb.red), \(rgb.green), \(rgb.blue), \(opacityString(alpha)))"
-    }
-
-    private func opacityString(_ value: Double) -> String {
-        String(format: "%.2f", min(max(value, 0.0), 1.0))
+        ThemeColor.cssRGBA(color, alpha: alpha)
     }
 }
