@@ -220,6 +220,156 @@ This avoids duplicate words and lets the ASR revise earlier hypotheses. It also 
 
 If a target app does not expose reliable text range replacement through Accessibility, OmniVoice falls back to caption-only streaming and final insertion on release.
 
+## Voice Operating Layer
+
+v2 adds a voice operating layer on top of the v1 dictation workflow. These features are user-facing power tools, but they should be implemented as small, testable routing and action units rather than one large agent surface.
+
+Selected v2 features:
+
+- Per-app profiles: automatically switch style, model, theme, and insertion behavior based on the foreground app.
+- Mode hotkeys: separate shortcuts for normal dictation, raw/code dictation, translation, command mode, and selected-text rewrite.
+- Voice snippets: user-defined phrases such as "insert my signature" or "insert support reply" that expand into saved text or templates.
+- Prompt presets and rewrite actions: user-defined transformations such as "make this a Slack reply", "format as email", "turn into a Jira ticket", or "make this a commit message".
+- Selection command layer: select text anywhere, then dictate a transformation such as "make this shorter", "translate this to Spanish", or "turn this into bullets".
+- Confidence and hearing quality UI: caption and waveform states show microphone level, silence, likely wrong input device, low ASR confidence, and fallback mode.
+- Audio drop-in: drag an audio or video file into OmniVoice for local transcription, translation, cleanup, or summarization.
+- Theme import/export: share custom theme JSON packs after the theme model is stable.
+
+## AI Handoff And Foreground Context Actions
+
+v2 adds optional AI handoff commands for users who connect external LLM providers. These commands are separate from local dictation and must be explicit because they can send foreground text or dictated instructions to a third-party API.
+
+Example triggers:
+
+- "Hey Claude, write a quick reply to Jane about how many people fly every day in the United States."
+- "Ask OpenAI to summarize this email in one sentence."
+- "Have OpenRouter take a look and rewrite this as a polite Slack message."
+- "Read this email and write a response in Spanish telling them that we will not be coming."
+- "Have Codex take a look at this error and explain the likely fix."
+
+Invocation phrases such as "Hey Claude", "Ask Claude", "Ask OpenAI", "Have Codex take a look", or "Have OpenRouter take a look" are commands, not dictated content. They should be consumed by the router and excluded from the final inserted response.
+
+The action router should parse:
+
+- target provider
+- foreground context policy
+- requested action
+- output destination
+- confirmation requirement
+
+Foreground context sources, in order:
+
+1. selected text from the active app
+2. focused text-field value
+3. visible accessibility text in the active window
+4. copied fallback text if direct Accessibility extraction fails
+5. optional screenshot/OCR fallback if the user has granted screen recording permission
+
+Context adapters should start generic and become app-aware over time. The first version can use macOS Accessibility APIs for selection, focused text, and visible text. Later adapters can add richer handling for Mail, Outlook, Slack, browsers, Claude Desktop, Codex, terminals, and IDEs where generic Accessibility text is incomplete.
+
+Output destinations:
+
+- insert response at cursor
+- replace selected text
+- append after selected text
+- show preview in OmniVoice before insertion
+- copy result to clipboard
+
+The default for external LLM actions is preview-before-insert. Direct inline insertion can be a per-provider or per-action user preference.
+
+Provider support:
+
+- OpenAI: custom OpenAI API key and optional custom base URL. "Codex" can be a named OpenAI/Codex profile when an official API or local bridge path is available; OmniVoice should not scrape consumer session tokens.
+- Anthropic Claude: API key or officially supported enterprise/workload authentication. Claude Desktop/Claude Code subscription OAuth is not the same as a general third-party app OAuth flow, so OmniVoice should only use it through documented local CLI/agent surfaces if the user deliberately enables that bridge.
+- OpenRouter: API key and OAuth PKCE. OpenRouter's PKCE flow exchanges user authorization for a user-controlled API key, which fits a desktop "Connect OpenRouter" button well.
+- GitHub Copilot: only through official supported SDK, CLI, MCP, extension, or API surfaces. GitHub's public Copilot direction increasingly exposes integrations through MCP, CLI, SDK, and official clients; OmniVoice should not depend on private Copilot endpoints.
+- Custom OpenAI-compatible: user supplies base URL, API key, model id, and request style.
+
+Provider setup UX:
+
+- provider cards show Connected, Needs Key, Needs OAuth, Rate Limited, or Disabled
+- credentials are stored in Keychain
+- each provider declares whether it supports streaming, tool use, web retrieval, image input, long context, and local-only operation
+- user can create named profiles such as "Claude Work", "OpenRouter Cheap", "OpenAI Fast", or "Local LM Studio"
+- factual-response presets can require a provider with retrieval or citations; if unavailable, OmniVoice should preview the answer and warn that it is model-only text
+
+Security and privacy rules:
+
+- store credentials in Keychain
+- show which provider receives each request
+- allow per-provider history saving controls
+- support Private Session mode that suppresses local transcript/action history
+- never send foreground context unless the command explicitly asks for it or the action preset declares it
+- require confirmation before sending large window extracts, files, or sensitive-looking content
+- show a compact preview of the extracted context before the first send to a newly connected provider
+
+Command examples:
+
+- User says: "Hey Claude, write a quick reply to Jane about how many people fly every day in the United States."
+- OmniVoice sends the task to the Claude profile without the invocation phrase.
+- OmniVoice receives a response such as "Hi Jane, around 2.9 million passengers fly each day in the United States, depending on the dataset and time period."
+- OmniVoice previews or inserts only the response text, not the command wrapper.
+
+- User says: "Read this email and write a response in Spanish telling them that we will not be coming."
+- OmniVoice extracts selected or visible foreground text, shows the extracted context if this is the first time for that app/provider, sends the context plus instruction, then inserts or previews the Spanish reply.
+
+## Conversation Transcription And Speaker Labels
+
+v2 adds a conversation transcription mode distinct from single-speaker push-to-talk dictation.
+
+Use cases:
+
+- record a meeting or phone call through a selected microphone
+- identify speaker turns
+- label speakers as Speaker 1, Speaker 2, etc.
+- let the user rename labels to Joe, Mike, Jane, or another real name
+- optionally infer names from the conversation when a speaker introduces themselves or another speaker addresses them
+- produce transcript, summary, action items, and follow-up drafts
+
+Important model distinction:
+
+- base Parakeet TDT is an ASR model with timestamps; it should not be treated as the diarization engine by itself
+- NVIDIA's model guidance points to Multitalker Parakeet Streaming for multi-speaker meeting transcription and Sortformer for "who spoke when" diarization
+- OpenAI also exposes transcription models with diarization support, but that is an external API path and should only be used when the user has enabled external AI processing
+
+Local-first conversation pipeline:
+
+1. capture meeting audio
+2. run voice activity detection and segmentation
+3. run ASR with timestamps
+4. run local diarization if a supported local diarization provider is installed
+5. align diarization speaker turns with ASR words/segments
+6. apply speaker-name inference as a post-process
+7. let the user rename speakers and regenerate the formatted transcript
+
+Conversation output:
+
+- live caption mode shows the current speaker label when confidence is high enough
+- transcript view stores speaker turns with timestamps, confidence, and source model
+- rename speaker updates all matching turns without rewriting the words
+- "infer names" is a separate post-process that can be rerun or cleared
+- exported formats include plain text, Markdown, JSON, and SRT/VTT if timestamps are available
+
+External-AI enhancement path:
+
+- use an enabled LLM provider to improve speaker labels from conversational clues
+- summarize the transcript
+- extract action items
+- write follow-up messages
+- translate the transcript
+
+The app should clearly separate diarization confidence from inferred real-world names. "Speaker 1" is a diarization label. "Joe" is an inferred or user-confirmed identity.
+
+## External Reference Notes
+
+These are design references, not implementation dependencies:
+
+- NVIDIA NeMo model guidance lists Canary-1B V2 for multilingual transcription and translation, Parakeet-TDT V2/V3 for fast offline ASR, Multitalker Parakeet Streaming for multi-speaker meetings, and Sortformer for diarization.
+- OpenAI's API authentication uses bearer API keys; OpenAI also lists GPT-4o Transcribe Diarize as a transcription model with built-in speaker diarization. "Codex" should be treated as an OpenAI/Codex profile only through official API or local bridge surfaces.
+- Anthropic's Claude API supports API keys and workload identity; Claude Code subscription OAuth is documented for Claude Code/CLI workflows and should not be generalized into a consumer Claude OAuth integration unless Anthropic exposes that path.
+- OpenRouter supports API-key authentication and OAuth PKCE that returns a user-controlled API key.
+- GitHub's Copilot integration surface is moving through MCP, CLI, SDK, extensions, and official client paths. OmniVoice should integrate only with supported surfaces.
+
 ## Settings Model
 
 v2 should add these preference groups:
@@ -233,6 +383,12 @@ v2 should add these preference groups:
 - Engine Frame
 - Translation
 - Experimental Live Typing
+- AI Providers
+- AI Actions
+- Voice Snippets
+- Per-App Profiles
+- Conversation Transcription
+- Privacy
 
 The model should remain serializable through the existing preferences store. New settings must have defaults so existing v1 users migrate without losing hotkeys, microphone selection, dictionary terms, or ASR provider choices.
 
@@ -283,6 +439,23 @@ Live typing errors:
 - unreliable target range replacement falls back to caption-only streaming
 - final replacement failure copies final text to clipboard and shows recovery UI
 
+AI handoff errors:
+
+- missing provider credentials opens the matching provider card
+- invalid or expired credentials mark the provider Needs Key or Needs OAuth without losing the dictated command
+- foreground context extraction failure offers selection, clipboard, or screenshot/OCR fallback
+- provider timeout leaves the original text untouched and preserves the pending command for retry
+- unsupported output destination falls back to preview-before-insert
+- external send blocked by Private Session explains that the provider action is disabled until Private Session is turned off or explicitly overridden
+
+Conversation transcription errors:
+
+- diarization model missing shows speaker labeling as unavailable while keeping ASR transcript capture enabled
+- low diarization confidence marks turns as uncertain instead of pretending speaker labels are reliable
+- overlapping speech that cannot be separated uses overlapping/unknown speaker tags
+- speaker-name inference failure leaves generic speaker labels intact
+- export failure leaves the transcript in history and offers copy-to-clipboard recovery
+
 ## Testing
 
 Swift tests:
@@ -297,6 +470,13 @@ Swift tests:
 - engine frame side selection
 - translation language-pair capability filtering
 - live typing provisional range replacement logic
+- AI command invocation stripping
+- AI action routing by provider name
+- foreground context source priority
+- output destination selection
+- Private Session suppression of local history and external actions
+- conversation speaker rename propagation
+- speaker-name inference can be cleared without changing transcript words
 
 Python tests:
 
@@ -304,6 +484,12 @@ Python tests:
 - translation provider status
 - theme CSS variable endpoint or payload generation if implemented engine-side
 - dashboard fallback to default theme
+- AI provider capability schema
+- AI provider credential status mapping
+- AI action request schema
+- conversation transcript record schema
+- diarization capability status
+- transcript export format generation
 
 Runtime smoke checks:
 
@@ -314,9 +500,12 @@ Runtime smoke checks:
 - engine frame opens on selected side
 - dashboard still works in browser
 - model status remains accurate
+- connected provider can complete a preview-only AI action
+- disabled provider produces recovery UI instead of inserting an error
+- conversation transcription can record, label or gracefully omit speakers, and export a transcript
 
 ## Open Implementation Notes
 
-The visual system should be implemented before live translation. Translation remains in this spec so the settings model and provider capability model are shaped correctly, but it should not block the first theme/glass milestone.
+The visual system should be implemented before live translation or AI handoff. Translation, AI actions, and conversation transcription remain in this spec so the settings model and provider capability model are shaped correctly, but they should not block the first theme/glass milestone.
 
 Public distribution status is unchanged from v1: the local DMG is development-signed, while public release still requires Developer ID signing and notarization.
