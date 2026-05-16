@@ -12,3 +12,4 @@ engine/**/__pycache__/
 **/.omnivoice-engine/
 models/
 dist/
+.superpowers/
