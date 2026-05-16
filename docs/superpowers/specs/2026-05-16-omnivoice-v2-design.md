@@ -35,6 +35,7 @@ Theme tokens:
 - `contrastMode`
 - `waveformPalette`
 - `waveformMode`
+- `commitAnimationMode`
 - `engineFrameSide`
 - `motionIntensity`
 
@@ -109,6 +110,33 @@ v2 includes at least five waveform/VU types.
 5. Glyph Stream: animated letters or words flowing from the waveform icon.
 
 Each waveform mode uses the active theme palette and motion intensity. The menu bar icon and caption overlay should both be able to reflect the selected VU mode.
+
+## Caption-To-Cursor Commit Animation
+
+v2 adds a themed commit animation for live typed streaming. When OmniVoice commits or updates provisional text, the caption overlay becomes the visible source and the caret or focused field becomes the destination.
+
+The default commit animation is Glyph Stream:
+
+- caption text breaks into small letters or word fragments
+- fragments stream rapidly from the caption overlay toward the cursor
+- fragments recombine as provisional or final inserted text
+- the animation inherits the active theme color, glow, glass opacity, and motion intensity
+
+Alternate commit animation presets:
+
+- Beam Snap: caption collapses into a thin light beam and snaps into the cursor.
+- Comet Collapse: caption compresses into a luminous streak and jumps to the cursor.
+- None: disables the warp effect and uses a simple caption fade/scale.
+
+Animation constraints:
+
+- target duration is roughly 120-220 ms
+- insertion must not wait for the animation to finish
+- animation runs on provisional update commits and final replacement commits
+- exact caret rectangle is preferred when macOS Accessibility exposes it
+- focused text field or active window center is the fallback destination
+- Reduce Motion uses the None behavior automatically
+- unsupported target geometry falls back gracefully without blocking dictation
 
 ## App Shell And Embedded Engine Frame
 
@@ -201,6 +229,7 @@ v2 should add these preference groups:
 - Custom Theme
 - Caption Overlay
 - Waveform/VU
+- Commit Animation
 - Engine Frame
 - Translation
 - Experimental Live Typing
@@ -233,6 +262,8 @@ Theme errors:
 - invalid custom colors fall back to the current preset
 - low-contrast combinations trigger automatic contrast correction
 - missing theme data falls back to the default theme
+- unsupported commit animation geometry falls back to a simple fade/scale
+- system Reduce Motion disables warp-style commit animations
 
 Engine frame errors:
 
@@ -261,6 +292,8 @@ Swift tests:
 - contrast correction
 - preference migration
 - waveform mode selection
+- commit animation mode selection
+- commit animation destination fallback
 - engine frame side selection
 - translation language-pair capability filtering
 - live typing provisional range replacement logic
