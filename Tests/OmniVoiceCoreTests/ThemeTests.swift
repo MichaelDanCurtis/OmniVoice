@@ -30,7 +30,26 @@ final class ThemeTests: XCTestCase {
     func testCSSVariablesUseOmniVoiceNames() throws {
         let theme = try XCTUnwrap(OmniVoiceTheme.builtInTheme(id: .auroraBlue))
 
+        XCTAssertEqual(Set(theme.cssVariables.keys), [
+            "--ov-accent",
+            "--ov-accent-secondary",
+            "--ov-bg",
+            "--ov-surface",
+            "--ov-surface-strong",
+            "--ov-text",
+            "--ov-muted",
+            "--ov-border",
+            "--ov-glow",
+            "--ov-caption-bg"
+        ])
         XCTAssertEqual(theme.cssVariables["--ov-accent"], "#38BDF8")
+        XCTAssertEqual(theme.cssVariables["--ov-accent-secondary"], "#818CF8")
+        XCTAssertEqual(theme.cssVariables["--ov-bg"], "#06121C")
+        XCTAssertEqual(theme.cssVariables["--ov-surface"], "rgba(6, 18, 28, 0.36)")
+        XCTAssertEqual(theme.cssVariables["--ov-surface-strong"], "rgba(6, 18, 28, 0.54)")
+        XCTAssertEqual(theme.cssVariables["--ov-text"], "#F8FAFC")
+        XCTAssertEqual(theme.cssVariables["--ov-muted"], "rgba(248, 250, 252, 0.64)")
+        XCTAssertEqual(theme.cssVariables["--ov-border"], "rgba(56, 189, 248, 0.26)")
         XCTAssertEqual(theme.cssVariables["--ov-caption-bg"], "rgba(6, 18, 28, 0.14)")
         XCTAssertEqual(theme.cssVariables["--ov-glow"], "rgba(56, 189, 248, 0.34)")
     }

@@ -216,14 +216,29 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
     public var cssVariables: [String: String] {
         [
             "--ov-accent": accentColor.hex,
-            "--ov-secondary-accent": secondaryAccentColor.hex,
-            "--ov-surface-tint": surfaceTint.hex,
-            "--ov-glass-opacity": opacityString(glassOpacity),
-            "--ov-caption-opacity": opacityString(captionOpacity),
-            "--ov-caption-bg": rgba(surfaceTint, captionOpacity),
+            "--ov-accent-secondary": secondaryAccentColor.hex,
+            "--ov-bg": surfaceTint.hex,
+            "--ov-surface": rgba(surfaceTint, glassOpacity),
+            "--ov-surface-strong": rgba(surfaceTint, min(glassOpacity + 0.18, 1.0)),
+            "--ov-text": textColor.hex,
+            "--ov-muted": rgba(textColor, 0.64),
+            "--ov-border": rgba(accentColor, 0.26),
             "--ov-glow": rgba(accentColor, glowStrength),
-            "--ov-motion-intensity": opacityString(motionIntensity)
+            "--ov-caption-bg": rgba(surfaceTint, captionOpacity)
         ]
+    }
+
+    private var textColor: ThemeColor {
+        if contrastMode == .highContrast {
+            return ThemeColor(hex: "#FFFFFF")
+        }
+
+        guard let rgb = surfaceTint.rgb else {
+            return ThemeColor(hex: "#F8FAFC")
+        }
+
+        let luminance = (0.2126 * Double(rgb.red) + 0.7152 * Double(rgb.green) + 0.0722 * Double(rgb.blue)) / 255.0
+        return luminance > 0.60 ? ThemeColor(hex: "#06121C") : ThemeColor(hex: "#F8FAFC")
     }
 
     private static func preset(
