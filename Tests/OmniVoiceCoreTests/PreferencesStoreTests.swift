@@ -13,6 +13,35 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.styleHotkey, .defaultStyle)
     }
 
+    func testDefaultsIncludeV2ThemeSettings() {
+        let preferences = OmniVoicePreferences.defaults
+
+        XCTAssertEqual(preferences.themeID, .auroraBlue)
+        XCTAssertEqual(preferences.customAccentColor, ThemeColor(hex: "#38BDF8"))
+        XCTAssertEqual(preferences.waveformMode, .bars)
+        XCTAssertEqual(preferences.commitAnimationMode, .glyphStream)
+        XCTAssertEqual(preferences.engineFrameSide, .right)
+    }
+
+    func testOldPreferencesDecodeWithThemeDefaults() throws {
+        let json = """
+        {
+          "asr_provider": "parakeet-tdt",
+          "style": "neutral",
+          "dictionary_terms": [],
+          "microphone_id": null,
+          "dictation_hotkey": { "key_code": 49, "modifiers": 2304 },
+          "style_hotkey": { "key_code": 1, "modifiers": 2304 }
+        }
+        """.data(using: .utf8)!
+
+        let preferences = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: json)
+
+        XCTAssertEqual(preferences.themeID, .auroraBlue)
+        XCTAssertEqual(preferences.waveformMode, .bars)
+        XCTAssertEqual(preferences.engineFrameSide, .right)
+    }
+
     func testStyleCycleUpdatesPreference() {
         var preferences = OmniVoicePreferences.defaults
 
@@ -41,7 +70,12 @@ final class PreferencesStoreTests: XCTestCase {
             dictionaryTerms: ["CUDA", "SwiftUI"],
             microphoneID: "BuiltInMicrophoneDevice",
             dictationHotkey: HotkeyBinding(keyCode: 12, modifiers: 2_304),
-            styleHotkey: HotkeyBinding(keyCode: 13, modifiers: 2_304)
+            styleHotkey: HotkeyBinding(keyCode: 13, modifiers: 2_304),
+            themeID: .neonLime,
+            customAccentColor: ThemeColor(hex: "#00A3FF"),
+            waveformMode: .glyphStream,
+            commitAnimationMode: .beamSnap,
+            engineFrameSide: .left
         )
 
         try store.save(preferences)

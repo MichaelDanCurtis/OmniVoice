@@ -7,6 +7,11 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var microphoneId: String?
     public var dictationHotkey: HotkeyBinding
     public var styleHotkey: HotkeyBinding
+    public var themeID: OmniVoiceThemeID
+    public var customAccentColor: ThemeColor
+    public var waveformMode: WaveformMode
+    public var commitAnimationMode: CommitAnimationMode
+    public var engineFrameSide: EngineFrameSide
 
     public var microphoneID: String? {
         get { microphoneId }
@@ -19,7 +24,12 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         dictionaryTerms: [],
         microphoneID: nil,
         dictationHotkey: .defaultDictation,
-        styleHotkey: .defaultStyle
+        styleHotkey: .defaultStyle,
+        themeID: .auroraBlue,
+        customAccentColor: ThemeColor(hex: "#38BDF8"),
+        waveformMode: .bars,
+        commitAnimationMode: .glyphStream,
+        engineFrameSide: .right
     )
 
     public init(
@@ -28,7 +38,12 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         dictionaryTerms: [String],
         microphoneID: String? = nil,
         dictationHotkey: HotkeyBinding = .defaultDictation,
-        styleHotkey: HotkeyBinding = .defaultStyle
+        styleHotkey: HotkeyBinding = .defaultStyle,
+        themeID: OmniVoiceThemeID = .auroraBlue,
+        customAccentColor: ThemeColor = ThemeColor(hex: "#38BDF8"),
+        waveformMode: WaveformMode = .bars,
+        commitAnimationMode: CommitAnimationMode = .glyphStream,
+        engineFrameSide: EngineFrameSide = .right
     ) {
         self.asrProvider = asrProvider
         self.style = style
@@ -36,6 +51,27 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         self.microphoneId = microphoneID
         self.dictationHotkey = dictationHotkey
         self.styleHotkey = styleHotkey
+        self.themeID = themeID
+        self.customAccentColor = customAccentColor
+        self.waveformMode = waveformMode
+        self.commitAnimationMode = commitAnimationMode
+        self.engineFrameSide = engineFrameSide
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        asrProvider = try container.decode(ASRProviderKind.self, forKey: .asrProvider)
+        style = try container.decode(StyleProfile.self, forKey: .style)
+        dictionaryTerms = try container.decode([String].self, forKey: .dictionaryTerms)
+        microphoneId = try container.decodeIfPresent(String.self, forKey: .microphoneId)
+        dictationHotkey = try container.decode(HotkeyBinding.self, forKey: .dictationHotkey)
+        styleHotkey = try container.decode(HotkeyBinding.self, forKey: .styleHotkey)
+        themeID = try container.decodeIfPresent(OmniVoiceThemeID.self, forKey: .themeID) ?? .auroraBlue
+        customAccentColor = try container.decodeIfPresent(ThemeColor.self, forKey: .customAccentColor) ?? ThemeColor(hex: "#38BDF8")
+        waveformMode = try container.decodeIfPresent(WaveformMode.self, forKey: .waveformMode) ?? .bars
+        commitAnimationMode = try container.decodeIfPresent(CommitAnimationMode.self, forKey: .commitAnimationMode) ?? .glyphStream
+        engineFrameSide = try container.decodeIfPresent(EngineFrameSide.self, forKey: .engineFrameSide) ?? .right
     }
 
     public mutating func cycleStyle() {
@@ -51,6 +87,20 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case .fake:
             asrProvider = .parakeetTDT
         }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case asrProvider
+        case style
+        case dictionaryTerms
+        case microphoneId
+        case dictationHotkey
+        case styleHotkey
+        case themeID = "themeId"
+        case customAccentColor
+        case waveformMode
+        case commitAnimationMode
+        case engineFrameSide
     }
 }
 
