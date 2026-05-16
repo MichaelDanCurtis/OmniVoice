@@ -97,6 +97,13 @@ def test_default_theme_endpoint_returns_css_variables():
     assert "--ov-caption-bg" in payload["css_variables"]
 
 
+def test_default_theme_returns_independent_css_mapping():
+    payload = engine_main.default_theme()
+
+    assert payload.css_variables == engine_main.DEFAULT_THEME_CSS_VARIABLES
+    assert payload.css_variables is not engine_main.DEFAULT_THEME_CSS_VARIABLES
+
+
 def test_status_endpoint_returns_operator_snapshot(monkeypatch, tmp_path):
     monkeypatch.setattr("omnivoice_engine.main.runtime_store", RuntimeStore(tmp_path), raising=False)
     monkeypatch.setattr("omnivoice_engine.main.model_manager", FakeModelManager(), raising=False)

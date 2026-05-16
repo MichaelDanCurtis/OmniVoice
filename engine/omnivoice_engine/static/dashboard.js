@@ -11,6 +11,8 @@ const state = {
   events: [],
 };
 
+let themeLoadPromise = null;
+
 const nodes = {
   healthPill: document.querySelector("#healthPill"),
   startDesktopApp: document.querySelector("#startDesktopApp"),
@@ -66,7 +68,18 @@ async function loadTheme() {
     window.omniVoiceApplyTheme(window.__OMNIVOICE_THEME__);
     return;
   }
-  const theme = await fetchJson("/api/theme/default");
+  if (!themeLoadPromise) {
+    themeLoadPromise = fetchJson("/api/theme/default")
+      .then((theme) => {
+        window.__OMNIVOICE_THEME__ = theme;
+        return theme;
+      })
+      .catch((error) => {
+        themeLoadPromise = null;
+        throw error;
+      });
+  }
+  const theme = await themeLoadPromise;
   window.omniVoiceApplyTheme(theme);
 }
 

@@ -96,7 +96,7 @@ def health() -> dict[str, str]:
 
 @app.get("/api/theme/default", response_model=ThemePayload)
 def default_theme() -> ThemePayload:
-    return ThemePayload(id="auroraBlue", name="Aurora Blue", css_variables=DEFAULT_THEME_CSS_VARIABLES)
+    return ThemePayload(id="auroraBlue", name="Aurora Blue", css_variables=dict(DEFAULT_THEME_CSS_VARIABLES))
 
 
 @app.get("/providers", response_model=list[ProviderInfo])
