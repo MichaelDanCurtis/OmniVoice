@@ -107,6 +107,20 @@ public struct ThemeColor: Codable, Equatable, Hashable, Sendable {
         self.hex = prefixed.uppercased()
     }
 
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(hex: try container.decode(String.self, forKey: .hex))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(hex, forKey: .hex)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case hex
+    }
+
     fileprivate var rgb: (red: Int, green: Int, blue: Int)? {
         let value = String(hex.dropFirst())
         guard value.count == 6, let number = Int(value, radix: 16) else {
@@ -282,6 +296,6 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
     }
 
     private func opacityString(_ value: Double) -> String {
-        String(format: "%.2f", value)
+        String(format: "%.2f", min(max(value, 0.0), 1.0))
     }
 }

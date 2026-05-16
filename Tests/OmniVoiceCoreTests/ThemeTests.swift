@@ -27,6 +27,37 @@ final class ThemeTests: XCTestCase {
         XCTAssertEqual(theme.waveformMode, .bars)
     }
 
+    func testThemeColorDecodingNormalizesHex() throws {
+        let data = Data(#"{"hex":"38bdf8"}"#.utf8)
+
+        let color = try JSONDecoder().decode(ThemeColor.self, from: data)
+
+        XCTAssertEqual(color.hex, "#38BDF8")
+    }
+
+    func testCSSVariablesClampAlphaValues() {
+        let theme = OmniVoiceTheme(
+            id: .custom,
+            name: "Clamp Test",
+            accentColor: ThemeColor(hex: "#38BDF8"),
+            secondaryAccentColor: ThemeColor(hex: "#818CF8"),
+            surfaceTint: ThemeColor(hex: "#06121C"),
+            glassOpacity: 1.50,
+            captionOpacity: -0.25,
+            glowStrength: 1.75,
+            contrastMode: .standard,
+            waveformMode: .bars,
+            commitAnimationMode: .glyphStream,
+            engineFrameSide: .right,
+            motionIntensity: 2.0
+        )
+
+        XCTAssertEqual(theme.cssVariables["--ov-surface"], "rgba(6, 18, 28, 1.00)")
+        XCTAssertEqual(theme.cssVariables["--ov-surface-strong"], "rgba(6, 18, 28, 1.00)")
+        XCTAssertEqual(theme.cssVariables["--ov-caption-bg"], "rgba(6, 18, 28, 0.00)")
+        XCTAssertEqual(theme.cssVariables["--ov-glow"], "rgba(56, 189, 248, 1.00)")
+    }
+
     func testCSSVariablesUseOmniVoiceNames() throws {
         let theme = try XCTUnwrap(OmniVoiceTheme.builtInTheme(id: .auroraBlue))
 
