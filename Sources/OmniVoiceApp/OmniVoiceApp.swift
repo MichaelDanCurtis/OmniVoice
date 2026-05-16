@@ -9,25 +9,7 @@ struct OmniVoiceApp: App {
 
     var body: some Scene {
         WindowGroup("OmniVoice", id: "control-panel") {
-            SettingsView(
-                model: model,
-                showTestCaption: {
-                    appDelegate.showOverlay(
-                        text: model.lastTestResult == "No test run yet" ? "OmniVoice is running" : model.lastTestResult,
-                        styleName: model.preferences.style.displayName,
-                        theme: model.activeTheme
-                    )
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        appDelegate.hideOverlay()
-                    }
-                },
-                requestAccessibilityPermission: {
-                    appDelegate.requestAccessibilityPermission()
-                },
-                refreshPermissions: {
-                    appDelegate.refreshPermissionStatus()
-                }
-            )
+            controlPanelContent
             .task {
                 appDelegate.attach(model: model)
                 await model.refreshEngineStatus()
@@ -58,28 +40,46 @@ struct OmniVoiceApp: App {
         }
 
         Settings {
-            SettingsView(
-                model: model,
-                showTestCaption: {
-                    appDelegate.showOverlay(
-                        text: model.lastTestResult == "No test run yet" ? "OmniVoice is running" : model.lastTestResult,
-                        styleName: model.preferences.style.displayName,
-                        theme: model.activeTheme
-                    )
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        appDelegate.hideOverlay()
-                    }
-                },
-                requestAccessibilityPermission: {
-                    appDelegate.requestAccessibilityPermission()
-                },
-                refreshPermissions: {
-                    appDelegate.refreshPermissionStatus()
-                }
-            )
+            settingsContent
             .task {
                 await model.refreshEngineStatus()
             }
+        }
+    }
+
+    private var controlPanelContent: some View {
+        HStack(spacing: 0) {
+            if model.preferences.engineFrameSide == .left {
+                EngineFrameView(theme: model.activeTheme, side: .left)
+                settingsContent
+            } else {
+                settingsContent
+                EngineFrameView(theme: model.activeTheme, side: .right)
+            }
+        }
+    }
+
+    private var settingsContent: some View {
+        SettingsView(
+            model: model,
+            showTestCaption: showTestCaption,
+            requestAccessibilityPermission: {
+                appDelegate.requestAccessibilityPermission()
+            },
+            refreshPermissions: {
+                appDelegate.refreshPermissionStatus()
+            }
+        )
+    }
+
+    private func showTestCaption() {
+        appDelegate.showOverlay(
+            text: model.lastTestResult == "No test run yet" ? "OmniVoice is running" : model.lastTestResult,
+            styleName: model.preferences.style.displayName,
+            theme: model.activeTheme
+        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            appDelegate.hideOverlay()
         }
     }
 }
