@@ -13,8 +13,10 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
 
     private var window: NSWindow?
 
-    func show(text: String, styleName: String, level: Float = 0) {
-        let content = DraggableCaptionHostingView(rootView: CaptionOverlayView(text: text, styleName: styleName, level: level))
+    func show(text: String, styleName: String, level: Float = 0, theme: OmniVoiceTheme) {
+        let content = DraggableCaptionHostingView(
+            rootView: CaptionOverlayView(text: text, styleName: styleName, level: level, theme: theme)
+        )
         let targetSize = content.fittingSize
         let screenFrame = NSScreen.main?.visibleFrame ?? .zero
         let currentCenter = window?.frame.center ?? savedCenter

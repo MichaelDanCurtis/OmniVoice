@@ -74,12 +74,14 @@ struct SettingsView: View {
                 HotkeyRecorderView(
                     title: "Dictation Hotkey",
                     binding: model.preferences.dictationHotkey,
+                    theme: model.activeTheme,
                     onChange: model.setDictationHotkey
                 )
 
                 HotkeyRecorderView(
                     title: "Style Hotkey",
                     binding: model.preferences.styleHotkey,
+                    theme: model.activeTheme,
                     onChange: model.setStyleHotkey
                 )
             }

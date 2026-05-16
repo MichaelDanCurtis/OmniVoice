@@ -16,6 +16,16 @@ struct MenuBarControlsView: View {
             Text("Engine: \(model.engineState.label)")
                 .foregroundStyle(model.engineState == .online ? .primary : .secondary)
 
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(Color(themeColor: model.activeTheme.accentColor))
+                    .frame(width: 9, height: 9)
+                Text("Theme: \(model.activeTheme.name)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
             Text("ASR: \(model.label(for: model.preferences.asrProvider))")
                 .lineLimit(1)
             Text("Style: \(model.preferences.style.displayName)")

@@ -14,7 +14,8 @@ struct OmniVoiceApp: App {
                 showTestCaption: {
                     appDelegate.showOverlay(
                         text: model.lastTestResult == "No test run yet" ? "OmniVoice is running" : model.lastTestResult,
-                        styleName: model.preferences.style.displayName
+                        styleName: model.preferences.style.displayName,
+                        theme: model.activeTheme
                     )
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                         appDelegate.hideOverlay()
@@ -39,7 +40,8 @@ struct OmniVoiceApp: App {
                 showTestCaption: {
                     appDelegate.showOverlay(
                         text: model.lastTestResult == "No test run yet" ? "OmniVoice is running" : model.lastTestResult,
-                        styleName: model.preferences.style.displayName
+                        styleName: model.preferences.style.displayName,
+                        theme: model.activeTheme
                     )
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                         appDelegate.hideOverlay()
@@ -61,7 +63,8 @@ struct OmniVoiceApp: App {
                 showTestCaption: {
                     appDelegate.showOverlay(
                         text: model.lastTestResult == "No test run yet" ? "OmniVoice is running" : model.lastTestResult,
-                        styleName: model.preferences.style.displayName
+                        styleName: model.preferences.style.displayName,
+                        theme: model.activeTheme
                     )
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                         appDelegate.hideOverlay()

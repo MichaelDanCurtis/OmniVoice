@@ -65,8 +65,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func showOverlay(text: String, styleName: String, level: Float = 0) {
-        overlay.show(text: text, styleName: styleName, level: level)
+    func showOverlay(text: String, styleName: String, level: Float = 0, theme: OmniVoiceTheme? = nil) {
+        overlay.show(
+            text: text,
+            styleName: styleName,
+            level: level,
+            theme: theme ?? model?.activeTheme ?? .defaultTheme
+        )
     }
 
     func hideOverlay() {

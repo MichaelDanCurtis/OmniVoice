@@ -5,6 +5,7 @@ import OmniVoiceCore
 struct HotkeyRecorderView: View {
     let title: String
     let binding: HotkeyBinding
+    let theme: OmniVoiceTheme
     let onChange: (HotkeyBinding) -> Void
 
     @State private var isRecording = false
@@ -37,6 +38,9 @@ struct HotkeyRecorderView: View {
                 }
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .themeSurface(theme, cornerRadius: 8)
         .onDisappear {
             stopRecording()
         }
