@@ -22,7 +22,7 @@ struct ThemeSurface: ViewModifier {
 
     func body(content: Content) -> some View {
         let surfaceOpacity = surfaceOpacity(for: theme, strong: strong)
-        let borderOpacity = accentBorderOpacity(for: theme, strong: strong)
+        let borderOpacity = accentBorderOpacity(for: theme)
         let shadowOpacity = accentShadowOpacity(for: theme, strong: strong)
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
 
@@ -44,8 +44,8 @@ struct ThemeSurface: ViewModifier {
         clampedOpacity(theme.glassOpacity + (strong ? 0.18 : 0))
     }
 
-    private func accentBorderOpacity(for theme: OmniVoiceTheme, strong: Bool) -> Double {
-        clampedOpacity(theme.glowStrength * (strong ? 1.0 : 0.76))
+    private func accentBorderOpacity(for theme: OmniVoiceTheme) -> Double {
+        clampedOpacity(theme.borderOpacity)
     }
 
     private func accentShadowOpacity(for theme: OmniVoiceTheme, strong: Bool) -> Double {

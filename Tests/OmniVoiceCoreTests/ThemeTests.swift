@@ -58,6 +58,13 @@ final class ThemeTests: XCTestCase {
         XCTAssertEqual(theme.cssVariables["--ov-glow"], "rgba(56, 189, 248, 1.00)")
     }
 
+    func testBorderOpacityTokenDrivesCSSBorderAlpha() throws {
+        let theme = try XCTUnwrap(OmniVoiceTheme.builtInTheme(id: .monoGlass))
+
+        XCTAssertEqual(theme.borderOpacity, 0.26)
+        XCTAssertEqual(theme.cssVariables["--ov-border"], "rgba(248, 250, 252, 0.26)")
+    }
+
     func testCSSVariablesUseOmniVoiceNames() throws {
         let theme = try XCTUnwrap(OmniVoiceTheme.builtInTheme(id: .auroraBlue))
 

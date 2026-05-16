@@ -249,6 +249,10 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
         )
     }
 
+    public var borderOpacity: Double {
+        0.26
+    }
+
     public var cssVariables: [String: String] {
         [
             "--ov-accent": accentColor.hex,
@@ -258,7 +262,7 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
             "--ov-surface-strong": rgba(surfaceTint, min(glassOpacity + 0.18, 1.0)),
             "--ov-text": textColor.hex,
             "--ov-muted": rgba(textColor, 0.64),
-            "--ov-border": rgba(accentColor, 0.26),
+            "--ov-border": rgba(accentColor, borderOpacity),
             "--ov-glow": rgba(accentColor, glowStrength),
             "--ov-caption-bg": rgba(surfaceTint, captionOpacity)
         ]
