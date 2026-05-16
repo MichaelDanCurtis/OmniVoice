@@ -82,6 +82,20 @@ final class AppModel {
         self.accessibilityTrusted = accessibilityTrusted
     }
 
+    var activeTheme: OmniVoiceTheme {
+        let baseTheme: OmniVoiceTheme = if preferences.themeID == .custom {
+            .custom(accent: preferences.customAccentColor)
+        } else {
+            OmniVoiceTheme.builtInTheme(id: preferences.themeID) ?? .defaultTheme
+        }
+
+        return baseTheme.withModes(
+            waveformMode: preferences.waveformMode,
+            commitAnimationMode: preferences.commitAnimationMode,
+            engineFrameSide: preferences.engineFrameSide
+        )
+    }
+
     func cycleStyle() {
         setStyle(preferences.style.next())
     }
@@ -110,6 +124,37 @@ final class AppModel {
         preferences.microphoneID = microphoneID
         persistPreferences()
         statusText = "Microphone: \(microphoneLabel(for: microphoneID))"
+    }
+
+    func setThemeID(_ themeID: OmniVoiceThemeID) {
+        preferences.themeID = themeID
+        persistPreferences()
+        statusText = "Theme: \(activeTheme.name)"
+    }
+
+    func setCustomAccentColor(_ color: ThemeColor) {
+        preferences.customAccentColor = color
+        preferences.themeID = .custom
+        persistPreferences()
+        statusText = "Custom accent: \(color.hex)"
+    }
+
+    func setWaveformMode(_ mode: WaveformMode) {
+        preferences.waveformMode = mode
+        persistPreferences()
+        statusText = "Waveform: \(mode.displayName)"
+    }
+
+    func setCommitAnimationMode(_ mode: CommitAnimationMode) {
+        preferences.commitAnimationMode = mode
+        persistPreferences()
+        statusText = "Animation: \(mode.displayName)"
+    }
+
+    func setEngineFrameSide(_ side: EngineFrameSide) {
+        preferences.engineFrameSide = side
+        persistPreferences()
+        statusText = "Engine frame: \(side.displayName)"
     }
 
     func setDictationHotkey(_ binding: HotkeyBinding) {

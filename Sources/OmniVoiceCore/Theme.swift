@@ -227,6 +227,28 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
         )
     }
 
+    public func withModes(
+        waveformMode: WaveformMode,
+        commitAnimationMode: CommitAnimationMode,
+        engineFrameSide: EngineFrameSide
+    ) -> OmniVoiceTheme {
+        OmniVoiceTheme(
+            id: id,
+            name: name,
+            accentColor: accentColor,
+            secondaryAccentColor: secondaryAccentColor,
+            surfaceTint: surfaceTint,
+            glassOpacity: glassOpacity,
+            captionOpacity: captionOpacity,
+            glowStrength: glowStrength,
+            contrastMode: contrastMode,
+            waveformMode: waveformMode,
+            commitAnimationMode: commitAnimationMode,
+            engineFrameSide: engineFrameSide,
+            motionIntensity: motionIntensity
+        )
+    }
+
     public var cssVariables: [String: String] {
         [
             "--ov-accent": accentColor.hex,
