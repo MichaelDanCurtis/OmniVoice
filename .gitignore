@@ -9,5 +9,6 @@ engine/*.egg-info/
 engine/**/*.pyc
 engine/**/__pycache__/
 
+**/.omnivoice-engine/
 models/
 dist/

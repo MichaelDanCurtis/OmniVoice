@@ -41,6 +41,8 @@ final class AppModel {
     var modelDownloadStatus: EngineModelDownloadStatus?
     var microphoneDevices: [MicrophoneDevice]
     var lastTestResult: String
+    var microphoneAuthorized: Bool
+    var accessibilityTrusted: Bool
 
     private let preferencesStore: PreferencesStore
     private let engineClient: EngineClient
@@ -59,7 +61,9 @@ final class AppModel {
         modelUpdateInfo: EngineModelUpdateInfo? = nil,
         modelDownloadStatus: EngineModelDownloadStatus? = nil,
         microphoneDevices: [MicrophoneDevice] = MicrophoneDeviceService.inputDevices(),
-        lastTestResult: String = "No test run yet"
+        lastTestResult: String = "No test run yet",
+        microphoneAuthorized: Bool = false,
+        accessibilityTrusted: Bool = false
     ) {
         self.preferencesStore = preferencesStore
         self.engineClient = engineClient
@@ -74,6 +78,8 @@ final class AppModel {
         self.modelDownloadStatus = modelDownloadStatus
         self.microphoneDevices = microphoneDevices
         self.lastTestResult = lastTestResult
+        self.microphoneAuthorized = microphoneAuthorized
+        self.accessibilityTrusted = accessibilityTrusted
     }
 
     func cycleStyle() {
@@ -128,8 +134,21 @@ final class AppModel {
         statusText = "Style hotkey: \(binding.displayName)"
     }
 
+    func setDictionaryTermsText(_ text: String) {
+        preferences.dictionaryTerms = text
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        persistPreferences()
+        statusText = "Dictionary updated"
+    }
+
     func refreshEngineStatus() async {
         engineState = .checking
+        await loadEngineStatus(startEngineIfOffline: true)
+    }
+
+    private func loadEngineStatus(startEngineIfOffline: Bool) async {
         do {
             _ = try await engineClient.health()
             providerStatuses = try await engineClient.providers()
@@ -137,6 +156,20 @@ final class AppModel {
             engineState = .online
             statusText = "Engine online"
         } catch {
+            if startEngineIfOffline {
+                let startResult = await EngineSupervisor.shared.startIfNeeded()
+                switch startResult {
+                case .alreadyOnline, .started:
+                    await loadEngineStatus(startEngineIfOffline: false)
+                    return
+                case .stillStarting, .unavailable, .failed:
+                    providerStatuses = []
+                    modelStatuses = []
+                    engineState = .offline(startResult.detail)
+                    statusText = startResult.detail
+                    return
+                }
+            }
             providerStatuses = []
             modelStatuses = []
             engineState = .offline(error.localizedDescription)

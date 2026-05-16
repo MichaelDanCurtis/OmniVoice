@@ -5,6 +5,8 @@ import OmniVoiceCore
 struct SettingsView: View {
     @Bindable var model: AppModel
     let showTestCaption: () -> Void
+    let requestAccessibilityPermission: () -> Void
+    let refreshPermissions: () -> Void
 
     private let providerOrder: [ASRProviderKind] = [.parakeetTDT, .canaryQwen25B, .fake]
 
@@ -14,16 +16,29 @@ struct SettingsView: View {
                 LabeledContent("Engine", value: model.engineState.label)
                 LabeledContent("Endpoint", value: model.engineState.detail)
                 LabeledContent("Selected Model", value: selectedProviderStatus)
+                LabeledContent("Microphone", value: model.microphoneAuthorized ? "Allowed" : "Required")
+                LabeledContent("Accessibility", value: model.accessibilityTrusted ? "Allowed" : "Required")
 
                 HStack {
                     Button("Refresh") {
+                        refreshPermissions()
                         Task {
                             await model.refreshEngineStatus()
                         }
                     }
 
-                    Button("Open Providers") {
-                        NSWorkspace.shared.open(URL(string: "http://127.0.0.1:8765/providers")!)
+                    Button("Open Dashboard") {
+                        NSWorkspace.shared.open(URL(string: "http://127.0.0.1:8765/")!)
+                    }
+
+                    Button("Open History") {
+                        NSWorkspace.shared.open(URL(string: "http://127.0.0.1:8765/api/transcripts")!)
+                    }
+                }
+
+                if !model.accessibilityTrusted {
+                    Button("Open Accessibility Settings") {
+                        requestAccessibilityPermission()
                     }
                 }
             }
@@ -105,6 +120,15 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Personal Dictionary") {
+                TextEditor(text: dictionaryTermsBinding)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 92)
+                Text("Add names, products, acronyms, and terms OmniVoice should preserve. Use one term per line.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Test") {
                 HStack {
                     Button("Run Cleanup Test") {
@@ -121,6 +145,10 @@ struct SettingsView: View {
                 Text(model.lastTestResult)
                     .textSelection(.enabled)
                     .lineLimit(3)
+            }
+
+            Section("Quick Reference") {
+                QuickReferenceView()
             }
         }
         .formStyle(.grouped)
@@ -146,6 +174,13 @@ struct SettingsView: View {
         Binding(
             get: { model.preferences.microphoneID },
             set: { model.setMicrophoneID($0) }
+        )
+    }
+
+    private var dictionaryTermsBinding: Binding<String> {
+        Binding(
+            get: { model.preferences.dictionaryTerms.joined(separator: "\n") },
+            set: { model.setDictionaryTermsText($0) }
         )
     }
 

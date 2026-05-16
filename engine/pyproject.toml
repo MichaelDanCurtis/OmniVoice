@@ -23,3 +23,9 @@ asr = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.setuptools.packages.find]
+include = ["omnivoice_engine*"]
+
+[tool.setuptools.package-data]
+omnivoice_engine = ["static/*"]

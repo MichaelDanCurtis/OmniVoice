@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OmniVoice Engine</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/assets/dashboard.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Local engine</p>
+        <h1>OmniVoice Engine</h1>
+      </div>
+      <div class="header-actions">
+        <span id="healthPill" class="pill muted">Checking</span>
+        <button id="startDesktopApp" type="button">Start App</button>
+        <span id="desktopAppLaunchStatus" class="action-status" aria-live="polite"></span>
+        <button id="refreshButton" type="button">Refresh</button>
+        <a class="button ghost" href="/api/transcripts/export">Transcripts JSONL</a>
+        <a class="button ghost" href="/api/events/export">Events JSONL</a>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="status-grid" aria-label="Engine status">
+        <article class="metric">
+          <span>Uptime</span>
+          <strong id="uptimeValue">--</strong>
+        </article>
+        <article class="metric">
+          <span>Providers</span>
+          <strong id="providerValue">--</strong>
+        </article>
+        <article class="metric">
+          <span>Models Installed</span>
+          <strong id="modelValue">--</strong>
+        </article>
+        <article class="metric">
+          <span>Transcripts</span>
+          <strong id="transcriptValue">--</strong>
+        </article>
+      </section>
+
+      <section class="panel wide transcript-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Transcripts</h2>
+            <p id="transcriptHint">Newest cleaned and raw transcripts from dictation requests.</p>
+          </div>
+          <button id="copyLatestTranscript" type="button">Copy Latest</button>
+        </div>
+        <div id="transcriptList" class="timeline"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Providers</h2>
+            <p>Runtime availability.</p>
+          </div>
+        </div>
+        <div id="providerList" class="stack"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Models</h2>
+            <p>Hugging Face install and update state.</p>
+          </div>
+        </div>
+        <div id="modelList" class="stack"></div>
+      </section>
+
+      <section class="panel wide">
+        <div class="panel-head">
+          <div>
+            <h2>Event Log</h2>
+            <p>Recent engine actions, downloads, cleanup, and transcription failures.</p>
+          </div>
+          <button id="copyDiagnostics" type="button">Copy Diagnostics</button>
+        </div>
+        <div id="eventList" class="log-list"></div>
+      </section>
+    </main>
+
+    <template id="emptyStateTemplate">
+      <div class="empty">No records yet.</div>
+    </template>
+
+    <script src="/assets/dashboard.js" type="module"></script>
+  </body>
+</html>

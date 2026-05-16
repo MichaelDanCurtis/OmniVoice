@@ -6,9 +6,10 @@ from .schemas import CleanupRequest, CleanupResponse
 
 
 CORRECTION_PATTERNS = [
-    r"\bno wait[,]?\s+",
-    r"\bscratch that[,]?\s+",
-    r"\bcorrection[,]?\s+",
+    r"\bno wait[,.!?]?\s+",
+    r"\bscratch that[,.!?]?\s+",
+    r"\boops[,]?\s+correction[,.!?]?\s+",
+    r"\bcorrection[,.!?]?\s+",
 ]
 
 INLINE_REPLACEMENT_PATTERNS = [
@@ -17,15 +18,40 @@ INLINE_REPLACEMENT_PATTERNS = [
 ]
 
 LEADING_FILLERS = re.compile(r"^(um|uh|like|you know|i just wanted to say that)\s+", re.IGNORECASE)
+UI_PLACEHOLDER_SUFFIXES = [
+    re.compile(r"\s*Ask for follow-up changes[\s.!?\"'”’]*$", re.IGNORECASE),
+    re.compile(r"\s*Type\s+(?:/|slash)\s+for\s+commands[\s.!?\"'”’]*$", re.IGNORECASE),
+]
+QUOTE_PATTERNS = [
+    re.compile(r"\bopen quote\s+(.+?)\s+close quote\b", re.IGNORECASE),
+    re.compile(r"\bquote\s+(.+?)\s+quote\b", re.IGNORECASE),
+]
+SPOKEN_PUNCTUATION_PATTERNS = [
+    (re.compile(r"\s+\bcomma\b\s+", re.IGNORECASE), ", "),
+    (re.compile(r"\s+\bperiod\b\s*", re.IGNORECASE), ". "),
+    (re.compile(r"\s+\bfull stop\b\s*", re.IGNORECASE), ". "),
+    (re.compile(r"\s+\bquestion mark\b\s*", re.IGNORECASE), "? "),
+    (re.compile(r"\s+\bexclamation mark\b\s*", re.IGNORECASE), "! "),
+    (re.compile(r"\s+\bexclamation point\b\s*", re.IGNORECASE), "! "),
+    (re.compile(r"\s+\bcolon\b\s+", re.IGNORECASE), ": "),
+    (re.compile(r"\s+\bsemicolon\b\s+", re.IGNORECASE), "; "),
+    (re.compile(r"\bnew paragraph\b", re.IGNORECASE), "\n\n"),
+    (re.compile(r"\bnew line\b", re.IGNORECASE), "\n"),
+    (re.compile(r"\bdouble quote\b", re.IGNORECASE), '"'),
+    (re.compile(r"\bsingle quote\b", re.IGNORECASE), "'"),
+]
 
 
 def clean_transcript(request: CleanupRequest) -> CleanupResponse:
     raw = " ".join(request.raw_transcript.strip().split())
+    raw = _remove_ui_placeholder_suffixes(raw)
     if request.style == "raw":
         return CleanupResponse(text=raw, cleanup_applied=False)
 
     text = _apply_clause_corrections(raw)
     text = _apply_inline_replacements(text)
+    text = _apply_spoken_text_commands(text)
+    text = _apply_dictionary_terms(text, request.dictionary_terms)
     if request.style == "concise":
         text = _remove_leading_fillers(text)
     text = _normalize_capitalization(text)
@@ -60,6 +86,36 @@ def _remove_leading_fillers(text: str) -> str:
         if updated == current:
             return current
         current = updated
+
+
+def _apply_spoken_text_commands(text: str) -> str:
+    current = text
+    for pattern in QUOTE_PATTERNS:
+        current = pattern.sub(lambda match: f'"{match.group(1).strip()}"', current)
+    for pattern, replacement in SPOKEN_PUNCTUATION_PATTERNS:
+        current = pattern.sub(replacement, current)
+    current = re.sub(r"[ \t]+([,.;:!?])", r"\1", current)
+    current = re.sub(r"([,.;:])(?=\S)", r"\1 ", current)
+    current = re.sub(r"[ \t]{2,}", " ", current)
+    return current.strip()
+
+
+def _apply_dictionary_terms(text: str, terms: list[str]) -> str:
+    current = text
+    for term in terms:
+        cleaned_term = " ".join(term.strip().split())
+        if not cleaned_term:
+            continue
+        pattern = re.compile(rf"\b{re.escape(cleaned_term)}\b", re.IGNORECASE)
+        current = pattern.sub(cleaned_term, current)
+    return current
+
+
+def _remove_ui_placeholder_suffixes(text: str) -> str:
+    current = text
+    for pattern in UI_PLACEHOLDER_SUFFIXES:
+        current = pattern.sub("", current).strip()
+    return current
 
 
 def _normalize_capitalization(text: str) -> str:

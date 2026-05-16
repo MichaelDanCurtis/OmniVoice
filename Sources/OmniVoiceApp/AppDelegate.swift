@@ -11,16 +11,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let engineClient = EngineClient()
     private let streamingClient = EngineStreamingClient()
     private let insertionService = TextInsertionService()
+    private let commandExecutor = DictationCommandExecutor()
     private var lastInputLevel: Float = 0
     private var lastLevelOverlayUpdate = Date.distantPast
+    private var insertionTarget: TextInsertionService.Target?
+    private var didPromptForAccessibility = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.setActivationPolicy(.accessory)
         NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         hotkeys.unregister()
+        EngineSupervisor.shared.stopStartedProcess()
     }
 
     func attach(model: AppModel) {
@@ -35,6 +43,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         applyHotkeys(preferences: model.preferences)
+    }
+
+    func refreshPermissionStatus() {
+        updatePermissionStatus()
+    }
+
+    func requestAccessibilityPermission() {
+        didPromptForAccessibility = true
+        let options = [
+            "AXTrustedCheckOptionPrompt": true,
+        ] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
+        openAccessibilitySettings()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.updatePermissionStatus()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
+            self?.updatePermissionStatus()
+        }
     }
 
     func showOverlay(text: String, styleName: String, level: Float = 0) {
@@ -61,6 +89,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updatePermissionStatus() {
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         let accessibilityEnabled = AXIsProcessTrusted()
+        model?.microphoneAuthorized = micStatus == .authorized
+        model?.accessibilityTrusted = accessibilityEnabled
+        if accessibilityEnabled {
+            didPromptForAccessibility = false
+        }
 
         switch (micStatus, accessibilityEnabled) {
         case (.authorized, true):
@@ -77,6 +110,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         default:
             model?.statusText = "Permissions required"
         }
+    }
+
+    private func openAccessibilitySettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+        ) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     private func handleHotkey(_ event: HotkeyController.Event) {
@@ -100,6 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startDictation(model: AppModel) {
+        insertionTarget = insertionService.captureTarget()
         model.session.pressHotkey()
         model.captionText = ""
         model.statusText = "Listening"
@@ -139,7 +180,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func finishDictation() async {
-        guard let model else { return }
+        guard let model else {
+            insertionTarget = nil
+            return
+        }
+        defer {
+            insertionTarget = nil
+        }
 
         let audio: Data
         do {
@@ -165,7 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let rawTranscript = transcript.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawTranscript = TextInsertionEdit.sanitizedInsertionText(transcript.text)
         guard !rawTranscript.isEmpty else {
             model.session.fail("No speech detected")
             model.statusText = "No speech detected"
@@ -179,33 +226,128 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showOverlay(text: rawTranscript, styleName: model.preferences.style.displayName)
 
         let finalText: String
-        do {
-            let cleanup = try await engineClient.cleanup(
-                CleanupRequest(
-                    rawTranscript: rawTranscript,
-                    style: model.preferences.style,
-                    dictionaryTerms: model.preferences.dictionaryTerms
+        if let literalText = literalPayload(from: rawTranscript) {
+            finalText = TextInsertionEdit.sanitizedInsertionText(literalText)
+            model.statusText = "Literal mode"
+        } else {
+            let cleanupStyle = cleanupStyle(for: insertionTarget, preferredStyle: model.preferences.style)
+            do {
+                let cleanup = try await engineClient.cleanup(
+                    CleanupRequest(
+                        rawTranscript: rawTranscript,
+                        style: cleanupStyle,
+                        dictionaryTerms: model.preferences.dictionaryTerms
+                    )
                 )
-            )
-            finalText = cleanup.text
-        } catch {
-            finalText = lightlyPunctuate(rawTranscript)
-            model.statusText = "Cleanup skipped"
+                finalText = TextInsertionEdit.sanitizedInsertionText(cleanup.text)
+            } catch {
+                finalText = TextInsertionEdit.sanitizedInsertionText(lightlyPunctuate(rawTranscript))
+                model.statusText = "Cleanup skipped"
+            }
         }
 
         model.session.finishCleanup(finalText)
 
+        if let command = DictationCommandParser.parse(finalText) {
+            await handle(command: command, model: model)
+            return
+        }
+
+        if let selectedText = insertionTarget?.selectedText,
+           !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let rewritten = SelectionRewrite.rewrite(selectedText: selectedText, instruction: finalText) {
+            await insertFinalText(rewritten, model: model, successStatus: "Selection rewritten")
+            return
+        }
+
+        await insertFinalText(finalText, model: model, successStatus: "Inserted")
+    }
+
+    private func insertFinalText(_ finalText: String, model: AppModel, successStatus: String) async {
         do {
-            try insertionService.insert(finalText)
-            model.statusText = "Inserted"
+            try await insertionService.insert(finalText, target: insertionTarget)
+            model.statusText = successStatus
             hideOverlay()
             model.session.reset()
+        } catch TextInsertionService.InsertionError.accessibilityPermissionRequired {
+            model.session.fail("Accessibility permission required")
+            model.statusText = "Accessibility permission required"
+            copyToPasteboard(finalText)
+            if !didPromptForAccessibility {
+                requestAccessibilityPermission()
+            }
+            showOverlay(text: finalText, styleName: "Accessibility required - copied")
         } catch {
             model.session.fail("Insertion failed: \(error.localizedDescription)")
             model.statusText = "Insertion failed"
             copyToPasteboard(finalText)
             showOverlay(text: finalText, styleName: "Insertion failed - copied")
         }
+    }
+
+    private func handle(command: DictationCommand, model: AppModel) async {
+        do {
+            switch command.action {
+            case .openApplication:
+                try commandExecutor.execute(command)
+            case .showCommandPalette:
+                showCommandPalette()
+            case .undoLastDictation:
+                try await insertionService.undoLastInsertion()
+            }
+            model.statusText = command.displayText
+            showOverlay(text: command.displayText, styleName: "Command")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                self?.hideOverlay()
+            }
+            model.session.reset()
+        } catch {
+            model.session.fail("Command failed: \(error.localizedDescription)")
+            model.statusText = "Command failed"
+            showOverlay(text: error.localizedDescription, styleName: "Command failed")
+        }
+    }
+
+    private func showCommandPalette() {
+        showOverlay(
+            text: "Command, open Safari\nCommand, undo last dictation\nCommand, show commands",
+            styleName: "Commands"
+        )
+    }
+
+    private func cleanupStyle(for target: TextInsertionService.Target?, preferredStyle: StyleProfile) -> StyleProfile {
+        guard preferredStyle == .neutral else {
+            return preferredStyle
+        }
+        guard let bundleID = target?.application?.bundleIdentifier?.lowercased() else {
+            return preferredStyle
+        }
+
+        if bundleID.contains("terminal")
+            || bundleID.contains("iterm")
+            || bundleID.contains("xcode")
+            || bundleID.contains("vscode") {
+            return .raw
+        }
+        if bundleID.contains("mail") {
+            return .professional
+        }
+        if bundleID.contains("slack")
+            || bundleID.contains("messages")
+            || bundleID.contains("mobilesms") {
+            return .concise
+        }
+        return preferredStyle
+    }
+
+    private func literalPayload(from text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowered = trimmed.lowercased()
+        for prefix in ["literal mode", "raw dictation"] where lowered.hasPrefix(prefix) {
+            return String(trimmed.dropFirst(prefix.count))
+                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".,:;!?")))
+        }
+        return nil
     }
 
     private func lightlyPunctuate(_ text: String) -> String {

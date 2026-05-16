@@ -19,6 +19,12 @@ struct OmniVoiceApp: App {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                         appDelegate.hideOverlay()
                     }
+                },
+                requestAccessibilityPermission: {
+                    appDelegate.requestAccessibilityPermission()
+                },
+                refreshPermissions: {
+                    appDelegate.refreshPermissionStatus()
                 }
             )
             .task {
@@ -38,6 +44,9 @@ struct OmniVoiceApp: App {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                         appDelegate.hideOverlay()
                     }
+                },
+                requestAccessibilityPermission: {
+                    appDelegate.requestAccessibilityPermission()
                 }
             )
             .task {
@@ -57,6 +66,12 @@ struct OmniVoiceApp: App {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                         appDelegate.hideOverlay()
                     }
+                },
+                requestAccessibilityPermission: {
+                    appDelegate.requestAccessibilityPermission()
+                },
+                refreshPermissions: {
+                    appDelegate.refreshPermissionStatus()
                 }
             )
             .task {

@@ -1,5 +1,7 @@
 from fastapi.testclient import TestClient
+from omnivoice_engine import main as engine_main
 from omnivoice_engine.main import app
+from omnivoice_engine.runtime_store import RuntimeStore
 from omnivoice_engine.schemas import ModelDownloadStatus, ModelStatus, ModelUpdateInfo
 
 
@@ -76,6 +78,29 @@ def test_health_endpoint():
     assert response.json() == {"status": "ok"}
 
 
+def test_dashboard_root_returns_engine_console():
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "OmniVoice Engine" in response.text
+    assert "/assets/dashboard.js" in response.text
+
+
+def test_status_endpoint_returns_operator_snapshot(monkeypatch, tmp_path):
+    monkeypatch.setattr("omnivoice_engine.main.runtime_store", RuntimeStore(tmp_path), raising=False)
+    monkeypatch.setattr("omnivoice_engine.main.model_manager", FakeModelManager(), raising=False)
+
+    response = client.get("/api/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["providers"]
+    assert payload["models"][0]["provider_id"] == "parakeet-tdt"
+    assert payload["event_count"] >= 0
+    assert payload["transcript_count"] >= 0
+
+
 def test_cleanup_endpoint():
     response = client.post(
         "/cleanup",
@@ -91,6 +116,25 @@ def test_cleanup_endpoint():
         "text": "Schedule it for Tuesday.",
         "cleanup_applied": True,
     }
+
+
+def test_cleanup_endpoint_records_cleaned_transcript(monkeypatch, tmp_path):
+    monkeypatch.setattr("omnivoice_engine.main.runtime_store", RuntimeStore(tmp_path), raising=False)
+
+    response = client.post(
+        "/cleanup",
+        json={
+            "raw_transcript": "Send it to Mark. Scratch that, send it to Sara.",
+            "style": "neutral",
+            "dictionary_terms": [],
+        },
+    )
+
+    assert response.status_code == 200
+    history = client.get("/api/transcripts").json()
+    assert history[0]["source"] == "cleanup"
+    assert history[0]["raw_text"] == "Send it to Mark. Scratch that, send it to Sara."
+    assert history[0]["cleaned_text"] == "Send it to Sara."
 
 
 def test_providers_endpoint_includes_fake():
@@ -140,11 +184,72 @@ def test_model_download_status_endpoint_reports_current_state(monkeypatch):
     assert response.json()["state"] == "queued"
 
 
+def test_desktop_app_launch_endpoint_opens_configured_app(monkeypatch, tmp_path):
+    store = RuntimeStore(tmp_path)
+    app_bundle = tmp_path / "OmniVoiceApp.app"
+    app_bundle.mkdir()
+    launched: list[str] = []
+
+    def fake_launch(app_path):
+        launched.append(str(app_path))
+
+    monkeypatch.setenv("OMNIVOICE_DESKTOP_APP_PATH", str(app_bundle))
+    monkeypatch.setattr("omnivoice_engine.main.runtime_store", store, raising=False)
+    monkeypatch.setattr(engine_main, "launch_desktop_app", fake_launch, raising=False)
+
+    response = client.post("/api/desktop-app/start")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "started",
+        "message": "Desktop app launch requested",
+        "app_path": str(app_bundle),
+    }
+    assert launched == [str(app_bundle)]
+    assert store.recent_events(1)[0].kind == "desktop_app.start"
+
+
+def test_desktop_app_launch_endpoint_reports_missing_bundle(monkeypatch, tmp_path):
+    missing_bundle = tmp_path / "Missing.app"
+
+    monkeypatch.setenv("OMNIVOICE_DESKTOP_APP_PATH", str(missing_bundle))
+
+    response = client.post("/api/desktop-app/start")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == f"desktop app bundle not found: {missing_bundle}"
+
+
 def test_transcribe_endpoint_uses_fake_provider():
     response = client.post("/transcribe?provider=fake", content=b"audio-bytes")
 
     assert response.status_code == 200
     assert response.json() == {"text": "fake transcript", "provider": "fake"}
+
+
+def test_transcribe_endpoint_records_raw_transcript(monkeypatch, tmp_path):
+    monkeypatch.setattr("omnivoice_engine.main.runtime_store", RuntimeStore(tmp_path), raising=False)
+
+    response = client.post("/transcribe?provider=fake", content=b"audio-bytes")
+
+    assert response.status_code == 200
+    history = client.get("/api/transcripts").json()
+    assert history[0]["source"] == "transcribe"
+    assert history[0]["provider"] == "fake"
+    assert history[0]["raw_text"] == "fake transcript"
+    assert history[0]["audio_bytes"] == len(b"audio-bytes")
+
+
+def test_event_export_returns_jsonl(monkeypatch, tmp_path):
+    store = RuntimeStore(tmp_path)
+    store.record_event("test.event", "Recorded test event")
+    monkeypatch.setattr("omnivoice_engine.main.runtime_store", store, raising=False)
+
+    response = client.get("/api/events/export")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/x-ndjson")
+    assert "test.event" in response.text
 
 
 def test_transcribe_endpoint_reports_provider_failure(monkeypatch):

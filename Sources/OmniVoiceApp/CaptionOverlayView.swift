@@ -6,32 +6,40 @@ struct CaptionOverlayView: View {
     let level: Float
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 7) {
             Text(styleName)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.56))
 
             Text(text.isEmpty ? "Listening..." : text)
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(.primary)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(.white.opacity(0.92))
                 .lineLimit(3)
                 .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.black.opacity(0.10))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(.white.opacity(0.08), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.16), radius: 10, y: 4)
 
             HStack(spacing: 3) {
                 ForEach(0..<14, id: \.self) { index in
                     Capsule()
-                        .fill(index < activeBars ? Color.accentColor : Color.secondary.opacity(0.22))
+                        .fill(index < activeBars ? Color.accentColor.opacity(0.78) : Color.white.opacity(0.10))
                         .frame(width: 5, height: CGFloat(6 + (index % 5) * 3))
                 }
             }
             .frame(height: 20)
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
         .frame(minWidth: 320, maxWidth: 760)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .shadow(radius: 18)
     }
 
     private var activeBars: Int {

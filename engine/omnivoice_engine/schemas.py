@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from typing import Any
 
 
 class CleanupRequest(BaseModel):
@@ -52,3 +53,41 @@ class ModelDownloadStatus(BaseModel):
     message: str | None = None
     local_path: str
     revision: str | None = None
+
+
+class DesktopAppLaunchResponse(BaseModel):
+    status: str
+    message: str
+    app_path: str
+
+
+class EngineEvent(BaseModel):
+    id: str
+    timestamp: str
+    level: str
+    kind: str
+    message: str
+    detail: dict[str, Any] = Field(default_factory=dict)
+
+
+class TranscriptRecord(BaseModel):
+    id: str
+    created_at: str
+    source: str
+    raw_text: str
+    cleaned_text: str | None = None
+    provider: str | None = None
+    style: str | None = None
+    audio_bytes: int | None = None
+    sample_rate: int | None = None
+    duration_ms: int | None = None
+
+
+class EngineStatus(BaseModel):
+    status: str
+    started_at: str
+    uptime_seconds: int
+    providers: list[ProviderInfo]
+    models: list[ModelStatus]
+    event_count: int
+    transcript_count: int

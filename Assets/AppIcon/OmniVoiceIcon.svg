@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="OmniVoice app icon">
+  <defs>
+    <linearGradient id="shell" x1="118" y1="88" x2="906" y2="944" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#171a12"/>
+      <stop offset="0.5" stop-color="#050604"/>
+      <stop offset="1" stop-color="#11170a"/>
+    </linearGradient>
+    <radialGradient id="stage" cx="49%" cy="44%" r="64%">
+      <stop offset="0" stop-color="#253018"/>
+      <stop offset="0.48" stop-color="#0d1009"/>
+      <stop offset="1" stop-color="#030403"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="82" y1="82" x2="942" y2="942" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fbff8b"/>
+      <stop offset="0.5" stop-color="#dcff36"/>
+      <stop offset="1" stop-color="#70f4ca"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#252a1b"/>
+      <stop offset="1" stop-color="#0f120c"/>
+    </linearGradient>
+    <linearGradient id="panelSoft" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b2118"/>
+      <stop offset="1" stop-color="#090c08"/>
+    </linearGradient>
+    <linearGradient id="lip" x1="225" y1="514" x2="538" y2="678" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffaaa8"/>
+      <stop offset="0.52" stop-color="#f45b75"/>
+      <stop offset="1" stop-color="#a92d55"/>
+    </linearGradient>
+    <filter id="drop" x="-30%" y="-40%" width="160%" height="185%">
+      <feDropShadow dx="0" dy="20" stdDeviation="20" flood-color="#000000" flood-opacity="0.42"/>
+    </filter>
+    <filter id="mouthDrop" x="-30%" y="-35%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#000000" flood-opacity="0.56"/>
+    </filter>
+    <filter id="glow" x="-35%" y="-35%" width="170%" height="170%">
+      <feDropShadow dx="0" dy="0" stdDeviation="8" flood-color="#e8ff39" flood-opacity="0.2"/>
+    </filter>
+    <style>
+      .word {
+        font-family: Inter, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+        font-weight: 760;
+        letter-spacing: 0;
+        fill: #f0ff69;
+      }
+      .word-muted {
+        font-family: Inter, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+        font-weight: 760;
+        letter-spacing: 0;
+        fill: #9ff8da;
+      }
+    </style>
+  </defs>
+
+  <rect x="48" y="48" width="928" height="928" rx="214" fill="url(#shell)"/>
+  <rect x="82" y="82" width="860" height="860" rx="184" fill="url(#stage)"/>
+  <rect x="72" y="72" width="880" height="880" rx="190" fill="none" stroke="url(#rim)" stroke-width="26"/>
+  <path d="M174 178C298 111 456 103 599 144C733 183 836 260 891 372" fill="none" stroke="#ffffff" stroke-width="7" stroke-linecap="round" opacity="0.055"/>
+
+  <g filter="url(#drop)">
+    <g transform="translate(500 210) rotate(-7)">
+      <rect width="196" height="82" rx="30" fill="url(#panel)" stroke="#e9ff42" stroke-opacity="0.76" stroke-width="5"/>
+      <text class="word" x="98" y="54" font-size="36" text-anchor="middle">hello</text>
+    </g>
+    <g transform="translate(706 284) rotate(6)">
+      <rect width="148" height="70" rx="26" fill="url(#panelSoft)" stroke="#88f5d2" stroke-opacity="0.68" stroke-width="4"/>
+      <text class="word-muted" x="74" y="46" font-size="31" text-anchor="middle">note</text>
+    </g>
+    <g transform="translate(564 386) rotate(2)">
+      <rect width="230" height="84" rx="31" fill="url(#panel)" stroke="#e9ff42" stroke-opacity="0.8" stroke-width="5"/>
+      <text class="word" x="115" y="55" font-size="36" text-anchor="middle">today</text>
+    </g>
+    <g transform="translate(734 500) rotate(-8)">
+      <rect width="152" height="70" rx="26" fill="url(#panelSoft)" stroke="#88f5d2" stroke-opacity="0.72" stroke-width="4"/>
+      <text class="word-muted" x="76" y="46" font-size="31" text-anchor="middle">send</text>
+    </g>
+    <g transform="translate(650 636) rotate(5)">
+      <rect width="190" height="76" rx="29" fill="url(#panel)" stroke="#e9ff42" stroke-opacity="0.78" stroke-width="5"/>
+      <text class="word" x="95" y="50" font-size="32" text-anchor="middle">draft</text>
+    </g>
+    <g transform="translate(332 288) rotate(-11)" filter="url(#glow)">
+      <rect width="110" height="82" rx="28" fill="#15190f" stroke="#e9ff42" stroke-opacity="0.72" stroke-width="5"/>
+      <text class="word" x="55" y="55" font-size="40" text-anchor="middle">Aa</text>
+    </g>
+  </g>
+
+  <g filter="url(#mouthDrop)">
+    <ellipse cx="336" cy="650" rx="204" ry="132" fill="#050604" opacity="0.46"/>
+    <path d="M180 626C224 570 285 542 364 546C407 548 442 564 471 594C507 574 553 577 604 604C558 630 509 646 458 653C394 661 336 653 282 629C249 614 215 613 180 626Z" fill="url(#lip)"/>
+    <path d="M181 650C226 656 270 665 314 680C372 700 431 701 492 684C540 671 578 645 609 607C601 672 562 723 493 758C431 789 369 786 306 750C248 716 206 683 181 650Z" fill="url(#lip)"/>
+    <path d="M218 646C279 633 339 636 397 655C456 675 516 659 576 609C538 669 486 700 420 704C350 708 282 688 218 646Z" fill="#090405"/>
+    <path d="M260 612C302 589 346 586 393 600C423 609 447 626 465 650" fill="none" stroke="#ffd4d1" stroke-width="14" stroke-linecap="round" opacity="0.46"/>
+  </g>
+</svg>

@@ -5,6 +5,7 @@ import OmniVoiceCore
 struct MenuBarControlsView: View {
     @Bindable var model: AppModel
     let showTestCaption: () -> Void
+    let requestAccessibilityPermission: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -18,6 +19,8 @@ struct MenuBarControlsView: View {
             Text("ASR: \(model.label(for: model.preferences.asrProvider))")
                 .lineLimit(1)
             Text("Style: \(model.preferences.style.displayName)")
+                .lineLimit(1)
+            Text("Accessibility: \(model.accessibilityTrusted ? "Allowed" : "Required")")
                 .lineLimit(1)
 
             Divider()
@@ -42,6 +45,16 @@ struct MenuBarControlsView: View {
                 showTestCaption()
             }
 
+            SettingsLink {
+                Label("Quick Reference", systemImage: "questionmark.circle")
+            }
+
+            if !model.accessibilityTrusted {
+                Button("Open Accessibility Settings") {
+                    requestAccessibilityPermission()
+                }
+            }
+
             Divider()
 
             Button("Cycle Style") {
@@ -54,8 +67,12 @@ struct MenuBarControlsView: View {
 
             Divider()
 
-            Button("Open Engine Health") {
-                NSWorkspace.shared.open(URL(string: "http://127.0.0.1:8765/health")!)
+            Button("Open Engine Dashboard") {
+                NSWorkspace.shared.open(URL(string: "http://127.0.0.1:8765/")!)
+            }
+
+            Button("Open Transcript History") {
+                NSWorkspace.shared.open(URL(string: "http://127.0.0.1:8765/api/transcripts")!)
             }
 
             Button("Quit") {
