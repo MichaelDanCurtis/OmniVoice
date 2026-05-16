@@ -61,6 +61,12 @@ class DesktopAppLaunchResponse(BaseModel):
     app_path: str
 
 
+class ThemePayload(BaseModel):
+    id: str
+    name: str
+    css_variables: dict[str, str]
+
+
 class EngineEvent(BaseModel):
     id: str
     timestamp: str

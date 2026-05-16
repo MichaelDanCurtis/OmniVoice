@@ -1,3 +1,10 @@
+window.omniVoiceApplyTheme = function omniVoiceApplyTheme(payload) {
+  if (!payload || !payload.css_variables) return;
+  for (const [name, value] of Object.entries(payload.css_variables)) {
+    document.documentElement.style.setProperty(name, value);
+  }
+};
+
 const state = {
   status: null,
   transcripts: [],
@@ -33,6 +40,11 @@ setInterval(refresh, 4000);
 async function refresh() {
   nodes.refreshButton.disabled = true;
   try {
+    try {
+      await loadTheme();
+    } catch (error) {
+      console.warn("Unable to load dashboard theme", error);
+    }
     const [status, transcripts, events] = await Promise.all([
       fetchJson("/api/status"),
       fetchJson("/api/transcripts?limit=100"),
@@ -47,6 +59,15 @@ async function refresh() {
   } finally {
     nodes.refreshButton.disabled = false;
   }
+}
+
+async function loadTheme() {
+  if (window.__OMNIVOICE_THEME__) {
+    window.omniVoiceApplyTheme(window.__OMNIVOICE_THEME__);
+    return;
+  }
+  const theme = await fetchJson("/api/theme/default");
+  window.omniVoiceApplyTheme(theme);
 }
 
 async function fetchJson(path, options = {}) {

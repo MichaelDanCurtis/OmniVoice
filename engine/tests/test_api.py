@@ -86,6 +86,17 @@ def test_dashboard_root_returns_engine_console():
     assert "/assets/dashboard.js" in response.text
 
 
+def test_default_theme_endpoint_returns_css_variables():
+    response = client.get("/api/theme/default")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == "auroraBlue"
+    assert payload["name"] == "Aurora Blue"
+    assert payload["css_variables"]["--ov-accent"] == "#38BDF8"
+    assert "--ov-caption-bg" in payload["css_variables"]
+
+
 def test_status_endpoint_returns_operator_snapshot(monkeypatch, tmp_path):
     monkeypatch.setattr("omnivoice_engine.main.runtime_store", RuntimeStore(tmp_path), raising=False)
     monkeypatch.setattr("omnivoice_engine.main.model_manager", FakeModelManager(), raising=False)

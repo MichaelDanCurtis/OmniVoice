@@ -22,6 +22,7 @@ from .schemas import (
     ModelStatus,
     ModelUpdateInfo,
     ProviderInfo,
+    ThemePayload,
     TranscriptRecord,
     TranscribeResponse,
 )
@@ -34,6 +35,18 @@ STARTED_MONOTONIC = time.monotonic()
 STATIC_DIR = Path(__file__).parent / "static"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DESKTOP_APP_PATH = REPO_ROOT / "dist" / "OmniVoice.app"
+DEFAULT_THEME_CSS_VARIABLES = {
+    "--ov-accent": "#38BDF8",
+    "--ov-accent-secondary": "#22D3EE",
+    "--ov-bg": "#03070D",
+    "--ov-surface": "rgba(6, 18, 28, 0.46)",
+    "--ov-surface-strong": "rgba(6, 18, 28, 0.62)",
+    "--ov-text": "#F5FAFF",
+    "--ov-muted": "#9FB2C6",
+    "--ov-border": "rgba(56, 189, 248, 0.26)",
+    "--ov-glow": "rgba(56, 189, 248, 0.34)",
+    "--ov-caption-bg": "rgba(6, 18, 28, 0.14)",
+}
 app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
 
 
@@ -79,6 +92,11 @@ def dashboard() -> HTMLResponse:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/theme/default", response_model=ThemePayload)
+def default_theme() -> ThemePayload:
+    return ThemePayload(id="auroraBlue", name="Aurora Blue", css_variables=DEFAULT_THEME_CSS_VARIABLES)
 
 
 @app.get("/providers", response_model=list[ProviderInfo])
@@ -425,6 +443,7 @@ def _should_record_request(path: str) -> bool:
     skipped_prefixes = (
         "/assets/",
         "/api/status",
+        "/api/theme",
         "/api/events",
         "/api/transcripts",
         "/api/desktop-app",
