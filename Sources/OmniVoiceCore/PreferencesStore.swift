@@ -59,19 +59,45 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     }
 
     public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
+        do {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            try self.init(snakeCaseContainer: container)
+        } catch DecodingError.keyNotFound {
+            let container = try decoder.container(keyedBy: ConvertedCodingKeys.self)
+            try self.init(convertedContainer: container)
+        }
+    }
 
-        asrProvider = try container.decode(ASRProviderKind.self, forKey: .asrProvider)
-        style = try container.decode(StyleProfile.self, forKey: .style)
-        dictionaryTerms = try container.decode([String].self, forKey: .dictionaryTerms)
-        microphoneId = try container.decodeIfPresent(String.self, forKey: .microphoneId)
-        dictationHotkey = try container.decode(HotkeyBinding.self, forKey: .dictationHotkey)
-        styleHotkey = try container.decode(HotkeyBinding.self, forKey: .styleHotkey)
-        themeID = try container.decodeIfPresent(OmniVoiceThemeID.self, forKey: .themeID) ?? .auroraBlue
-        customAccentColor = try container.decodeIfPresent(ThemeColor.self, forKey: .customAccentColor) ?? ThemeColor(hex: "#38BDF8")
-        waveformMode = try container.decodeIfPresent(WaveformMode.self, forKey: .waveformMode) ?? .bars
-        commitAnimationMode = try container.decodeIfPresent(CommitAnimationMode.self, forKey: .commitAnimationMode) ?? .glyphStream
-        engineFrameSide = try container.decodeIfPresent(EngineFrameSide.self, forKey: .engineFrameSide) ?? .right
+    private init(snakeCaseContainer container: KeyedDecodingContainer<CodingKeys>) throws {
+        self.init(
+            asrProvider: try container.decode(ASRProviderKind.self, forKey: .asrProvider),
+            style: try container.decode(StyleProfile.self, forKey: .style),
+            dictionaryTerms: try container.decode([String].self, forKey: .dictionaryTerms),
+            microphoneID: try container.decodeIfPresent(String.self, forKey: .microphoneId),
+            dictationHotkey: try container.decode(HotkeyBinding.self, forKey: .dictationHotkey),
+            styleHotkey: try container.decode(HotkeyBinding.self, forKey: .styleHotkey),
+            themeID: try container.decodeIfPresent(OmniVoiceThemeID.self, forKey: .themeID) ?? .auroraBlue,
+            customAccentColor: try container.decodeIfPresent(ThemeColor.self, forKey: .customAccentColor) ?? ThemeColor(hex: "#38BDF8"),
+            waveformMode: try container.decodeIfPresent(WaveformMode.self, forKey: .waveformMode) ?? .bars,
+            commitAnimationMode: try container.decodeIfPresent(CommitAnimationMode.self, forKey: .commitAnimationMode) ?? .glyphStream,
+            engineFrameSide: try container.decodeIfPresent(EngineFrameSide.self, forKey: .engineFrameSide) ?? .right
+        )
+    }
+
+    private init(convertedContainer container: KeyedDecodingContainer<ConvertedCodingKeys>) throws {
+        self.init(
+            asrProvider: try container.decode(ASRProviderKind.self, forKey: .asrProvider),
+            style: try container.decode(StyleProfile.self, forKey: .style),
+            dictionaryTerms: try container.decode([String].self, forKey: .dictionaryTerms),
+            microphoneID: try container.decodeIfPresent(String.self, forKey: .microphoneId),
+            dictationHotkey: try container.decode(HotkeyBinding.self, forKey: .dictationHotkey),
+            styleHotkey: try container.decode(HotkeyBinding.self, forKey: .styleHotkey),
+            themeID: try container.decodeIfPresent(OmniVoiceThemeID.self, forKey: .themeID) ?? .auroraBlue,
+            customAccentColor: try container.decodeIfPresent(ThemeColor.self, forKey: .customAccentColor) ?? ThemeColor(hex: "#38BDF8"),
+            waveformMode: try container.decodeIfPresent(WaveformMode.self, forKey: .waveformMode) ?? .bars,
+            commitAnimationMode: try container.decodeIfPresent(CommitAnimationMode.self, forKey: .commitAnimationMode) ?? .glyphStream,
+            engineFrameSide: try container.decodeIfPresent(EngineFrameSide.self, forKey: .engineFrameSide) ?? .right
+        )
     }
 
     public mutating func cycleStyle() {
@@ -90,6 +116,20 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case asrProvider = "asr_provider"
+        case style = "style"
+        case dictionaryTerms = "dictionary_terms"
+        case microphoneId = "microphone_id"
+        case dictationHotkey = "dictation_hotkey"
+        case styleHotkey = "style_hotkey"
+        case themeID = "theme_id"
+        case customAccentColor = "custom_accent_color"
+        case waveformMode = "waveform_mode"
+        case commitAnimationMode = "commit_animation_mode"
+        case engineFrameSide = "engine_frame_side"
+    }
+
+    private enum ConvertedCodingKeys: String, CodingKey {
         case asrProvider
         case style
         case dictionaryTerms

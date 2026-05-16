@@ -42,6 +42,17 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.engineFrameSide, .right)
     }
 
+    func testPreferencesEncodingUsesExplicitSnakeCaseThemeKeys() throws {
+        let data = try JSONEncoder().encode(OmniVoicePreferences.defaults)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertNotNil(object["theme_id"])
+        XCTAssertNotNil(object["custom_accent_color"])
+        XCTAssertNotNil(object["waveform_mode"])
+        XCTAssertNotNil(object["commit_animation_mode"])
+        XCTAssertNotNil(object["engine_frame_side"])
+    }
+
     func testStyleCycleUpdatesPreference() {
         var preferences = OmniVoicePreferences.defaults
 
