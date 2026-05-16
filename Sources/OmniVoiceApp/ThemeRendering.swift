@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import OmniVoiceCore
 
@@ -12,6 +13,21 @@ extension Color {
             green: Double((value >> 8) & 0xFF) / 255.0,
             blue: Double(value & 0xFF) / 255.0
         )
+    }
+}
+
+extension ThemeColor {
+    init(color: Color) {
+        let fallback = ThemeColor(hex: "#38BDF8")
+        guard let color = NSColor(color).usingColorSpace(.sRGB) else {
+            self = fallback
+            return
+        }
+
+        let red = Int((color.redComponent * 255).rounded())
+        let green = Int((color.greenComponent * 255).rounded())
+        let blue = Int((color.blueComponent * 255).rounded())
+        self.init(hex: String(format: "#%02X%02X%02X", red, green, blue))
     }
 }
 

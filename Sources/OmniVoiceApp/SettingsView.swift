@@ -43,6 +43,47 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Appearance") {
+                Picker("Theme", selection: themeIDBinding) {
+                    ForEach(OmniVoiceTheme.builtIn, id: \.id) { theme in
+                        Text(theme.name).tag(theme.id)
+                    }
+                    Text("Custom").tag(OmniVoiceThemeID.custom)
+                }
+
+                ColorPicker(
+                    "Custom Accent",
+                    selection: Binding(
+                        get: { Color(themeColor: model.preferences.customAccentColor) },
+                        set: { model.setCustomAccentColor(ThemeColor(color: $0)) }
+                    )
+                )
+
+                ThemePreview(theme: model.activeTheme)
+            }
+
+            Section("Waveform And Motion") {
+                Picker("Waveform", selection: waveformModeBinding) {
+                    ForEach(WaveformMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+
+                Picker("Commit Animation", selection: commitAnimationModeBinding) {
+                    ForEach(CommitAnimationMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+            }
+
+            Section("Engine Frame") {
+                Picker("Side", selection: engineFrameSideBinding) {
+                    ForEach(EngineFrameSide.allCases, id: \.self) { side in
+                        Text(side.displayName).tag(side)
+                    }
+                }
+            }
+
             Section("Dictation") {
                 Picker("ASR Provider", selection: providerBinding) {
                     ForEach(providerOrder, id: \.self) { provider in
@@ -186,6 +227,34 @@ struct SettingsView: View {
         )
     }
 
+    private var themeIDBinding: Binding<OmniVoiceThemeID> {
+        Binding(
+            get: { model.preferences.themeID },
+            set: { model.setThemeID($0) }
+        )
+    }
+
+    private var waveformModeBinding: Binding<WaveformMode> {
+        Binding(
+            get: { model.preferences.waveformMode },
+            set: { model.setWaveformMode($0) }
+        )
+    }
+
+    private var commitAnimationModeBinding: Binding<CommitAnimationMode> {
+        Binding(
+            get: { model.preferences.commitAnimationMode },
+            set: { model.setCommitAnimationMode($0) }
+        )
+    }
+
+    private var engineFrameSideBinding: Binding<EngineFrameSide> {
+        Binding(
+            get: { model.preferences.engineFrameSide },
+            set: { model.setEngineFrameSide($0) }
+        )
+    }
+
     private var selectedProviderStatus: String {
         guard let provider = model.providerInfo(for: model.preferences.asrProvider) else {
             return "Not checked"
@@ -235,5 +304,34 @@ struct SettingsView: View {
             return false
         }
         return download.state == "queued" || download.state == "downloading"
+    }
+}
+
+private struct ThemePreview: View {
+    let theme: OmniVoiceTheme
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(Color(themeColor: theme.accentColor))
+                .frame(width: 22, height: 22)
+                .overlay {
+                    Circle()
+                        .stroke(Color(themeColor: theme.secondaryAccentColor).opacity(0.75), lineWidth: 2)
+                }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(theme.name)
+                    .font(.headline)
+                Text("\(theme.waveformMode.displayName) / \(theme.commitAnimationMode.displayName)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .themeSurface(theme, cornerRadius: 8, strong: true)
     }
 }
