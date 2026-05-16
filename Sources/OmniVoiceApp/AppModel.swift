@@ -127,33 +127,68 @@ final class AppModel {
     }
 
     func setThemeID(_ themeID: OmniVoiceThemeID) {
+        guard preferences.themeID != themeID else {
+            return
+        }
+
         preferences.themeID = themeID
-        persistPreferences()
+        guard persistPreferences() else {
+            return
+        }
+
         statusText = "Theme: \(activeTheme.name)"
     }
 
     func setCustomAccentColor(_ color: ThemeColor) {
+        guard preferences.customAccentColor != color || preferences.themeID != .custom else {
+            return
+        }
+
         preferences.customAccentColor = color
         preferences.themeID = .custom
-        persistPreferences()
+        guard persistPreferences() else {
+            return
+        }
+
         statusText = "Custom accent: \(color.hex)"
     }
 
     func setWaveformMode(_ mode: WaveformMode) {
+        guard preferences.waveformMode != mode else {
+            return
+        }
+
         preferences.waveformMode = mode
-        persistPreferences()
+        guard persistPreferences() else {
+            return
+        }
+
         statusText = "Waveform: \(mode.displayName)"
     }
 
     func setCommitAnimationMode(_ mode: CommitAnimationMode) {
+        guard preferences.commitAnimationMode != mode else {
+            return
+        }
+
         preferences.commitAnimationMode = mode
-        persistPreferences()
+        guard persistPreferences() else {
+            return
+        }
+
         statusText = "Animation: \(mode.displayName)"
     }
 
     func setEngineFrameSide(_ side: EngineFrameSide) {
+        guard preferences.engineFrameSide != side else {
+            return
+        }
+
         preferences.engineFrameSide = side
-        persistPreferences()
+        guard persistPreferences() else {
+            return
+        }
+
         statusText = "Engine frame: \(side.displayName)"
     }
 
@@ -328,11 +363,14 @@ final class AppModel {
         }
     }
 
-    private func persistPreferences() {
+    @discardableResult
+    private func persistPreferences() -> Bool {
         do {
             try preferencesStore.save(preferences)
+            return true
         } catch {
             statusText = "Preferences save failed"
+            return false
         }
     }
 }
