@@ -1,5 +1,20 @@
-from pydantic import BaseModel, Field
-from typing import Any
+from typing import Annotated, Any, Literal
+
+from pydantic import BaseModel, Field, StringConstraints, model_validator
+
+
+NonBlankString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+ConversationCaptureMode = Literal[
+    "microphone_only",
+    "system_audio_only",
+    "microphone_and_system_audio",
+    "mixed_fallback",
+]
+ConversationSegmentState = Literal["live", "settled", "corrected_speaker"]
+ConversationAssistCardKind = Literal["question", "answer", "time_zone", "follow_up", "action_item", "warning"]
+ConversationAssistCardStatus = Literal["active", "copied", "spoken", "pinned", "dismissed"]
+Confidence = Annotated[float, Field(ge=0.0, le=1.0)]
+Milliseconds = Annotated[int, Field(ge=0)]
 
 
 class CleanupRequest(BaseModel):
@@ -102,6 +117,85 @@ class TranscriptRecord(BaseModel):
     audio_bytes: int | None = None
     sample_rate: int | None = None
     duration_ms: int | None = None
+
+
+class ConversationSessionCreateRequest(BaseModel):
+    title: NonBlankString = "Conversation"
+    capture_mode: ConversationCaptureMode = "microphone_only"
+    asr_provider: NonBlankString = "parakeet-tdt"
+    diarization_provider: NonBlankString = "mock"
+    external_processing_enabled: bool = False
+
+
+class ConversationSessionRecord(BaseModel):
+    id: str
+    title: NonBlankString
+    started_at: str
+    ended_at: str | None = None
+    capture_mode: ConversationCaptureMode
+    asr_provider: NonBlankString
+    diarization_provider: NonBlankString
+    external_processing_enabled: bool = False
+
+
+class ConversationSegmentCreateRequest(BaseModel):
+    speaker_id: NonBlankString
+    speaker_display_name: NonBlankString
+    start_ms: Milliseconds
+    end_ms: Milliseconds | None = None
+    text: NonBlankString
+    state: ConversationSegmentState = "settled"
+    confidence: Confidence | None = None
+
+    @model_validator(mode="after")
+    def validate_end_ms(self) -> "ConversationSegmentCreateRequest":
+        if self.end_ms is not None and self.end_ms < self.start_ms:
+            raise ValueError("end_ms must be greater than or equal to start_ms")
+        return self
+
+
+class ConversationSegmentRecord(BaseModel):
+    id: str
+    session_id: str
+    speaker_id: NonBlankString
+    speaker_display_name: NonBlankString
+    start_ms: Milliseconds
+    end_ms: Milliseconds | None = None
+    text: NonBlankString
+    state: ConversationSegmentState = "settled"
+    confidence: Confidence | None = None
+
+    @model_validator(mode="after")
+    def validate_end_ms(self) -> "ConversationSegmentRecord":
+        if self.end_ms is not None and self.end_ms < self.start_ms:
+            raise ValueError("end_ms must be greater than or equal to start_ms")
+        return self
+
+
+class ConversationAssistCardCreateRequest(BaseModel):
+    kind: ConversationAssistCardKind
+    title: NonBlankString
+    body: NonBlankString
+    source_references: list[str] = Field(default_factory=list)
+    confidence: Confidence | None = None
+
+
+class ConversationAssistCardRecord(BaseModel):
+    id: str
+    session_id: str
+    kind: ConversationAssistCardKind
+    title: NonBlankString
+    body: NonBlankString
+    source_references: list[str] = Field(default_factory=list)
+    confidence: Confidence | None = None
+    status: ConversationAssistCardStatus = "active"
+    created_at: str
+
+
+class ConversationDetail(BaseModel):
+    session: ConversationSessionRecord
+    segments: list[ConversationSegmentRecord] = Field(default_factory=list)
+    assist_cards: list[ConversationAssistCardRecord] = Field(default_factory=list)
 
 
 class StreamingStats(BaseModel):

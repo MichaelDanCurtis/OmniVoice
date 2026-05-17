@@ -20,6 +20,13 @@ from .schemas import (
     AIHandoffResponse,
     CleanupRequest,
     CleanupResponse,
+    ConversationAssistCardCreateRequest,
+    ConversationAssistCardRecord,
+    ConversationDetail,
+    ConversationSegmentCreateRequest,
+    ConversationSegmentRecord,
+    ConversationSessionCreateRequest,
+    ConversationSessionRecord,
     DesktopAppLaunchResponse,
     EngineEvent,
     EngineStatus,
@@ -468,6 +475,86 @@ def engine_status() -> EngineStatus:
         transcript_count=runtime_store.transcript_count(),
         streaming=runtime_store.streaming_stats(),
     )
+
+
+@app.post("/api/conversations", response_model=ConversationSessionRecord)
+def create_conversation(request: ConversationSessionCreateRequest) -> ConversationSessionRecord:
+    session = runtime_store.create_conversation_session(
+        title=request.title,
+        capture_mode=request.capture_mode,
+        asr_provider=request.asr_provider,
+        diarization_provider=request.diarization_provider,
+        external_processing_enabled=request.external_processing_enabled,
+    )
+    runtime_store.record_event(
+        "conversation.started",
+        "Conversation session started",
+        detail={"session_id": session.id, "capture_mode": session.capture_mode},
+    )
+    return session
+
+
+@app.get("/api/conversations", response_model=list[ConversationSessionRecord])
+def conversations(limit: int = Query(default=100, ge=1, le=1000)) -> list[ConversationSessionRecord]:
+    return runtime_store.recent_conversation_sessions(limit)
+
+
+@app.get("/api/conversations/{session_id}", response_model=ConversationDetail)
+def conversation_detail(session_id: str) -> ConversationDetail:
+    session = runtime_store.conversation_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"conversation not found: {session_id}")
+    return ConversationDetail(
+        session=session,
+        segments=runtime_store.conversation_segments(session_id),
+        assist_cards=runtime_store.conversation_assist_cards(session_id),
+    )
+
+
+@app.post("/api/conversations/{session_id}/segments", response_model=ConversationSegmentRecord)
+def add_conversation_segment(session_id: str, request: ConversationSegmentCreateRequest) -> ConversationSegmentRecord:
+    if runtime_store.conversation_session(session_id) is None:
+        raise HTTPException(status_code=404, detail=f"conversation not found: {session_id}")
+    return runtime_store.add_conversation_segment(
+        session_id=session_id,
+        speaker_id=request.speaker_id,
+        speaker_display_name=request.speaker_display_name,
+        start_ms=request.start_ms,
+        end_ms=request.end_ms,
+        text=request.text,
+        state=request.state,
+        confidence=request.confidence,
+    )
+
+
+@app.post("/api/conversations/{session_id}/assist-cards", response_model=ConversationAssistCardRecord)
+def add_conversation_assist_card(
+    session_id: str,
+    request: ConversationAssistCardCreateRequest,
+) -> ConversationAssistCardRecord:
+    if runtime_store.conversation_session(session_id) is None:
+        raise HTTPException(status_code=404, detail=f"conversation not found: {session_id}")
+    return runtime_store.add_conversation_assist_card(
+        session_id=session_id,
+        kind=request.kind,
+        title=request.title,
+        body=request.body,
+        source_references=request.source_references,
+        confidence=request.confidence,
+    )
+
+
+@app.post("/api/conversations/{session_id}/stop", response_model=ConversationSessionRecord)
+def stop_conversation(session_id: str) -> ConversationSessionRecord:
+    session = runtime_store.stop_conversation_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"conversation not found: {session_id}")
+    runtime_store.record_event(
+        "conversation.stopped",
+        "Conversation session stopped",
+        detail={"session_id": session.id},
+    )
+    return session
 
 
 @app.get("/api/events", response_model=list[EngineEvent])
