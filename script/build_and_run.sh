@@ -20,6 +20,7 @@ APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 ENGINE_BUNDLE_DIR="$APP_RESOURCES/Engine"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+RUN_APP_BUNDLE="${OMNIVOICE_RUN_APP_BUNDLE:-$HOME/Applications/$APP_DISPLAY_NAME.app}"
 ICON_SOURCE="$ROOT_DIR/Assets/AppIcon/OmniVoiceIcon.svg"
 ICONSET_DIR="$DIST_DIR/OmniVoice.iconset"
 ICON_DIST_FILE="$DIST_DIR/OmniVoice.icns"
@@ -27,11 +28,13 @@ ICON_BUNDLE_FILE="$APP_RESOURCES/OmniVoice.icns"
 DMG_STAGING="$DIST_DIR/dmg-staging"
 DMG_PATH="$DIST_DIR/OmniVoice.dmg"
 ENGINE_PID_FILE="$DIST_DIR/engine.pid"
+ENGINE_APP_PATH_FILE="$DIST_DIR/engine-app-path"
 LOCAL_CODESIGN_NAME="OmniVoice Local Development"
 LOCAL_CODESIGN_DIR="$DIST_DIR/codesign"
 LOCAL_CODESIGN_KEYCHAIN="$LOCAL_CODESIGN_DIR/OmniVoiceLocal.keychain-db"
 LOCAL_CODESIGN_P12_PASSWORD="omnivoice-local"
 CODESIGN_IDENTITY=""
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 cd "$ROOT_DIR"
 
@@ -59,6 +62,11 @@ engine_session_matches_root() {
   local pane_path
   pane_path="$(tmux display-message -p -t omnivoice-engine:0.0 '#{pane_current_path}' 2>/dev/null || true)"
   [[ "$pane_path" == "$ROOT_DIR" || "$pane_path" == "$ROOT_DIR/engine" ]]
+}
+
+engine_session_matches_runtime() {
+  engine_session_matches_root || return 1
+  [[ "$(cat "$ENGINE_APP_PATH_FILE" 2>/dev/null || true)" == "$RUN_APP_BUNDLE" ]]
 }
 
 ensure_local_codesign_identity() {
@@ -119,19 +127,20 @@ ensure_local_codesign_identity() {
 }
 
 ensure_engine() {
-  if curl -fsS http://127.0.0.1:8765/health >/dev/null 2>&1 && engine_session_matches_root; then
+  if curl -fsS http://127.0.0.1:8765/health >/dev/null 2>&1 && engine_session_matches_runtime; then
     return
   fi
 
   mkdir -p "$DIST_DIR"
   if command -v tmux >/dev/null 2>&1; then
     tmux kill-session -t omnivoice-engine >/dev/null 2>&1 || true
-    tmux new-session -d -s omnivoice-engine "cd \"$ROOT_DIR\" && OMNIVOICE_DESKTOP_APP_PATH=\"$APP_BUNDLE\" OMNIVOICE_MODEL_ROOT=\"${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}\" OMNIVOICE_INSTALL_ASR=\"${OMNIVOICE_INSTALL_ASR:-1}\" scripts/run-engine.sh >>\"$DIST_DIR/engine.log\" 2>&1"
+    tmux new-session -d -s omnivoice-engine "cd \"$ROOT_DIR\" && OMNIVOICE_DESKTOP_APP_PATH=\"$RUN_APP_BUNDLE\" OMNIVOICE_MODEL_ROOT=\"${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}\" OMNIVOICE_INSTALL_ASR=\"${OMNIVOICE_INSTALL_ASR:-1}\" scripts/run-engine.sh >>\"$DIST_DIR/engine.log\" 2>&1"
     echo "tmux:omnivoice-engine" >"$ENGINE_PID_FILE"
   else
-    nohup env OMNIVOICE_DESKTOP_APP_PATH="$APP_BUNDLE" OMNIVOICE_MODEL_ROOT="${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}" OMNIVOICE_INSTALL_ASR="${OMNIVOICE_INSTALL_ASR:-1}" "$ROOT_DIR/scripts/run-engine.sh" >"$DIST_DIR/engine.log" 2>&1 &
+    nohup env OMNIVOICE_DESKTOP_APP_PATH="$RUN_APP_BUNDLE" OMNIVOICE_MODEL_ROOT="${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}" OMNIVOICE_INSTALL_ASR="${OMNIVOICE_INSTALL_ASR:-1}" "$ROOT_DIR/scripts/run-engine.sh" >"$DIST_DIR/engine.log" 2>&1 &
     echo "$!" >"$ENGINE_PID_FILE"
   fi
+  echo "$RUN_APP_BUNDLE" >"$ENGINE_APP_PATH_FILE"
 
   for _ in {1..120}; do
     if curl -fsS http://127.0.0.1:8765/health >/dev/null 2>&1; then
@@ -265,9 +274,41 @@ xattr -dr com.apple.quarantine "$APP_BUNDLE" >/dev/null 2>&1 || true
 resolve_codesign_identity
 /usr/bin/codesign --force --deep --sign "$CODESIGN_IDENTITY" --identifier "$BUNDLE_ID" "$APP_BUNDLE"
 
+unregister_stale_launch_services() {
+  local stale_bundle
+  for stale_bundle in "$APP_BUNDLE" "$LEGACY_APP_BUNDLE" "$DMG_STAGING/$APP_DISPLAY_NAME.app"; do
+    if [[ "$stale_bundle" != "$RUN_APP_BUNDLE" ]]; then
+      "$LSREGISTER" -u "$stale_bundle" >/dev/null 2>&1 || true
+    fi
+  done
+}
+
+register_launch_services() {
+  [[ -x "$LSREGISTER" ]] || return
+
+  unregister_stale_launch_services
+  "$LSREGISTER" -f "$RUN_APP_BUNDLE" >/dev/null 2>&1 || true
+  unregister_stale_launch_services
+  "$LSREGISTER" -f "$RUN_APP_BUNDLE" >/dev/null 2>&1 || true
+}
+
+install_run_bundle() {
+  if [[ "$RUN_APP_BUNDLE" != "$APP_BUNDLE" ]]; then
+    mkdir -p "$(dirname "$RUN_APP_BUNDLE")"
+    rm -rf "$RUN_APP_BUNDLE"
+    cp -R "$APP_BUNDLE" "$RUN_APP_BUNDLE"
+    rm -rf "$APP_BUNDLE"
+  fi
+
+  xattr -dr com.apple.quarantine "$RUN_APP_BUNDLE" >/dev/null 2>&1 || true
+  /usr/bin/codesign --verify --deep --strict "$RUN_APP_BUNDLE"
+  register_launch_services
+}
+
 open_app() {
+  install_run_bundle
   ensure_engine
-  /usr/bin/open -n "$APP_BUNDLE"
+  /usr/bin/open -n "$RUN_APP_BUNDLE"
 }
 
 create_dmg() {

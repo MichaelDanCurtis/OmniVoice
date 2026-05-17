@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var insertionTarget: TextInsertionService.Target?
     private var liveDraft: TextInsertionService.LiveDraft?
     private var didPromptForAccessibility = false
+    private var permissionRefreshTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -28,8 +29,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        permissionRefreshTimer?.invalidate()
         hotkeys.unregister()
         EngineSupervisor.shared.stopStartedProcess()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        updatePermissionStatus()
     }
 
     func attach(model: AppModel) {
@@ -48,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        startPermissionRefreshTimer()
         applyHotkeys(preferences: model.preferences)
     }
 
@@ -127,7 +134,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func updatePermissionStatus() {
+    private func startPermissionRefreshTimer() {
+        permissionRefreshTimer?.invalidate()
+        permissionRefreshTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.updatePermissionStatus(updateStatusText: false)
+            }
+        }
+    }
+
+    private func updatePermissionStatus(updateStatusText: Bool = true) {
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         let accessibilityEnabled = AXIsProcessTrusted()
         model?.microphoneAuthorized = micStatus == .authorized
@@ -135,6 +151,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if accessibilityEnabled {
             didPromptForAccessibility = false
         }
+
+        guard updateStatusText, model?.session.state == .idle else { return }
 
         switch (micStatus, accessibilityEnabled) {
         case (.authorized, true):
