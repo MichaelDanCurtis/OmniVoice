@@ -28,6 +28,24 @@ class AIHandoffResponse(BaseModel):
     model: str
 
 
+class TranslationRequest(BaseModel):
+    text: str = Field(min_length=1)
+    source_language: str = "auto"
+    target_language: str = "en"
+    provider: str = "custom"
+    base_url: str = ""
+    model: str = ""
+    api_key: str = ""
+
+
+class TranslationResponse(BaseModel):
+    text: str
+    provider: str
+    model: str
+    source_language: str
+    target_language: str
+
+
 class ProviderInfo(BaseModel):
     id: str
     label: str

@@ -275,10 +275,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showOverlay(text: rawTranscript, styleName: model.preferences.style.displayName)
 
         let finalText: String
+        let shouldTranslateFinalText: Bool
         if let literalText = literalPayload(from: rawTranscript) {
             finalText = TextInsertionEdit.sanitizedInsertionText(literalText)
+            shouldTranslateFinalText = false
             model.statusText = "Literal mode"
         } else {
+            shouldTranslateFinalText = true
             let cleanupStyle = cleanupStyle(for: insertionTarget, preferredStyle: model.preferences.style)
             do {
                 let cleanup = try await engineClient.cleanup(
@@ -295,8 +298,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        model.session.finishCleanup(finalText)
-
         if let command = DictationCommandParser.parse(finalText) {
             cancelLiveDraftIfNeeded()
             await handle(command: command, originalText: finalText, model: model)
@@ -306,11 +307,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let selectedText = insertionTarget?.selectedText,
            !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            let rewritten = SelectionRewrite.rewrite(selectedText: selectedText, instruction: finalText) {
+            model.session.finishCleanup(rewritten)
             await insertFinalText(rewritten, model: model, successStatus: "Selection rewritten")
             return
         }
 
-        await insertFinalText(finalText, model: model, successStatus: "Inserted")
+        let translated = shouldTranslateFinalText
+            ? await translatedFinalTextIfNeeded(finalText, model: model)
+            : (text: finalText, successStatus: "Inserted")
+        model.session.finishCleanup(translated.text)
+        await insertFinalText(translated.text, model: model, successStatus: translated.successStatus)
+    }
+
+    private func translatedFinalTextIfNeeded(_ finalText: String, model: AppModel) async -> (text: String, successStatus: String) {
+        guard model.preferences.liveTranslationEnabled else {
+            return (finalText, "Inserted")
+        }
+
+        let sourceLanguage = model.preferences.translationSourceLanguage
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let targetLanguage = model.preferences.translationTargetLanguage
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedSource = sourceLanguage.isEmpty ? "auto" : sourceLanguage
+        let normalizedTarget = targetLanguage.isEmpty ? "en" : targetLanguage
+        if normalizedSource.caseInsensitiveCompare(normalizedTarget) == .orderedSame {
+            return (finalText, "Inserted")
+        }
+
+        let baseURL = model.preferences.openAICompatibleBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let aiModel = model.preferences.openAICompatibleModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !baseURL.isEmpty, !aiModel.isEmpty else {
+            model.statusText = "Translation endpoint required"
+            showOverlay(
+                text: "Add an OpenAI-compatible endpoint and model in Integrations.",
+                styleName: "Translation"
+            )
+            return (finalText, "Inserted - translation skipped")
+        }
+
+        model.statusText = "Translating"
+        showOverlay(text: "Translating to \(normalizedTarget)...", styleName: "Translation")
+
+        do {
+            let result = try await engineClient.translate(
+                TranslationRequest(
+                    text: finalText,
+                    sourceLanguage: normalizedSource,
+                    targetLanguage: normalizedTarget,
+                    provider: model.preferences.aiProviderPresetID.rawValue,
+                    baseURL: baseURL,
+                    model: aiModel,
+                    apiKey: model.openAICompatibleAPIKey
+                )
+            )
+            let translatedText = TextInsertionEdit.sanitizedInsertionText(result.text)
+            guard !translatedText.isEmpty else {
+                model.statusText = "Translation returned empty text"
+                showOverlay(text: "Translation returned empty text", styleName: "Translation")
+                return (finalText, "Inserted - translation skipped")
+            }
+
+            model.captionText = translatedText
+            showOverlay(text: translatedText, styleName: "Translation")
+            return (translatedText, "Translated")
+        } catch {
+            model.statusText = "Translation skipped"
+            showOverlay(text: error.localizedDescription, styleName: "Translation failed")
+            return (finalText, "Inserted - translation skipped")
+        }
     }
 
     private func insertFinalText(_ finalText: String, model: AppModel, successStatus: String) async {

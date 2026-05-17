@@ -1,6 +1,6 @@
 # OmniVoice V2 Feature GUI Map
 
-Last updated: 2026-05-16
+Last updated: 2026-05-17
 
 This file maps OmniVoice features to the GUI surface where a user should discover, configure, or use them. It also marks gaps where a feature exists in code but is hard to find, or where a planned V2 feature has no GUI yet.
 
@@ -27,8 +27,8 @@ This file maps OmniVoice features to the GUI surface where a user should discove
 | Local engine status | Implemented | Overview tab, menu bar, engine website, current side panel | Overview tab and menu bar | Overview shows compact status plus local websocket diagnostics; side panel should not be an engine diagnostics duplicate. |
 | Start/restart engine | Implemented | Overview tab; engine website start app button; app auto-starts engine | Overview tab and engine website | App restart handles app-managed engine processes and refreshes status after restart. |
 | Parakeet TDT STT provider | Implemented | Dictation tab ASR picker; Models tab | Dictation tab and Models tab | Current default. |
-| Canary-Qwen-2.5B provider slot | Partially implemented | Dictation tab ASR picker; Models tab | Dictation tab and Models tab | Provider appears, but runtime is unavailable in MVP. |
-| External STT model selection | Partially implemented | Models tab | Models tab | Custom local speech model path can be selected and persisted; runtime execution selector is still planned. |
+| Canary-Qwen-2.5B runtime | Planned | Dictation tab ASR picker; Models tab | Dictation tab and Models tab | Provider slot is visible, but runtime execution is intentionally unavailable until Canary model loading is implemented. |
+| External STT model routing | Planned | Models tab | Models tab | Custom local speech model path can be selected and persisted; runtime execution selector still needs model-loader work. |
 | Hugging Face model download | Implemented | Models tab, engine website | Models tab and engine website | Good location. |
 | Hugging Face update check | Implemented | Models tab, engine website | Models tab and engine website | Good location. |
 | Live caption streaming | Implemented | Caption overlay while listening; Overview stream diagnostics | Caption overlay | Websocket connects before capture starts, app tracks dropped chunks/bytes, and engine website shows active streams/audio/partials. |
@@ -53,13 +53,13 @@ This file maps OmniVoice features to the GUI surface where a user should discove
 | Read foreground text and respond | Planned | Integrations/AI tab capability surface | Integrations/AI tab | Requires foreground selection/context capture plus LLM provider configuration. |
 | "Ask Claude/Codex/OpenRouter" inline replies | Implemented MVP | Integrations/AI tab capability surface | Integrations/AI tab | Explicit voice patterns route to the OpenAI-compatible handoff endpoint and insert the AI response inline. Failed requests can be retried, copied, or inserted as original text. Provider-native OAuth remains planned. |
 | OpenAI-compatible custom API integration | Implemented MVP | Integrations/AI tab | Integrations/AI tab | Provider presets, Base URL, model, Keychain-backed API key storage, and Test AI Connection are available. |
-| Claude Desktop integration | Partial utility support | Integrations/AI tab; docs/INTEGRATIONS.md | Integrations/AI tab and Help/Capabilities | Current support strips Claude placeholder text and can open Claude. No Claude API/OAuth GUI yet. |
-| Codex integration | Partial utility support | Integrations/AI tab; docs/INTEGRATIONS.md | Integrations/AI tab and Help/Capabilities | Current support strips Codex placeholder text and works through normal insertion. No Codex OAuth GUI yet. |
+| Claude Desktop utility support | Implemented utility support | Integrations/AI tab; docs/INTEGRATIONS.md | Integrations/AI tab and Help/Capabilities | Current support strips Claude placeholder text and can open Claude. Native Claude API/OAuth remains planned. |
+| Codex utility support | Implemented utility support | Integrations/AI tab; docs/INTEGRATIONS.md | Integrations/AI tab and Help/Capabilities | Current support strips Codex placeholder text and works through normal insertion. Native Codex OAuth remains planned. |
 | Copilot OAuth integration | Planned | Not available | Integrations/AI tab | Need to validate API/OAuth feasibility before implementation. |
 | OpenRouter integration | Implemented MVP | Integrations/AI tab | Integrations/AI tab | Works through OpenRouter's OpenAI-compatible API when configured with base URL, model, and API key. Native account/OAuth setup remains planned. |
 | Raycast integration | Implemented externally | Integrations/AI tab; integrations/raycast README | Integrations tab | App-visible entry point now opens the Raycast files. |
-| Live translation | Partially implemented | Translation tab | Translation tab | Source/target language, enabled flag, and model path are persisted; runtime translation route remains planned. |
-| External translation model selection | Partially implemented | Models tab and Translation tab | Translation tab or Models tab | Local translation model path can be selected and persisted; runtime execution selector is still planned. |
+| Live translation | Implemented MVP | Translation tab | Translation tab | Source/target language and enabled flag are persisted; final text is translated on hotkey release through the configured OpenAI-compatible provider. True streaming translation remains planned. |
+| External local translation model routing | Planned | Models tab and Translation tab | Translation tab or Models tab | Local translation model path can be selected and persisted; runtime execution selector still needs model-loader work. |
 | Inline live streaming into active field | Implemented, optional | Dictation tab advanced setting | Dictation tab | Live type draft uses direct Accessibility replacement while listening and commits the cleaned final text on release. Falls back to normal insertion when unavailable. |
 | Conversation transcription | Planned | Not available | Conversation side modal | Should support meeting-style transcript capture and export. |
 | Speaker diarization | Research/planned | Not available | Conversation side modal | Need model support confirmation; may require post-processing with LLM if STT provider cannot identify speakers. |
@@ -84,7 +84,7 @@ The current Quick Reference and Capabilities sections should become one "Capabil
 | Selection rewrite | How to select text first, supported rewrite instructions. |
 | Literal/raw mode | How to preserve exact terms, commands, code, and file paths. |
 | Personal dictionary | How casing preservation works and when to add terms. |
-| Translation | Input/output language controls and model requirements once implemented. |
+| Translation | Input/output language controls, OpenAI-compatible provider setup, local model runtime status, and true streaming translation roadmap. |
 | AI handoff | Configure an OpenAI-compatible endpoint, then use "Ask Claude/OpenAI/OpenRouter" commands. |
 | Conversation mode | Transcript, speaker labels, copy/insert, and export once implemented. |
 
@@ -98,5 +98,5 @@ The current Quick Reference and Capabilities sections should become one "Capabil
 | Help tab | Implemented: merged with Dictionary into a combined Dictionary/Capabilities area. |
 | Capabilities | Implemented: each capability opens an example modal. |
 | Animation | Removed the destination-aware cursor-flight concept; keep subtle caption-local show/hide behavior only. |
-| Models | Implemented configuration selectors for speech-to-text and translation model paths; runtime routing remains planned. |
+| Models | Implemented configuration selectors for speech-to-text and translation model paths; external local model runtime routing remains planned. |
 | Integrations | Implemented a dedicated Integrations/AI tab for AI handoff patterns, OpenAI-compatible endpoint/model settings, and Raycast entry points. |

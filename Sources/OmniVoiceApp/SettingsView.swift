@@ -413,13 +413,21 @@ struct SettingsView: View {
             TextField("Target Language", text: translationTargetLanguageBinding)
                 .textFieldStyle(.roundedBorder)
 
-            LabeledContent("Model", value: model.preferences.customTranslationModelPath.isEmpty ? "Not selected" : model.preferences.customTranslationModelPath)
+            LabeledContent(
+                "AI Endpoint",
+                value: model.preferences.openAICompatibleBaseURL.isEmpty ? "Configure in Integrations" : model.preferences.openAICompatibleBaseURL
+            )
+            LabeledContent("AI Model", value: model.preferences.openAICompatibleModel.isEmpty ? "Configure in Integrations" : model.preferences.openAICompatibleModel)
+            LabeledContent(
+                "Local Model Folder",
+                value: model.preferences.customTranslationModelPath.isEmpty ? "Planned runtime" : model.preferences.customTranslationModelPath
+            )
 
             Button("Choose Translation Model") {
                 chooseDirectory(title: "Choose Translation Model Folder", onSelect: model.setCustomTranslationModelPath)
             }
 
-            Text("Use \"auto\" for source detection. Runtime translation will use the configured local model or AI provider once the translation engine route is enabled.")
+            Text("Use \"auto\" for source detection. Final translation runs through the OpenAI-compatible provider configured in Integrations; local translation model execution is planned.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -1027,7 +1035,7 @@ private enum CapabilityInfo: String, CaseIterable, Identifiable {
         case .modelControl:
             "Install, update, and choose local speech models."
         case .translation:
-            "Configure source/target language and a local translation model."
+            "Translate final dictation through the configured AI provider."
         case .aiHandoff:
             "Route spoken prompts to Claude, Codex, OpenRouter, or OpenAI-compatible APIs."
         case .conversationHistory:
@@ -1122,7 +1130,7 @@ private enum CapabilityInfo: String, CaseIterable, Identifiable {
         case .translation:
             [
                 "Source language: auto. Target language: es.",
-                "Choose a local translation model folder before enabling runtime translation.",
+                "Configure an OpenAI-compatible endpoint and model in Integrations.",
             ]
         case .aiHandoff:
             [

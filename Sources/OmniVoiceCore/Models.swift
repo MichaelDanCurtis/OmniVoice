@@ -233,3 +233,53 @@ public struct AIHandoffResult: Codable, Equatable, Sendable {
         self.model = model
     }
 }
+
+public struct TranslationRequest: Codable, Equatable, Sendable {
+    public let text: String
+    public let sourceLanguage: String
+    public let targetLanguage: String
+    public let provider: String
+    public let baseURL: String
+    public let model: String
+    public let apiKey: String
+
+    public init(
+        text: String,
+        sourceLanguage: String,
+        targetLanguage: String,
+        provider: String,
+        baseURL: String,
+        model: String,
+        apiKey: String = ""
+    ) {
+        self.text = text
+        self.sourceLanguage = sourceLanguage
+        self.targetLanguage = targetLanguage
+        self.provider = provider
+        self.baseURL = baseURL
+        self.model = model
+        self.apiKey = apiKey
+    }
+}
+
+public struct TranslationResult: Codable, Equatable, Sendable {
+    public let text: String
+    public let provider: String
+    public let model: String
+    public let sourceLanguage: String
+    public let targetLanguage: String
+
+    public init(
+        text: String,
+        provider: String,
+        model: String,
+        sourceLanguage: String,
+        targetLanguage: String
+    ) {
+        self.text = text
+        self.provider = provider
+        self.model = model
+        self.sourceLanguage = sourceLanguage
+        self.targetLanguage = targetLanguage
+    }
+}

@@ -284,6 +284,20 @@ public struct EngineClient: Sendable {
         return try EngineCoding.decoder.decode(AIHandoffResult.self, from: data)
     }
 
+    public func translate(_ request: TranslationRequest) async throws -> TranslationResult {
+        let endpoint = baseURL
+            .appending(path: "api")
+            .appending(path: "translate")
+        var urlRequest = URLRequest(url: endpoint)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try EngineCoding.encoder.encode(request)
+
+        let (data, response) = try await urlSession.data(for: urlRequest)
+        try validate(response, data: data)
+        return try EngineCoding.decoder.decode(TranslationResult.self, from: data)
+    }
+
     public func transcribe(audio: Data, provider: ASRProviderKind) async throws -> TranscribeResult {
         var components = URLComponents(url: baseURL.appending(path: "transcribe"), resolvingAgainstBaseURL: false)
         components?.queryItems = [URLQueryItem(name: "provider", value: provider.rawValue)]

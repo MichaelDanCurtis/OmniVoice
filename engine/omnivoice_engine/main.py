@@ -28,6 +28,8 @@ from .schemas import (
     ModelUpdateInfo,
     ProviderInfo,
     ThemePayload,
+    TranslationRequest,
+    TranslationResponse,
     TranscriptRecord,
     TranscribeResponse,
 )
@@ -257,6 +259,80 @@ def ai_handoff(request: AIHandoffRequest) -> AIHandoffResponse:
         },
     )
     return AIHandoffResponse(text=text, provider=provider, model=model)
+
+
+@app.post("/api/translate", response_model=TranslationResponse)
+def translate(request: TranslationRequest) -> TranslationResponse:
+    text_to_translate = request.text.strip()
+    base_url = request.base_url.strip()
+    model = request.model.strip()
+    source_language = request.source_language.strip() or "auto"
+    target_language = request.target_language.strip() or "en"
+    provider = request.provider.strip() or "custom"
+    if not base_url or not model:
+        raise HTTPException(status_code=400, detail="Translation endpoint and model are required")
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Translate the user's text. Preserve meaning, punctuation, paragraph breaks, names, "
+                "technical terms, and quoted text. Return only the translated text."
+            ),
+        },
+        {
+            "role": "user",
+            "content": _translation_user_content(
+                text=text_to_translate,
+                source_language=source_language,
+                target_language=target_language,
+            ),
+        },
+    ]
+
+    try:
+        translated_text = openai_compatible_chat_completion(
+            base_url=base_url,
+            api_key=request.api_key.strip(),
+            model=model,
+            messages=messages,
+            timeout=45.0,
+        )
+    except Exception as exc:
+        runtime_store.record_event(
+            "translation.failed",
+            "Translation failed",
+            level="error",
+            detail={
+                "provider": provider,
+                "model": model,
+                "source_language": source_language,
+                "target_language": target_language,
+                "text_length": len(text_to_translate),
+                "error": str(exc),
+            },
+        )
+        raise HTTPException(status_code=502, detail=f"Translation failed: {exc}") from exc
+
+    runtime_store.record_event(
+        "translation.completed",
+        "Translation completed",
+        detail={
+            "provider": provider,
+            "model": model,
+            "source_language": source_language,
+            "target_language": target_language,
+            "text_length": len(text_to_translate),
+            "translated_length": len(translated_text),
+        },
+    )
+    return TranslationResponse(
+        text=translated_text,
+        provider=provider,
+        model=model,
+        source_language=source_language,
+        target_language=target_language,
+    )
 
 
 @app.post("/transcribe", response_model=TranscribeResponse)
@@ -520,6 +596,14 @@ def _ai_handoff_user_content(*, prompt: str, context: str) -> str:
     if context:
         return f"Foreground context:\n{context}\n\nUser request:\n{prompt}"
     return prompt
+
+
+def _translation_user_content(*, text: str, source_language: str, target_language: str) -> str:
+    return (
+        f"Source language: {source_language}\n"
+        f"Target language: {target_language}\n\n"
+        f"Text:\n{text}"
+    )
 
 
 def openai_compatible_chat_completion(

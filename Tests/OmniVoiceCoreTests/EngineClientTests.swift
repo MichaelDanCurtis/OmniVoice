@@ -138,4 +138,44 @@ final class EngineClientTests: XCTestCase {
             )
         )
     }
+
+    func testTranslationRequestEncodesSnakeCasePayload() throws {
+        let request = TranslationRequest(
+            text: "Hi Jane, we will not be coming.",
+            sourceLanguage: "en",
+            targetLanguage: "es",
+            provider: "openrouter",
+            baseURL: "https://openrouter.ai/api/v1",
+            model: "openai/gpt-4.1-mini",
+            apiKey: "secret"
+        )
+
+        let data = try EngineCoding.encoder.encode(request)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(object["text"] as? String, "Hi Jane, we will not be coming.")
+        XCTAssertEqual(object["source_language"] as? String, "en")
+        XCTAssertEqual(object["target_language"] as? String, "es")
+        XCTAssertEqual(object["provider"] as? String, "openrouter")
+        XCTAssertEqual(object["base_url"] as? String, "https://openrouter.ai/api/v1")
+        XCTAssertEqual(object["model"] as? String, "openai/gpt-4.1-mini")
+        XCTAssertEqual(object["api_key"] as? String, "secret")
+    }
+
+    func testTranslationResultDecodesEnginePayload() throws {
+        let data = #"{"text":"Hola Jane, no vamos a venir.","provider":"openrouter","model":"openai/gpt-4.1-mini","source_language":"en","target_language":"es"}"#.data(using: .utf8)!
+
+        let result = try EngineCoding.decoder.decode(TranslationResult.self, from: data)
+
+        XCTAssertEqual(
+            result,
+            TranslationResult(
+                text: "Hola Jane, no vamos a venir.",
+                provider: "openrouter",
+                model: "openai/gpt-4.1-mini",
+                sourceLanguage: "en",
+                targetLanguage: "es"
+            )
+        )
+    }
 }
