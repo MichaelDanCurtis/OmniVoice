@@ -250,11 +250,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             transcript = try await engineClient.transcribe(audio: audio, provider: model.preferences.asrProvider)
         } catch {
-            model.session.fail("Transcription failed: \(error.localizedDescription)")
-            model.statusText = "Transcription failed"
+            await model.refreshProviderAndModelStatus()
+            let message = model.transcriptionFailureMessage(for: error)
+            model.session.fail("Transcription failed: \(message)")
+            model.statusText = message
             streamingClient.cancel()
             cancelLiveDraftIfNeeded()
-            showOverlay(text: error.localizedDescription, styleName: "Transcription failed", level: 0)
+            showOverlay(text: message, styleName: "Transcription failed", level: 0)
             return
         }
 

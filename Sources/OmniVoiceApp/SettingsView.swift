@@ -139,6 +139,8 @@ struct SettingsView: View {
                 LabeledContent("Stream Error", value: lastError)
             }
 
+            selectedProviderRecoveryCard
+
             HStack {
                 Button("Refresh") {
                     refreshPermissions()
@@ -213,6 +215,45 @@ struct SettingsView: View {
             }
 
             Toggle("Live type draft into cursor", isOn: liveDraftInsertionEnabledBinding)
+        }
+    }
+
+    @ViewBuilder
+    private var selectedProviderRecoveryCard: some View {
+        if let issue = model.selectedProviderIssue {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(issue.title)
+                    .font(.callout.weight(.semibold))
+                Text(issue.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                providerRecoveryActions
+            }
+            .padding(10)
+            .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
+        }
+    }
+
+    @ViewBuilder
+    private var providerRecoveryActions: some View {
+        HStack {
+            Button("Open Models") {
+                selectedTab = .models
+            }
+
+            Button("Download Model") {
+                selectedTab = .models
+                Task {
+                    await model.downloadSelectedModel()
+                }
+            }
+            .disabled(model.preferences.asrProvider == .fake || isModelActionRunning)
+
+            Button("Use Fake For Testing") {
+                model.setASRProvider(.fake)
+            }
+            .disabled(model.preferences.asrProvider == .fake)
         }
     }
 
@@ -316,6 +357,10 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
+                }
+
+                if model.selectedProviderIssue != nil {
+                    providerRecoveryActions
                 }
             } else {
                 Text("No downloadable model is required for this provider.")

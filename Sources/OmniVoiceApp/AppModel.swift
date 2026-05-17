@@ -27,6 +27,11 @@ enum EngineConnectionState: Equatable {
     }
 }
 
+struct ProviderRecoveryIssue: Equatable {
+    let title: String
+    let detail: String
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -433,6 +438,15 @@ final class AppModel {
         }
     }
 
+    func refreshProviderAndModelStatus() async {
+        do {
+            providerStatuses = try await engineClient.providers()
+            modelStatuses = try await engineClient.models()
+        } catch {
+            statusText = "Provider status refresh failed"
+        }
+    }
+
     func refreshMicrophones() {
         microphoneDevices = MicrophoneDeviceService.inputDevices()
         if let microphoneID = preferences.microphoneID,
@@ -498,6 +512,44 @@ final class AppModel {
 
     func modelStatus(for provider: ASRProviderKind) -> EngineModelStatus? {
         modelStatuses.first { $0.providerID == provider.rawValue }
+    }
+
+    var selectedProviderIssue: ProviderRecoveryIssue? {
+        providerIssue(for: preferences.asrProvider)
+    }
+
+    func providerIssue(for provider: ASRProviderKind) -> ProviderRecoveryIssue? {
+        if let info = providerInfo(for: provider), !info.available {
+            return ProviderRecoveryIssue(
+                title: "\(info.label) unavailable",
+                detail: info.reason ?? "The selected speech model is not available."
+            )
+        }
+
+        if let status = modelStatus(for: provider), !status.installed, !status.missingFiles.isEmpty {
+            return ProviderRecoveryIssue(
+                title: "\(status.label) model missing",
+                detail: "Missing files: \(status.missingFiles.joined(separator: ", "))"
+            )
+        }
+
+        return nil
+    }
+
+    func transcriptionFailureMessage(for error: Error) -> String {
+        if let issue = selectedProviderIssue {
+            return "\(issue.title): \(issue.detail)"
+        }
+
+        if case let EngineClient.EngineError.badStatus(statusCode, detail) = error {
+            let reason = detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !reason.isEmpty {
+                return "Engine returned \(statusCode): \(reason)"
+            }
+            return "Engine returned \(statusCode)"
+        }
+
+        return error.localizedDescription
     }
 
     func label(for provider: ASRProviderKind) -> String {
