@@ -65,6 +65,14 @@ Examples:
 
 If text is selected when dictation starts, OmniVoice sends that selected text as context. Only the AI response is inserted at the cursor.
 
+## Conversation Mode
+
+Open Conversation Mode from the menu bar or Settings. Press Start to begin a microphone-only live meeting capture.
+
+The live view shows paragraph-style captions with speaker labels and timestamps. The MVP uses mock/pluggable speaker labels until a real local diarization provider is installed.
+
+The assist rail may show question, time zone, or follow-up cards. Cards never post into Teams, Zoom, Slack, or chat. Use Copy to place card text on the clipboard, Speak to read it locally, or Sources to copy any source references attached to the card.
+
 ## Selection Rewrite
 
 Select text, hold the dictation hotkey, then say a rewrite instruction.

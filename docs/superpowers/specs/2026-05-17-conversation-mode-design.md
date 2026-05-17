@@ -366,3 +366,7 @@ The chosen direction is:
 **Live Conversation Mode with paragraph-style captions, speaker bars, timestamps, and a right-side assist rail limited to Copy, Speak, Sources, Pin, and Dismiss.**
 
 OmniVoice should help the user during the meeting, but it should not speak or post on their behalf without a future explicit mode. The first version should earn trust by being fast, useful, visible, and easy to ignore.
+
+## Implementation Status
+
+The first implementation slice covers microphone-only live recording, paragraph-style captions, local persistence, mock/pluggable speaker labeling, plain-text transcript export, and Copy/Speak/Sources assist cards. System/app audio capture, real local diarization, Obsidian/MCP retrieval, speaker rename/merge, and source-backed answer cards remain follow-up slices.

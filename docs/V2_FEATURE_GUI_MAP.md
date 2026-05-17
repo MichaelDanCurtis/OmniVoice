@@ -1,6 +1,6 @@
 # OmniVoice V2 Feature GUI Map
 
-Last updated: 2026-05-16
+Last updated: 2026-05-17
 
 This file maps OmniVoice features to the GUI surface where a user should discover, configure, or use them. It also marks gaps where a feature exists in code but is hard to find, or where a planned V2 feature has no GUI yet.
 
@@ -9,7 +9,8 @@ This file maps OmniVoice features to the GUI surface where a user should discove
 | Surface | Purpose | Direction |
 | --- | --- | --- |
 | Main window tabs | Stable configuration and feature education | Keep Overview, Dictation, Appearance, Models, Dictionary, and Help/Capabilities as tabbed sections. |
-| Conversation side modal | Transcript and conversation history | Implemented as a modal/drawer that slides over the app from the selected side without changing the main window size. |
+| Conversation Mode window | Live meeting capture and review | Implemented as a dedicated native window with live transcript, recording controls, and assist rail. |
+| Conversation side modal | Dictation transcript history | Implemented as a modal/drawer that slides over the app from the selected side without changing the main window size. |
 | Caption overlay | Listening feedback | Keep the overlay window transparent; only the active caption text should have a subtle dark backing. |
 | Engine website | Developer/diagnostic dashboard | Keep health, logs, raw transcripts, stream counters, model downloads, JSON export, and restart/start controls here. Do not duplicate the full website inside the app. |
 | Menu bar extra | Fast status and actions | Keep compact health, current model/style, show test caption, open settings, open history, and quit. |
@@ -61,11 +62,16 @@ This file maps OmniVoice features to the GUI surface where a user should discove
 | Live translation | Partially implemented | Translation tab | Translation tab | Source/target language, enabled flag, and model path are persisted; runtime translation route remains planned. |
 | External translation model selection | Partially implemented | Models tab and Translation tab | Translation tab or Models tab | Local translation model path can be selected and persisted; runtime execution selector is still planned. |
 | Inline live streaming into active field | Implemented, optional | Dictation tab advanced setting | Dictation tab | Live type draft uses direct Accessibility replacement while listening and commits the cleaned final text on release. Falls back to normal insertion when unavailable. |
-| Conversation transcription | Planned | Not available | Conversation side modal | Should support meeting-style transcript capture and export. |
-| Speaker diarization | Research/planned | Not available | Conversation side modal | Need model support confirmation; may require post-processing with LLM if STT provider cannot identify speakers. |
+| Conversation Mode window | Implemented MVP | Menu bar, Overview tab, dedicated Conversation window | Conversation Mode window | Opens a native meeting recorder/review surface with transcript pane and assist rail. |
+| Microphone-only conversation recording | Implemented MVP | Conversation Mode window | Conversation Mode window | Start/Stop/Cancel uses the selected microphone and existing streaming ASR path. |
+| System/app audio conversation capture | Planned | Not available | Conversation Mode window setup controls | Needed for Zoom/Teams/remote-call scenarios. |
+| Conversation transcription | Implemented MVP | Conversation Mode window | Conversation Mode window | Live paragraph-style transcript segments persist to the local engine. |
+| Speaker diarization | Mock MVP; real provider planned | Conversation Mode window | Conversation Mode window | MVP cycles generic speaker labels; real local diarization provider remains planned. |
+| Assist rail Copy/Speak/Sources | Implemented MVP | Conversation Mode window | Conversation Mode window | Assist cards expose copy, local TTS, and source-reference copy actions. |
+| Posting to meeting chat | Out of scope | Not available | Not planned for MVP | Conversation Mode never posts into Teams, Zoom, Slack, or chat fields. |
 | Conversation history | Implemented | Conversation side modal; engine website transcripts | Conversation side modal | Side drawer now loads recent engine transcripts without resizing the main window. |
 | Copy transcript to cursor | Implemented | Conversation side modal | Conversation side modal | Transcript entries have Copy and Insert actions. |
-| Transcript export | Implemented | Engine website JSONL links | Conversation side modal and engine website | App should expose friendly export path, website keeps raw export. |
+| Transcript export | Implemented MVP | Conversation Mode Copy Transcript; engine text export route | Conversation Mode window and engine website | Full conversation copy uses friendly speaker/timestamp lines; engine exposes plain-text export. |
 | Engine event log | Implemented | Engine website | Engine website | Diagnostic only; keep out of main app unless troubleshooting. |
 | Engine health dashboard | Implemented | Engine website | Engine website, compact Overview status | App should show summary, website should show details. |
 | Desktop app launch from website | Implemented | Engine website Start App button | Engine website | Useful diagnostic bridge. |
@@ -86,7 +92,7 @@ The current Quick Reference and Capabilities sections should become one "Capabil
 | Personal dictionary | How casing preservation works and when to add terms. |
 | Translation | Input/output language controls and model requirements once implemented. |
 | AI handoff | Configure an OpenAI-compatible endpoint, then use "Ask Claude/OpenAI/OpenRouter" commands. |
-| Conversation mode | Transcript, speaker labels, copy/insert, and export once implemented. |
+| Conversation mode | Live meeting capture, transcript, speaker labels, assist rail, Copy/Speak/Sources, and export. |
 
 ## Immediate UI Decisions
 

@@ -192,7 +192,8 @@ struct ConversationModeView: View {
                                 card: card,
                                 theme: theme,
                                 copy: copy,
-                                speak: speak
+                                speak: speak,
+                                copySources: copySources
                             )
                         }
                     }
@@ -273,6 +274,18 @@ struct ConversationModeView: View {
         speechPlayer.speak(trimmed)
         model.statusText = "Speaking assist"
     }
+
+    private func copySources(_ sources: [String]) {
+        let sourceText = sources
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        guard !sourceText.isEmpty else { return }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(sourceText, forType: .string)
+        model.statusText = "Sources copied"
+    }
 }
 
 private struct ConversationSegmentRow: View {
@@ -337,6 +350,7 @@ private struct AssistCardView: View {
     let theme: OmniVoiceTheme
     let copy: (String) -> Void
     let speak: (String) -> Void
+    let copySources: ([String]) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -364,6 +378,14 @@ private struct AssistCardView: View {
                 .lineLimit(8)
                 .textSelection(.enabled)
 
+            if !card.sourceReferences.isEmpty {
+                Text(sourceSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+            }
+
             HStack(spacing: 8) {
                 Button {
                     copy(card.copyText)
@@ -376,12 +398,23 @@ private struct AssistCardView: View {
                 } label: {
                     Label("Speak", systemImage: "speaker.wave.2")
                 }
+
+                Button {
+                    copySources(card.sourceReferences)
+                } label: {
+                    Label("Sources", systemImage: "link")
+                }
+                .disabled(card.sourceReferences.isEmpty)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
         }
         .padding(12)
         .themeSurface(theme, cornerRadius: 10)
+    }
+
+    private var sourceSummary: String {
+        "Sources: \(card.sourceReferences.joined(separator: ", "))"
     }
 }
 
