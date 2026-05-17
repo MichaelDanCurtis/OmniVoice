@@ -231,6 +231,96 @@ public struct ConversationAssistCard: Codable, Equatable, Identifiable, Sendable
     }
 }
 
+public struct ConversationSessionCreateRequest: Codable, Equatable, Sendable {
+    public let title: String
+    public let captureMode: ConversationCaptureMode
+    public let asrProvider: String
+    public let diarizationProvider: String
+    public let externalProcessingEnabled: Bool
+
+    public init(
+        title: String,
+        captureMode: ConversationCaptureMode,
+        asrProvider: String,
+        diarizationProvider: String,
+        externalProcessingEnabled: Bool = false
+    ) {
+        self.title = title
+        self.captureMode = captureMode
+        self.asrProvider = asrProvider
+        self.diarizationProvider = diarizationProvider
+        self.externalProcessingEnabled = externalProcessingEnabled
+    }
+}
+
+public struct ConversationSegmentCreateRequest: Codable, Equatable, Sendable {
+    public let speakerId: String
+    public let speakerDisplayName: String
+    public let startMs: Int
+    public let endMs: Int?
+    public let text: String
+    public let state: ConversationSegmentState
+    public let confidence: Double?
+
+    public var speakerID: String { speakerId }
+
+    public init(
+        speakerID: String,
+        speakerDisplayName: String,
+        startMs: Int,
+        endMs: Int? = nil,
+        text: String,
+        state: ConversationSegmentState,
+        confidence: Double? = nil
+    ) {
+        self.speakerId = speakerID
+        self.speakerDisplayName = speakerDisplayName
+        self.startMs = startMs
+        self.endMs = endMs
+        self.text = text
+        self.state = state
+        self.confidence = confidence
+    }
+}
+
+public struct ConversationAssistCardCreateRequest: Codable, Equatable, Sendable {
+    public let kind: ConversationAssistCardKind
+    public let title: String
+    public let body: String
+    public let sourceReferences: [String]
+    public let confidence: Double?
+
+    public init(
+        kind: ConversationAssistCardKind,
+        title: String,
+        body: String,
+        sourceReferences: [String] = [],
+        confidence: Double? = nil
+    ) {
+        self.kind = kind
+        self.title = title
+        self.body = body
+        self.sourceReferences = sourceReferences
+        self.confidence = confidence
+    }
+}
+
+public struct ConversationDetail: Codable, Equatable, Sendable {
+    public let session: ConversationSession
+    public let segments: [ConversationSegment]
+    public let assistCards: [ConversationAssistCard]
+
+    public init(
+        session: ConversationSession,
+        segments: [ConversationSegment] = [],
+        assistCards: [ConversationAssistCard] = []
+    ) {
+        self.session = session
+        self.segments = segments
+        self.assistCards = assistCards
+    }
+}
+
 public struct SpeakerTurn: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public let sessionId: String

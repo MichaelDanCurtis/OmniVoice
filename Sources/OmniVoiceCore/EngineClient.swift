@@ -224,6 +224,84 @@ public struct EngineClient: Sendable {
         return try EngineCoding.decoder.decode([EngineTranscriptRecord].self, from: data)
     }
 
+    public func createConversation(_ request: ConversationSessionCreateRequest) async throws -> ConversationSession {
+        let endpoint = baseURL.appending(path: "api").appending(path: "conversations")
+        var urlRequest = URLRequest(url: endpoint)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try EngineCoding.encoder.encode(request)
+
+        let (data, response) = try await urlSession.data(for: urlRequest)
+        try validate(response, data: data)
+        return try EngineCoding.decoder.decode(ConversationSession.self, from: data)
+    }
+
+    public func conversations(limit: Int = 100) async throws -> [ConversationSession] {
+        var components = URLComponents(url: baseURL.appending(path: "api").appending(path: "conversations"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        guard let endpoint = components?.url else { throw EngineError.invalidURL }
+
+        let (data, response) = try await urlSession.data(from: endpoint)
+        try validate(response, data: data)
+        return try EngineCoding.decoder.decode([ConversationSession].self, from: data)
+    }
+
+    public func conversationDetail(sessionID: String) async throws -> ConversationDetail {
+        let endpoint = baseURL
+            .appending(path: "api")
+            .appending(path: "conversations")
+            .appending(path: sessionID)
+        let (data, response) = try await urlSession.data(from: endpoint)
+        try validate(response, data: data)
+        return try EngineCoding.decoder.decode(ConversationDetail.self, from: data)
+    }
+
+    public func addConversationSegment(sessionID: String, request: ConversationSegmentCreateRequest) async throws -> ConversationSegment {
+        let endpoint = baseURL
+            .appending(path: "api")
+            .appending(path: "conversations")
+            .appending(path: sessionID)
+            .appending(path: "segments")
+        var urlRequest = URLRequest(url: endpoint)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try EngineCoding.encoder.encode(request)
+
+        let (data, response) = try await urlSession.data(for: urlRequest)
+        try validate(response, data: data)
+        return try EngineCoding.decoder.decode(ConversationSegment.self, from: data)
+    }
+
+    public func addConversationAssistCard(sessionID: String, request: ConversationAssistCardCreateRequest) async throws -> ConversationAssistCard {
+        let endpoint = baseURL
+            .appending(path: "api")
+            .appending(path: "conversations")
+            .appending(path: sessionID)
+            .appending(path: "assist-cards")
+        var urlRequest = URLRequest(url: endpoint)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try EngineCoding.encoder.encode(request)
+
+        let (data, response) = try await urlSession.data(for: urlRequest)
+        try validate(response, data: data)
+        return try EngineCoding.decoder.decode(ConversationAssistCard.self, from: data)
+    }
+
+    public func stopConversation(sessionID: String) async throws -> ConversationSession {
+        let endpoint = baseURL
+            .appending(path: "api")
+            .appending(path: "conversations")
+            .appending(path: sessionID)
+            .appending(path: "stop")
+        var urlRequest = URLRequest(url: endpoint)
+        urlRequest.httpMethod = "POST"
+
+        let (data, response) = try await urlSession.data(for: urlRequest)
+        try validate(response, data: data)
+        return try EngineCoding.decoder.decode(ConversationSession.self, from: data)
+    }
+
     public func checkModelUpdate(provider: ASRProviderKind) async throws -> EngineModelUpdateInfo {
         let endpoint = baseURL
             .appending(path: "models")

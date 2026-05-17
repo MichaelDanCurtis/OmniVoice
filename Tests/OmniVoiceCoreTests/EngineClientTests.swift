@@ -138,4 +138,116 @@ final class EngineClientTests: XCTestCase {
             )
         )
     }
+
+    func testConversationDetailDecodesEnginePayload() throws {
+        let data = """
+        {
+          "session": {
+            "id": "s1",
+            "title": "Roadmap call",
+            "started_at": "2026-05-17T08:00:00Z",
+            "ended_at": null,
+            "capture_mode": "microphone_only",
+            "asr_provider": "parakeet-tdt",
+            "diarization_provider": "mock",
+            "external_processing_enabled": false
+          },
+          "segments": [
+            {
+              "id": "seg1",
+              "session_id": "s1",
+              "speaker_id": "speaker-1",
+              "speaker_display_name": "Speaker 1",
+              "start_ms": 18130,
+              "end_ms": 21900,
+              "text": "How many users did we have last year?",
+              "state": "settled",
+              "confidence": 0.91
+            }
+          ],
+          "assist_cards": [
+            {
+              "id": "card1",
+              "session_id": "s1",
+              "kind": "answer",
+              "title": "Answer Found",
+              "body": "Last year we had 18,420 active users.",
+              "source_references": ["Obsidian/adoption-2025.md"],
+              "confidence": 0.78,
+              "status": "active",
+              "created_at": "2026-05-17T08:00:10Z"
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let detail = try EngineCoding.decoder.decode(ConversationDetail.self, from: data)
+
+        XCTAssertEqual(detail.session.id, "s1")
+        XCTAssertEqual(detail.segments[0].speakerDisplayName, "Speaker 1")
+        XCTAssertEqual(detail.assistCards[0].copyText, "Last year we had 18,420 active users.")
+        XCTAssertEqual(detail.assistCards[0].sourceReferences, ["Obsidian/adoption-2025.md"])
+    }
+
+    func testConversationSessionCreateRequestEncodesSnakeCasePayload() throws {
+        let request = ConversationSessionCreateRequest(
+            title: "Roadmap call",
+            captureMode: .microphoneOnly,
+            asrProvider: "parakeet-tdt",
+            diarizationProvider: "mock",
+            externalProcessingEnabled: false
+        )
+
+        let data = try EngineCoding.encoder.encode(request)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(object["title"] as? String, "Roadmap call")
+        XCTAssertEqual(object["capture_mode"] as? String, "microphone_only")
+        XCTAssertEqual(object["asr_provider"] as? String, "parakeet-tdt")
+        XCTAssertEqual(object["diarization_provider"] as? String, "mock")
+        XCTAssertEqual(object["external_processing_enabled"] as? Bool, false)
+    }
+
+    func testConversationSegmentCreateRequestEncodesSpeakerIDAsSnakeCasePayload() throws {
+        let request = ConversationSegmentCreateRequest(
+            speakerID: "speaker-1",
+            speakerDisplayName: "Speaker 1",
+            startMs: 18_130,
+            endMs: 21_900,
+            text: "How many users did we have last year?",
+            state: .settled,
+            confidence: 0.91
+        )
+
+        let data = try EngineCoding.encoder.encode(request)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(object["speaker_id"] as? String, "speaker-1")
+        XCTAssertEqual(object["speaker_display_name"] as? String, "Speaker 1")
+        XCTAssertEqual(object["start_ms"] as? Int, 18_130)
+        XCTAssertEqual(object["end_ms"] as? Int, 21_900)
+        XCTAssertEqual(object["text"] as? String, "How many users did we have last year?")
+        XCTAssertEqual(object["state"] as? String, "settled")
+        XCTAssertEqual(object["confidence"] as? Double, 0.91)
+        XCTAssertNil(object["speaker_i_d"])
+    }
+
+    func testConversationAssistCardCreateRequestEncodesSourceReferencesAsSnakeCasePayload() throws {
+        let request = ConversationAssistCardCreateRequest(
+            kind: .answer,
+            title: "Answer Found",
+            body: "Last year we had 18,420 active users.",
+            sourceReferences: ["Obsidian/adoption-2025.md"],
+            confidence: 0.78
+        )
+
+        let data = try EngineCoding.encoder.encode(request)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(object["kind"] as? String, "answer")
+        XCTAssertEqual(object["title"] as? String, "Answer Found")
+        XCTAssertEqual(object["body"] as? String, "Last year we had 18,420 active users.")
+        XCTAssertEqual(object["source_references"] as? [String], ["Obsidian/adoption-2025.md"])
+        XCTAssertEqual(object["confidence"] as? Double, 0.78)
+    }
 }
