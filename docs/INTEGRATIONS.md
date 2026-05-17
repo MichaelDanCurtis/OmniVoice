@@ -18,12 +18,12 @@ Useful defaults:
 
 ## Codex
 
-OmniVoice works in Codex through the same macOS Accessibility insertion path. It strips known Codex follow-up placeholder text and keeps the cursor after inserted text.
+OmniVoice treats Codex as a rich composer. Live dictation stays in the caret-attached caption overlay, and final text is inserted through pasteboard-style insertion so Codex plugin chips are not flattened into prompt text. It still strips known Codex follow-up placeholder text when that hint appears as field content or transcript suffix.
 
 Useful defaults:
 
 - Use `Raw Dictation` for code, shell commands, and exact file names.
-- Use `Command, undo last dictation` if an inserted prompt needs to be removed.
+- Use the app's normal undo if a pasteboard-style insertion needs to be removed.
 - Use the Personal Dictionary for repo names, model names, and project-specific terms.
 
 ## AI Handoff

@@ -2,6 +2,7 @@ import CoreGraphics
 
 public enum CaptionOverlayPlacement {
     public static let bottomOffset: CGFloat = 72
+    public static let caretGap: CGFloat = 20
 
     public static func defaultOrigin(screenFrame: CGRect, overlaySize: CGSize) -> CGPoint {
         origin(
@@ -55,6 +56,23 @@ public enum CaptionOverlayPlacement {
                 x: center.x - overlaySize.width / 2,
                 y: center.y - overlaySize.height / 2
             ),
+            screenFrame: screenFrame,
+            overlaySize: overlaySize
+        )
+    }
+
+    public static func caretAnchoredOrigin(
+        caretFrame: CGRect,
+        screenFrame: CGRect,
+        overlaySize: CGSize
+    ) -> CGPoint {
+        let centeredX = caretFrame.midX - overlaySize.width / 2
+        let aboveY = caretFrame.maxY + caretGap
+        let belowY = caretFrame.minY - caretGap - overlaySize.height
+        let originY = aboveY + overlaySize.height <= screenFrame.maxY ? aboveY : belowY
+
+        return clamped(
+            origin: CGPoint(x: centeredX, y: originY),
             screenFrame: screenFrame,
             overlaySize: overlaySize
         )

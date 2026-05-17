@@ -16,25 +16,48 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
         let styleName: String
         let level: Float
         let theme: OmniVoiceTheme
+        let anchorFrame: CGRect?
     }
 
     private var window: NSWindow?
     private var presentation: Presentation?
 
-    func show(text: String, styleName: String, level: Float = 0, theme: OmniVoiceTheme) {
-        presentation = Presentation(text: text, styleName: styleName, level: level, theme: theme)
+    func show(
+        text: String,
+        styleName: String,
+        level: Float = 0,
+        theme: OmniVoiceTheme,
+        anchorFrame: CGRect? = nil
+    ) {
+        let previousAnchorFrame = presentation?.anchorFrame
+        presentation = Presentation(
+            text: text,
+            styleName: styleName,
+            level: level,
+            theme: theme,
+            anchorFrame: anchorFrame
+        )
         let content = DraggableCaptionHostingView(
             rootView: CaptionOverlayView(text: text, styleName: styleName, level: level, theme: theme)
         )
         let targetSize = content.fittingSize
         let screenFrame = NSScreen.main?.visibleFrame ?? .zero
-        let currentCenter = window?.frame.center ?? savedCenter
-        let origin = CaptionOverlayPlacement.resolvedOrigin(
-            savedCenter: currentCenter,
-            savedOrigin: savedOrigin,
-            screenFrame: screenFrame,
-            overlaySize: targetSize
-        )
+        let currentCenter = previousAnchorFrame == nil ? window?.frame.center ?? savedCenter : savedCenter
+        let origin: CGPoint
+        if let anchorFrame {
+            origin = CaptionOverlayPlacement.caretAnchoredOrigin(
+                caretFrame: anchorFrame,
+                screenFrame: screenFrame,
+                overlaySize: targetSize
+            )
+        } else {
+            origin = CaptionOverlayPlacement.resolvedOrigin(
+                savedCenter: currentCenter,
+                savedOrigin: savedOrigin,
+                screenFrame: screenFrame,
+                overlaySize: targetSize
+            )
+        }
 
         if window == nil {
             let created = NSWindow(
@@ -62,6 +85,7 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
 
     func windowDidMove(_ notification: Notification) {
         guard let movedWindow = notification.object as? NSWindow else { return }
+        guard presentation?.anchorFrame == nil else { return }
         saveCenter(movedWindow.frame.center)
     }
 
@@ -85,7 +109,11 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
         }
 
         let originalFrame = window.frame
-        let targetFrame = commitTargetFrame(from: originalFrame, mode: mode)
+        let targetFrame = commitTargetFrame(
+            from: originalFrame,
+            anchorFrame: presentation.anchorFrame,
+            mode: mode
+        )
         let content = DraggableCaptionHostingView(
             rootView: CaptionOverlayView(
                 text: presentation.text,
@@ -109,7 +137,9 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
                 window.orderOut(nil)
                 window.alphaValue = 1
                 window.setFrame(originalFrame, display: false)
-                self?.saveCenter(originalFrame.center)
+                if self?.presentation?.anchorFrame == nil {
+                    self?.saveCenter(originalFrame.center)
+                }
                 self?.presentation = nil
             }
         }
@@ -147,8 +177,8 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
         defaults.set(center.y, forKey: DefaultsKey.centerY)
     }
 
-    private func commitTargetFrame(from frame: CGRect, mode: CommitAnimationMode) -> CGRect {
-        let center = frame.center
+    private func commitTargetFrame(from frame: CGRect, anchorFrame: CGRect?, mode: CommitAnimationMode) -> CGRect {
+        let center = anchorFrame?.center ?? frame.center
         let size: CGSize
         let yOffset: CGFloat
 
@@ -169,7 +199,7 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
 
         return CGRect(
             x: center.x - size.width / 2,
-            y: center.y - size.height / 2 + yOffset,
+            y: center.y - size.height / 2 + (anchorFrame == nil ? yOffset : 0),
             width: size.width,
             height: size.height
         )

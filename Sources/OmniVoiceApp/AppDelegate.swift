@@ -71,12 +71,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func showOverlay(text: String, styleName: String, level: Float = 0, theme: OmniVoiceTheme? = nil) {
+    func showOverlay(
+        text: String,
+        styleName: String,
+        level: Float = 0,
+        theme: OmniVoiceTheme? = nil,
+        anchorFrame: CGRect? = nil
+    ) {
         overlay.show(
             text: text,
             styleName: styleName,
             level: level,
-            theme: theme ?? model?.activeTheme ?? .defaultTheme
+            theme: theme ?? model?.activeTheme ?? .defaultTheme,
+            anchorFrame: anchorFrame
         )
     }
 
@@ -183,7 +190,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.statusText = "Listening"
         lastInputLevel = 0
         lastLevelOverlayUpdate = .distantPast
-        showOverlay(text: "", styleName: model.preferences.style.displayName, level: 0)
+        showOverlay(
+            text: "",
+            styleName: model.preferences.style.displayName,
+            level: 0,
+            anchorFrame: activeOverlayAnchor
+        )
 
         streamingClient.setOnUpdate { [weak self] update in
             Task { @MainActor [weak self] in
@@ -195,7 +207,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.updateLiveDraft(with: displayText)
                 }
                 model.captionText = displayText
-                self.showOverlay(text: displayText, styleName: model.preferences.style.displayName, level: self.lastInputLevel)
+                self.showOverlay(
+                    text: displayText,
+                    styleName: model.preferences.style.displayName,
+                    level: self.lastInputLevel,
+                    anchorFrame: self.activeOverlayAnchor
+                )
             }
         }
         audioCapture.onPCMChunk = { [weak self] data in
@@ -236,7 +253,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             audio = try audioCapture.stopWAVData()
             model.statusText = "Transcribing"
-            showOverlay(text: "Transcribing...", styleName: model.preferences.style.displayName, level: 0)
+            showOverlay(
+                text: "Transcribing...",
+                styleName: model.preferences.style.displayName,
+                level: 0,
+                anchorFrame: activeOverlayAnchor
+            )
         } catch {
             model.session.fail("Audio capture failed: \(error.localizedDescription)")
             model.statusText = "Audio capture failed"
@@ -256,7 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.statusText = message
             streamingClient.cancel()
             cancelLiveDraftIfNeeded()
-            showOverlay(text: message, styleName: "Transcription failed", level: 0)
+            showOverlay(text: message, styleName: "Transcription failed", level: 0, anchorFrame: activeOverlayAnchor)
             return
         }
 
@@ -266,13 +288,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.statusText = "No speech detected"
             streamingClient.cancel()
             cancelLiveDraftIfNeeded()
-            showOverlay(text: "No speech detected", styleName: model.preferences.style.displayName, level: 0)
+            showOverlay(
+                text: "No speech detected",
+                styleName: model.preferences.style.displayName,
+                level: 0,
+                anchorFrame: activeOverlayAnchor
+            )
             return
         }
 
         model.session.releaseHotkey(finalTranscript: rawTranscript)
         model.captionText = rawTranscript
-        showOverlay(text: rawTranscript, styleName: model.preferences.style.displayName)
+        showOverlay(text: rawTranscript, styleName: model.preferences.style.displayName, anchorFrame: activeOverlayAnchor)
 
         let finalText: String
         if let literalText = literalPayload(from: rawTranscript) {
@@ -339,12 +366,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if !didPromptForAccessibility {
                 requestAccessibilityPermission()
             }
-            showOverlay(text: finalText, styleName: "Accessibility required - copied")
+            showOverlay(text: finalText, styleName: "Accessibility required - copied", anchorFrame: activeOverlayAnchor)
         } catch {
             model.session.fail("Insertion failed: \(error.localizedDescription)")
             model.statusText = "Insertion failed"
             copyToPasteboard(finalText)
-            showOverlay(text: finalText, styleName: "Insertion failed - copied")
+            showOverlay(text: finalText, styleName: "Insertion failed - copied", anchorFrame: activeOverlayAnchor)
         }
     }
 
@@ -380,13 +407,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !baseURL.isEmpty, !aiModel.isEmpty else {
             model.session.fail("AI endpoint and model are required")
             model.statusText = "AI endpoint required"
-            showOverlay(text: "Add an OpenAI-compatible endpoint and model in Integrations.", styleName: "AI handoff")
+            showOverlay(
+                text: "Add an OpenAI-compatible endpoint and model in Integrations.",
+                styleName: "AI handoff",
+                anchorFrame: activeOverlayAnchor
+            )
             return
         }
 
         let context = insertionTarget?.selectedText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         model.statusText = "Asking \(target.displayName)"
-        showOverlay(text: "Asking \(target.displayName)...", styleName: "AI handoff")
+        showOverlay(text: "Asking \(target.displayName)...", styleName: "AI handoff", anchorFrame: activeOverlayAnchor)
 
         do {
             let result = try await engineClient.aiHandoff(
@@ -403,7 +434,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard !insertion.isEmpty else {
                 model.session.fail("AI returned empty text")
                 model.statusText = "AI returned empty text"
-                showOverlay(text: "AI returned empty text", styleName: "AI handoff")
+                showOverlay(text: "AI returned empty text", styleName: "AI handoff", anchorFrame: activeOverlayAnchor)
                 return
             }
 
@@ -411,7 +442,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             model.session.fail("AI handoff failed: \(error.localizedDescription)")
             model.statusText = "AI handoff failed"
-            showOverlay(text: error.localizedDescription, styleName: "AI handoff failed")
+            showOverlay(text: error.localizedDescription, styleName: "AI handoff failed", anchorFrame: activeOverlayAnchor)
         }
     }
 
@@ -493,6 +524,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         text.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("listening") == .orderedSame
     }
 
+    private var activeOverlayAnchor: CGRect? {
+        insertionTarget?.caretFrame
+    }
+
     private func updateInputLevel(_ level: Float) {
         guard let model, model.session.state == .listening else { return }
 
@@ -504,7 +539,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showOverlay(
             text: model.captionText,
             styleName: model.preferences.style.displayName,
-            level: level
+            level: level,
+            anchorFrame: activeOverlayAnchor
         )
     }
 }
