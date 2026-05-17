@@ -35,6 +35,11 @@ struct ProviderRecoveryIssue: Equatable {
 @MainActor
 @Observable
 final class AppModel {
+    private enum DeferredConversationAction {
+        case stop
+        case cancel
+    }
+
     var preferences: OmniVoicePreferences
     var session: DictationSession
     var captionText: String
@@ -58,6 +63,10 @@ final class AppModel {
 
     private let preferencesStore: PreferencesStore
     private let engineClient: EngineClient
+    @ObservationIgnored private let conversationRecorder = ConversationRecorderService()
+    @ObservationIgnored private var isConversationStartInFlight = false
+    @ObservationIgnored private var isConversationStopInFlight = false
+    @ObservationIgnored private var deferredConversationAction: DeferredConversationAction?
     @ObservationIgnored var onHotkeysChanged: ((OmniVoicePreferences) -> Void)?
 
     init(
@@ -524,6 +533,130 @@ final class AppModel {
             statusText = "Conversation saved"
         } catch {
             statusText = "Conversation stop failed"
+        }
+    }
+
+    func startConversationRecording() async {
+        guard !isConversationStartInFlight, !isConversationRecording, !conversationRecorder.recordingActive else {
+            statusText = "Conversation already recording"
+            return
+        }
+        isConversationStartInFlight = true
+        deferredConversationAction = nil
+        defer { isConversationStartInFlight = false }
+
+        guard let session = await createConversationSession(captureMode: .microphoneOnly) else {
+            return
+        }
+
+        if let deferredConversationAction {
+            await completeDeferredConversationAction(deferredConversationAction, sessionID: session.id, recorderStarted: false)
+            return
+        }
+
+        do {
+            try await conversationRecorder.start(
+                sessionID: session.id,
+                provider: preferences.asrProvider,
+                microphoneID: preferences.microphoneID,
+                onSegment: { [weak self] request in
+                    Task { @MainActor in
+                        await self?.appendConversationSegment(request)
+                    }
+                },
+                onAssistCard: { [weak self] request in
+                    Task { @MainActor in
+                        await self?.appendConversationAssistCard(request)
+                    }
+                }
+            )
+            if let deferredConversationAction {
+                await completeDeferredConversationAction(deferredConversationAction, sessionID: session.id, recorderStarted: true)
+                return
+            }
+            statusText = "Conversation recording"
+        } catch {
+            deferredConversationAction = nil
+            _ = try? await engineClient.stopConversation(sessionID: session.id)
+            activeConversation = nil
+            isConversationRecording = false
+            statusText = error.localizedDescription
+        }
+    }
+
+    func stopConversationRecording() async {
+        guard !isConversationStartInFlight else {
+            deferredConversationAction = .stop
+            statusText = "Stopping conversation"
+            return
+        }
+
+        guard !isConversationStopInFlight else { return }
+        isConversationStopInFlight = true
+        defer { isConversationStopInFlight = false }
+
+        var recorderError: Error?
+        do {
+            try await conversationRecorder.stop()
+        } catch {
+            recorderError = error
+        }
+
+        await stopConversationSession()
+        if let recorderError {
+            statusText = "Conversation saved; recorder warning: \(recorderError.localizedDescription)"
+        }
+    }
+
+    func cancelConversationRecording() {
+        if isConversationStartInFlight {
+            deferredConversationAction = .cancel
+            statusText = "Conversation cancelled"
+            return
+        }
+
+        let sessionID = activeConversation?.id
+        conversationRecorder.cancel()
+        activeConversation = nil
+        isConversationRecording = false
+        statusText = "Conversation cancelled"
+
+        if let sessionID {
+            Task { [engineClient] in
+                _ = try? await engineClient.stopConversation(sessionID: sessionID)
+            }
+        }
+    }
+
+    private func completeDeferredConversationAction(
+        _ action: DeferredConversationAction,
+        sessionID: String,
+        recorderStarted: Bool
+    ) async {
+        deferredConversationAction = nil
+
+        switch action {
+        case .stop:
+            var recorderError: Error?
+            if recorderStarted {
+                do {
+                    try await conversationRecorder.stop()
+                } catch {
+                    recorderError = error
+                }
+            }
+            await stopConversationSession()
+            if let recorderError {
+                statusText = "Conversation saved; recorder warning: \(recorderError.localizedDescription)"
+            }
+        case .cancel:
+            if recorderStarted {
+                conversationRecorder.cancel()
+            }
+            _ = try? await engineClient.stopConversation(sessionID: sessionID)
+            activeConversation = nil
+            isConversationRecording = false
+            statusText = "Conversation cancelled"
         }
     }
 
