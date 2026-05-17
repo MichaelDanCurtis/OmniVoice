@@ -15,10 +15,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastInputLevel: Float = 0
     private var lastLevelOverlayUpdate = Date.distantPast
     private var insertionTarget: TextInsertionService.Target?
+    private var liveDraft: TextInsertionService.LiveDraft?
     private var didPromptForAccessibility = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApplication.shared.setActivationPolicy(.accessory)
+        NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
@@ -40,6 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         model.onHotkeysChanged = { [weak self] preferences in
             self?.applyHotkeys(preferences: preferences)
+        }
+        streamingClient.setOnDiagnostics { [weak self] diagnostics in
+            Task { @MainActor [weak self] in
+                self?.model?.streamingDiagnostics = diagnostics
+            }
         }
 
         applyHotkeys(preferences: model.preferences)
@@ -76,6 +82,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func hideOverlay() {
         overlay.hide()
+    }
+
+    func commitOverlayAnimation() {
+        overlay.commitAndHide(mode: model?.activeTheme.commitAnimationMode ?? .glyphStream)
+    }
+
+    func insertTextAtCurrentCursor(_ text: String) async {
+        guard let model else { return }
+
+        let target = insertionService.captureTarget()
+        do {
+            try await insertionService.insert(text, target: target)
+            model.statusText = "Transcript inserted"
+        } catch TextInsertionService.InsertionError.accessibilityPermissionRequired {
+            copyToPasteboard(text)
+            model.statusText = "Accessibility required - copied"
+            if !didPromptForAccessibility {
+                requestAccessibilityPermission()
+            }
+        } catch {
+            copyToPasteboard(text)
+            model.statusText = "Transcript copied"
+        }
     }
 
     private func applyHotkeys(preferences: OmniVoicePreferences) {
@@ -146,6 +175,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startDictation(model: AppModel) {
         insertionTarget = insertionService.captureTarget()
+        liveDraft = model.preferences.liveDraftInsertionEnabled
+            ? insertionService.beginLiveDraft(target: insertionTarget)
+            : nil
         model.session.pressHotkey()
         model.captionText = ""
         model.statusText = "Listening"
@@ -156,9 +188,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         streamingClient.setOnUpdate { [weak self] update in
             Task { @MainActor [weak self] in
                 guard let self, let model = self.model else { return }
-                model.captionText = update.text
-                model.session.receivePartial(update.text)
-                self.showOverlay(text: update.text, styleName: model.preferences.style.displayName, level: self.lastInputLevel)
+                guard model.session.state == .listening else { return }
+                let displayText = TextInsertionEdit.sanitizedInsertionText(update.text)
+                if !update.isFinal {
+                    model.session.receivePartial(displayText)
+                    self.updateLiveDraft(with: displayText)
+                }
+                model.captionText = displayText
+                self.showOverlay(text: displayText, styleName: model.preferences.style.displayName, level: self.lastInputLevel)
             }
         }
         audioCapture.onPCMChunk = { [weak self] data in
@@ -171,15 +208,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         do {
-            let sampleRate = try audioCapture.start(deviceUID: model.preferences.microphoneID)
+            let sampleRate = audioCapture.inputSampleRate(deviceUID: model.preferences.microphoneID)
             streamingClient.connect(
                 provider: model.preferences.asrProvider,
                 sampleRate: sampleRate
             )
+            _ = try audioCapture.start(deviceUID: model.preferences.microphoneID)
         } catch {
             model.session.fail("Microphone failed: \(error.localizedDescription)")
             model.statusText = "Microphone failed"
             streamingClient.cancel()
+            cancelLiveDraftIfNeeded()
             hideOverlay()
         }
     }
@@ -202,6 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.session.fail("Audio capture failed: \(error.localizedDescription)")
             model.statusText = "Audio capture failed"
             streamingClient.cancel()
+            cancelLiveDraftIfNeeded()
             hideOverlay()
             return
         }
@@ -213,6 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.session.fail("Transcription failed: \(error.localizedDescription)")
             model.statusText = "Transcription failed"
             streamingClient.cancel()
+            cancelLiveDraftIfNeeded()
             showOverlay(text: error.localizedDescription, styleName: "Transcription failed", level: 0)
             return
         }
@@ -222,6 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.session.fail("No speech detected")
             model.statusText = "No speech detected"
             streamingClient.cancel()
+            cancelLiveDraftIfNeeded()
             showOverlay(text: "No speech detected", styleName: model.preferences.style.displayName, level: 0)
             return
         }
@@ -254,6 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.session.finishCleanup(finalText)
 
         if let command = DictationCommandParser.parse(finalText) {
+            cancelLiveDraftIfNeeded()
             await handle(command: command, model: model)
             return
         }
@@ -269,10 +312,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func insertFinalText(_ finalText: String, model: AppModel, successStatus: String) async {
+        if var draft = liveDraft {
+            if insertionService.commitLiveDraft(finalText, draft: &draft) {
+                liveDraft = nil
+                model.statusText = successStatus
+                overlay.commitAndHide(mode: model.activeTheme.commitAnimationMode)
+                model.session.reset()
+                return
+            }
+
+            insertionService.cancelLiveDraft(draft)
+            liveDraft = nil
+        }
+
         do {
             try await insertionService.insert(finalText, target: insertionTarget)
             model.statusText = successStatus
-            hideOverlay()
+            overlay.commitAndHide(mode: model.activeTheme.commitAnimationMode)
             model.session.reset()
         } catch TextInsertionService.InsertionError.accessibilityPermissionRequired {
             model.session.fail("Accessibility permission required")
@@ -367,6 +423,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func copyToPasteboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func updateLiveDraft(with text: String) {
+        guard !isTransientStreamingText(text), var draft = liveDraft else {
+            return
+        }
+
+        if insertionService.updateLiveDraft(text, draft: &draft) {
+            liveDraft = draft
+        }
+    }
+
+    private func cancelLiveDraftIfNeeded() {
+        guard let draft = liveDraft else {
+            return
+        }
+        insertionService.cancelLiveDraft(draft)
+        liveDraft = nil
+    }
+
+    private func isTransientStreamingText(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("listening") == .orderedSame
     }
 
     private func updateInputLevel(_ level: Float) {

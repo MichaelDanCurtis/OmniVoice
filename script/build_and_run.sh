@@ -233,7 +233,7 @@ cat >"$INFO_PLIST" <<PLIST
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>LSUIElement</key>
-  <true/>
+  <false/>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
   <key>NSMicrophoneUsageDescription</key>

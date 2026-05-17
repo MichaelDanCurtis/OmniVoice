@@ -81,6 +81,23 @@ public enum EngineFrameSide: String, CaseIterable, Codable, Equatable, Hashable,
     }
 }
 
+public enum AppAppearanceMode: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
+    case system
+    case dark
+    case light
+
+    public var displayName: String {
+        switch self {
+        case .system:
+            "System"
+        case .dark:
+            "Dark"
+        case .light:
+            "Light"
+        }
+    }
+}
+
 public enum ThemeContrastMode: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
     case standard
     case elevated

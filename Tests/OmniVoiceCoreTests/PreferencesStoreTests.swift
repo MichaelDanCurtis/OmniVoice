@@ -18,9 +18,24 @@ final class PreferencesStoreTests: XCTestCase {
 
         XCTAssertEqual(preferences.themeID, .auroraBlue)
         XCTAssertEqual(preferences.customAccentColor, ThemeColor(hex: "#38BDF8"))
+        XCTAssertEqual(preferences.appearanceMode, .system)
         XCTAssertEqual(preferences.waveformMode, .bars)
         XCTAssertEqual(preferences.commitAnimationMode, .glyphStream)
         XCTAssertEqual(preferences.engineFrameSide, .right)
+        XCTAssertEqual(preferences.engineFrameHandlePosition, 0.5)
+    }
+
+    func testDefaultsIncludeV2ModelTranslationAndIntegrationSettings() {
+        let preferences = OmniVoicePreferences.defaults
+
+        XCTAssertEqual(preferences.customSpeechModelPath, "")
+        XCTAssertEqual(preferences.customTranslationModelPath, "")
+        XCTAssertFalse(preferences.liveTranslationEnabled)
+        XCTAssertEqual(preferences.translationSourceLanguage, "auto")
+        XCTAssertEqual(preferences.translationTargetLanguage, "en")
+        XCTAssertEqual(preferences.openAICompatibleBaseURL, "")
+        XCTAssertEqual(preferences.openAICompatibleModel, "")
+        XCTAssertFalse(preferences.liveDraftInsertionEnabled)
     }
 
     func testOldPreferencesDecodeWithThemeDefaults() throws {
@@ -38,8 +53,16 @@ final class PreferencesStoreTests: XCTestCase {
         let preferences = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: json)
 
         XCTAssertEqual(preferences.themeID, .auroraBlue)
+        XCTAssertEqual(preferences.appearanceMode, .system)
         XCTAssertEqual(preferences.waveformMode, .bars)
         XCTAssertEqual(preferences.engineFrameSide, .right)
+        XCTAssertEqual(preferences.engineFrameHandlePosition, 0.5)
+        XCTAssertEqual(preferences.customSpeechModelPath, "")
+        XCTAssertEqual(preferences.customTranslationModelPath, "")
+        XCTAssertFalse(preferences.liveTranslationEnabled)
+        XCTAssertEqual(preferences.translationSourceLanguage, "auto")
+        XCTAssertEqual(preferences.translationTargetLanguage, "en")
+        XCTAssertFalse(preferences.liveDraftInsertionEnabled)
     }
 
     func testPreferencesEncodingUsesExplicitSnakeCaseThemeKeys() throws {
@@ -48,9 +71,19 @@ final class PreferencesStoreTests: XCTestCase {
 
         XCTAssertNotNil(object["theme_id"])
         XCTAssertNotNil(object["custom_accent_color"])
+        XCTAssertNotNil(object["appearance_mode"])
         XCTAssertNotNil(object["waveform_mode"])
         XCTAssertNotNil(object["commit_animation_mode"])
         XCTAssertNotNil(object["engine_frame_side"])
+        XCTAssertNotNil(object["engine_frame_handle_position"])
+        XCTAssertNotNil(object["custom_speech_model_path"])
+        XCTAssertNotNil(object["custom_translation_model_path"])
+        XCTAssertNotNil(object["live_translation_enabled"])
+        XCTAssertNotNil(object["translation_source_language"])
+        XCTAssertNotNil(object["translation_target_language"])
+        XCTAssertNotNil(object["open_ai_compatible_base_url"])
+        XCTAssertNotNil(object["open_ai_compatible_model"])
+        XCTAssertNotNil(object["live_draft_insertion_enabled"])
     }
 
     func testStyleCycleUpdatesPreference() {
@@ -84,9 +117,19 @@ final class PreferencesStoreTests: XCTestCase {
             styleHotkey: HotkeyBinding(keyCode: 13, modifiers: 2_304),
             themeID: .neonLime,
             customAccentColor: ThemeColor(hex: "#00A3FF"),
+            appearanceMode: .dark,
             waveformMode: .glyphStream,
             commitAnimationMode: .beamSnap,
-            engineFrameSide: .left
+            engineFrameSide: .left,
+            engineFrameHandlePosition: 0.72,
+            customSpeechModelPath: "/models/custom-stt",
+            customTranslationModelPath: "/models/custom-translation",
+            liveTranslationEnabled: true,
+            translationSourceLanguage: "es",
+            translationTargetLanguage: "en",
+            openAICompatibleBaseURL: "http://127.0.0.1:11434/v1",
+            openAICompatibleModel: "local-qwen",
+            liveDraftInsertionEnabled: true
         )
 
         try store.save(preferences)

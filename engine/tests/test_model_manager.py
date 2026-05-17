@@ -45,6 +45,24 @@ def test_model_manager_reports_parakeet_hugging_face_source(tmp_path: Path) -> N
     assert status.missing_files == ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"]
 
 
+def test_model_manager_default_root_uses_project_models_when_started_from_engine_dir(tmp_path: Path, monkeypatch) -> None:
+    project_root = tmp_path / "OmniVoice"
+    package_dir = project_root / "engine" / "omnivoice_engine"
+    package_dir.mkdir(parents=True)
+    model_root = project_root / "models"
+    parakeet_dir = model_root / "parakeet-tdt"
+    parakeet_dir.mkdir(parents=True)
+
+    monkeypatch.chdir(project_root / "engine")
+    monkeypatch.delenv("OMNIVOICE_MODEL_ROOT", raising=False)
+    monkeypatch.delenv("OMNIVOICE_PARAKEET_MODEL_DIR", raising=False)
+    monkeypatch.setattr("omnivoice_engine.model_manager.__file__", str(package_dir / "model_manager.py"))
+
+    manager = ModelManager(hub_api=FakeHubApi(), snapshot_downloader=FakeSnapshotDownloader())
+
+    assert manager.status("parakeet-tdt").local_path == str(parakeet_dir)
+
+
 def test_model_manager_downloads_snapshot_and_writes_revision_metadata(tmp_path: Path) -> None:
     hub_api = FakeHubApi(sha="new-sha")
     downloader = FakeSnapshotDownloader()

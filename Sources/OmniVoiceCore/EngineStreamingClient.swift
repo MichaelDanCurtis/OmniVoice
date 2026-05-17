@@ -1,11 +1,100 @@
 import Foundation
 
+public enum EngineStreamingConnectionState: String, Codable, Equatable, Sendable {
+    case idle
+    case connecting
+    case open
+    case closing
+    case closed
+    case failed
+    case cancelled
+
+    public var displayName: String {
+        switch self {
+        case .idle:
+            "Idle"
+        case .connecting:
+            "Connecting"
+        case .open:
+            "Open"
+        case .closing:
+            "Closing"
+        case .closed:
+            "Closed"
+        case .failed:
+            "Failed"
+        case .cancelled:
+            "Cancelled"
+        }
+    }
+}
+
+public struct EngineStreamingDiagnostics: Codable, Equatable, Sendable {
+    public var state: EngineStreamingConnectionState
+    public var providerID: String?
+    public var sampleRate: Double
+    public var chunksSent: Int
+    public var bytesSent: Int
+    public var updatesReceived: Int
+    public var partialsReceived: Int
+    public var finalsReceived: Int
+    public var droppedChunks: Int
+    public var droppedBytes: Int
+    public var lastText: String
+    public var lastError: String?
+
+    public static let idle = EngineStreamingDiagnostics(
+        state: .idle,
+        providerID: nil,
+        sampleRate: 0,
+        chunksSent: 0,
+        bytesSent: 0,
+        updatesReceived: 0,
+        partialsReceived: 0,
+        finalsReceived: 0,
+        droppedChunks: 0,
+        droppedBytes: 0,
+        lastText: "",
+        lastError: nil
+    )
+
+    public init(
+        state: EngineStreamingConnectionState,
+        providerID: String?,
+        sampleRate: Double,
+        chunksSent: Int,
+        bytesSent: Int,
+        updatesReceived: Int,
+        partialsReceived: Int,
+        finalsReceived: Int,
+        droppedChunks: Int,
+        droppedBytes: Int,
+        lastText: String,
+        lastError: String?
+    ) {
+        self.state = state
+        self.providerID = providerID
+        self.sampleRate = sampleRate
+        self.chunksSent = chunksSent
+        self.bytesSent = bytesSent
+        self.updatesReceived = updatesReceived
+        self.partialsReceived = partialsReceived
+        self.finalsReceived = finalsReceived
+        self.droppedChunks = droppedChunks
+        self.droppedBytes = droppedBytes
+        self.lastText = lastText
+        self.lastError = lastError
+    }
+}
+
 public final class EngineStreamingClient: @unchecked Sendable {
     private let baseURL: URL
     private let session: URLSession
     private let queue = DispatchQueue(label: "omnivoice.engine.streaming")
     private var task: URLSessionWebSocketTask?
     private var onUpdate: (@Sendable (TranscriptUpdate) -> Void)?
+    private var onDiagnostics: (@Sendable (EngineStreamingDiagnostics) -> Void)?
+    private var diagnostics: EngineStreamingDiagnostics = .idle
 
     public init(baseURL: URL = URL(string: "ws://127.0.0.1:8765")!, session: URLSession = .shared) {
         self.baseURL = baseURL
@@ -18,9 +107,32 @@ public final class EngineStreamingClient: @unchecked Sendable {
         }
     }
 
+    public func setOnDiagnostics(_ handler: (@Sendable (EngineStreamingDiagnostics) -> Void)?) {
+        queue.async {
+            self.onDiagnostics = handler
+            handler?(self.diagnostics)
+        }
+    }
+
     public func connect(provider: ASRProviderKind, sampleRate: Double) {
         queue.async {
             self.task?.cancel(with: .normalClosure, reason: nil)
+            self.updateDiagnostics {
+                $0 = EngineStreamingDiagnostics(
+                    state: .connecting,
+                    providerID: provider.rawValue,
+                    sampleRate: sampleRate,
+                    chunksSent: 0,
+                    bytesSent: 0,
+                    updatesReceived: 0,
+                    partialsReceived: 0,
+                    finalsReceived: 0,
+                    droppedChunks: 0,
+                    droppedBytes: 0,
+                    lastText: "",
+                    lastError: nil
+                )
+            }
 
             var components = URLComponents(url: self.baseURL.appending(path: "stream"), resolvingAgainstBaseURL: false)!
             components.queryItems = [
@@ -30,19 +142,54 @@ public final class EngineStreamingClient: @unchecked Sendable {
             let task = self.session.webSocketTask(with: components.url!)
             self.task = task
             task.resume()
+            self.updateDiagnostics { $0.state = .open }
             self.receiveNext()
         }
     }
 
     public func sendPCMFloat32(_ data: Data) {
         queue.async {
-            self.task?.send(.data(data)) { _ in }
+            guard let task = self.task else {
+                self.updateDiagnostics {
+                    $0.droppedChunks += 1
+                    $0.droppedBytes += data.count
+                }
+                return
+            }
+
+            self.updateDiagnostics {
+                $0.chunksSent += 1
+                $0.bytesSent += data.count
+            }
+            task.send(.data(data)) { [weak self] error in
+                guard let self, let error else { return }
+                self.queue.async {
+                    self.updateDiagnostics {
+                        $0.state = .failed
+                        $0.lastError = error.localizedDescription
+                    }
+                }
+            }
         }
     }
 
     public func finish() {
         queue.async {
-            self.task?.send(.string("__finish__")) { _ in }
+            guard let task = self.task else {
+                self.updateDiagnostics { $0.state = .closed }
+                return
+            }
+
+            self.updateDiagnostics { $0.state = .closing }
+            task.send(.string("__finish__")) { [weak self] error in
+                guard let self, let error else { return }
+                self.queue.async {
+                    self.updateDiagnostics {
+                        $0.state = .failed
+                        $0.lastError = error.localizedDescription
+                    }
+                }
+            }
         }
     }
 
@@ -50,6 +197,7 @@ public final class EngineStreamingClient: @unchecked Sendable {
         queue.async {
             self.task?.cancel(with: .normalClosure, reason: nil)
             self.task = nil
+            self.updateDiagnostics { $0.state = .cancelled }
         }
     }
 
@@ -60,14 +208,40 @@ public final class EngineStreamingClient: @unchecked Sendable {
                 guard self.task != nil else { return }
                 if case let .success(message) = result, case let .string(json) = message {
                     if let update = Self.decode(json) {
+                        self.updateDiagnostics {
+                            $0.updatesReceived += 1
+                            if update.isFinal {
+                                $0.finalsReceived += 1
+                            } else {
+                                $0.partialsReceived += 1
+                            }
+                            $0.lastText = update.text
+                        }
                         self.onUpdate?(update)
                     }
                     self.receiveNext()
+                } else if case .success = result {
+                    self.receiveNext()
                 } else {
+                    if case let .failure(error) = result,
+                       self.diagnostics.state != .closing,
+                       self.diagnostics.state != .cancelled {
+                        self.updateDiagnostics {
+                            $0.state = .failed
+                            $0.lastError = error.localizedDescription
+                        }
+                    } else if self.diagnostics.state == .closing {
+                        self.updateDiagnostics { $0.state = .closed }
+                    }
                     self.task = nil
                 }
             }
         }
+    }
+
+    private func updateDiagnostics(_ update: (inout EngineStreamingDiagnostics) -> Void) {
+        update(&diagnostics)
+        onDiagnostics?(diagnostics)
     }
 
     private static func decode(_ json: String) -> TranscriptUpdate? {

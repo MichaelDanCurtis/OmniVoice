@@ -89,6 +89,21 @@ class TranscriptRecord(BaseModel):
     duration_ms: int | None = None
 
 
+class StreamingStats(BaseModel):
+    active_streams: int = 0
+    opened_streams: int = 0
+    completed_streams: int = 0
+    failed_streams: int = 0
+    closed_streams: int = 0
+    total_chunks: int = 0
+    total_audio_bytes: int = 0
+    total_partials: int = 0
+    last_provider: str | None = None
+    last_sample_rate: int | None = None
+    last_partial_text: str = ""
+    last_error: str | None = None
+
+
 class EngineStatus(BaseModel):
     status: str
     started_at: str
@@ -97,3 +112,4 @@ class EngineStatus(BaseModel):
     models: list[ModelStatus]
     event_count: int
     transcript_count: int
+    streaming: StreamingStats = Field(default_factory=StreamingStats)

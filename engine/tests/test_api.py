@@ -125,6 +125,8 @@ def test_status_endpoint_returns_operator_snapshot(monkeypatch, tmp_path):
     assert payload["models"][0]["provider_id"] == "parakeet-tdt"
     assert payload["event_count"] >= 0
     assert payload["transcript_count"] >= 0
+    assert payload["streaming"]["active_streams"] == 0
+    assert payload["streaming"]["opened_streams"] == 0
 
 
 def test_cleanup_endpoint():
@@ -287,7 +289,9 @@ def test_transcribe_endpoint_reports_provider_failure(monkeypatch):
     assert response.json()["detail"] == "transcription failed: decoder exploded"
 
 
-def test_stream_endpoint_emits_partial_and_final_caption():
+def test_stream_endpoint_emits_partial_and_final_caption(monkeypatch, tmp_path):
+    store = RuntimeStore(tmp_path)
+    monkeypatch.setattr("omnivoice_engine.main.runtime_store", store, raising=False)
     with client.websocket_connect("/stream?provider=fake&sample_rate=16000") as websocket:
         assert websocket.receive_json() == {"type": "partial", "text": "listening"}
 
@@ -296,6 +300,21 @@ def test_stream_endpoint_emits_partial_and_final_caption():
 
         websocket.send_text("__finish__")
         assert websocket.receive_json() == {"type": "final", "text": "fake transcript"}
+
+    status = client.get("/api/status").json()
+    assert status["streaming"]["opened_streams"] == 1
+    assert status["streaming"]["completed_streams"] == 1
+    assert status["streaming"]["active_streams"] == 0
+    assert status["streaming"]["total_chunks"] == 1
+    assert status["streaming"]["total_audio_bytes"] == 64_000
+    assert status["streaming"]["total_partials"] == 1
+    assert status["streaming"]["last_provider"] == "fake"
+    assert status["streaming"]["last_partial_text"] == "fake transcript"
+
+    events = client.get("/api/events").json()
+    completed = next(event for event in events if event["kind"] == "stream.completed")
+    assert completed["detail"]["chunk_count"] == 1
+    assert completed["detail"]["partial_count"] == 1
 
 
 def test_stream_endpoint_reports_provider_failure(monkeypatch):

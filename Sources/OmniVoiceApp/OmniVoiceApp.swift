@@ -6,6 +6,7 @@ import OmniVoiceCore
 struct OmniVoiceApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel()
+    @State private var isEngineFrameExpanded = false
 
     var body: some Scene {
         WindowGroup("OmniVoice", id: "control-panel") {
@@ -26,13 +27,14 @@ struct OmniVoiceApp: App {
                         theme: model.activeTheme
                     )
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        appDelegate.hideOverlay()
+                        appDelegate.commitOverlayAnimation()
                     }
                 },
                 requestAccessibilityPermission: {
                     appDelegate.requestAccessibilityPermission()
                 }
             )
+            .preferredColorScheme(model.preferences.appearanceMode.colorScheme)
             .task {
                 appDelegate.attach(model: model)
                 await model.refreshEngineStatus()
@@ -48,15 +50,29 @@ struct OmniVoiceApp: App {
     }
 
     private var controlPanelContent: some View {
-        HStack(spacing: 0) {
-            if model.activeTheme.engineFrameSide == .left {
-                EngineFrameView(theme: model.activeTheme, side: .left)
-                settingsContent
-            } else {
-                settingsContent
-                EngineFrameView(theme: model.activeTheme, side: .right)
-            }
+        ZStack(alignment: model.activeTheme.engineFrameSide.stackAlignment) {
+            settingsContent
+                .frame(maxWidth: .infinity, alignment: model.activeTheme.engineFrameSide.settingsAlignment)
+
+            EngineFrameView(
+                model: model,
+                side: model.activeTheme.engineFrameSide,
+                isExpanded: $isEngineFrameExpanded,
+                insertTranscript: { transcript in
+                    Task {
+                        await appDelegate.insertTextAtCurrentCursor(transcript.displayText)
+                    }
+                }
+            )
         }
+        .frame(width: controlPanelWidth)
+        .background {
+            ControlPanelWindowSizer(
+                targetContentWidth: controlPanelWidth,
+                anchor: .leading
+            )
+        }
+        .preferredColorScheme(model.preferences.appearanceMode.colorScheme)
     }
 
     private var settingsContent: some View {
@@ -68,8 +84,16 @@ struct OmniVoiceApp: App {
             },
             refreshPermissions: {
                 appDelegate.refreshPermissionStatus()
+            },
+            showConversationHistory: {
+                isEngineFrameExpanded = true
             }
         )
+        .preferredColorScheme(model.preferences.appearanceMode.colorScheme)
+    }
+
+    private var controlPanelWidth: CGFloat {
+        SettingsView.preferredWidth
     }
 
     private func showTestCaption() {
@@ -79,7 +103,75 @@ struct OmniVoiceApp: App {
             theme: model.activeTheme
         )
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            appDelegate.hideOverlay()
+            appDelegate.commitOverlayAnimation()
         }
+    }
+}
+
+private extension EngineFrameSide {
+    var stackAlignment: Alignment {
+        switch self {
+        case .left:
+            .leading
+        case .right:
+            .trailing
+        }
+    }
+
+    var settingsAlignment: Alignment {
+        switch self {
+        case .left:
+            .trailing
+        case .right:
+            .leading
+        }
+    }
+}
+
+private enum WindowWidthAnchor {
+    case leading
+    case trailing
+}
+
+private struct ControlPanelWindowSizer: NSViewRepresentable {
+    let targetContentWidth: CGFloat
+    let anchor: WindowWidthAnchor
+
+    func makeNSView(context: Context) -> NSView {
+        NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let window = nsView.window else {
+                return
+            }
+
+            resize(window)
+        }
+    }
+
+    private func resize(_ window: NSWindow) {
+        let currentFrame = window.frame
+        let currentContentRect = window.contentRect(forFrameRect: currentFrame)
+        guard abs(currentContentRect.width - targetContentWidth) > 1 else {
+            return
+        }
+
+        let desiredContentRect = NSRect(
+            x: 0,
+            y: 0,
+            width: targetContentWidth,
+            height: currentContentRect.height
+        )
+        let desiredFrameRect = window.frameRect(forContentRect: desiredContentRect)
+        var nextFrame = currentFrame
+        nextFrame.size.width = desiredFrameRect.width
+
+        if anchor == .trailing {
+            nextFrame.origin.x = currentFrame.maxX - desiredFrameRect.width
+        }
+
+        window.setFrame(nextFrame, display: true, animate: true)
     }
 }

@@ -10,6 +10,7 @@ from typing import Callable, Protocol
 
 from huggingface_hub import HfApi, snapshot_download
 
+from .paths import default_model_root
 from .schemas import ModelDownloadStatus, ModelStatus, ModelUpdateInfo
 
 
@@ -40,7 +41,7 @@ class ModelManager:
         hub_api: HubApi | None = None,
         snapshot_downloader: SnapshotDownloader | None = None,
     ) -> None:
-        root = Path(model_root or os.environ.get("OMNIVOICE_MODEL_ROOT") or "models").expanduser()
+        root = Path(model_root).expanduser() if model_root is not None else default_model_root(__file__)
         parakeet_dir = Path(os.environ.get("OMNIVOICE_PARAKEET_MODEL_DIR", root / "parakeet-tdt")).expanduser()
         canary_dir = Path(os.environ.get("OMNIVOICE_CANARY_MODEL_DIR", root / "canary-qwen-2.5b")).expanduser()
 

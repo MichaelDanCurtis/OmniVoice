@@ -39,10 +39,12 @@ final class AppModel {
     var modelStatuses: [EngineModelStatus]
     var modelUpdateInfo: EngineModelUpdateInfo?
     var modelDownloadStatus: EngineModelDownloadStatus?
+    var transcripts: [EngineTranscriptRecord]
     var microphoneDevices: [MicrophoneDevice]
     var lastTestResult: String
     var microphoneAuthorized: Bool
     var accessibilityTrusted: Bool
+    var streamingDiagnostics: EngineStreamingDiagnostics
 
     private let preferencesStore: PreferencesStore
     private let engineClient: EngineClient
@@ -60,10 +62,12 @@ final class AppModel {
         modelStatuses: [EngineModelStatus] = [],
         modelUpdateInfo: EngineModelUpdateInfo? = nil,
         modelDownloadStatus: EngineModelDownloadStatus? = nil,
+        transcripts: [EngineTranscriptRecord] = [],
         microphoneDevices: [MicrophoneDevice] = MicrophoneDeviceService.inputDevices(),
         lastTestResult: String = "No test run yet",
         microphoneAuthorized: Bool = false,
-        accessibilityTrusted: Bool = false
+        accessibilityTrusted: Bool = false,
+        streamingDiagnostics: EngineStreamingDiagnostics = .idle
     ) {
         self.preferencesStore = preferencesStore
         self.engineClient = engineClient
@@ -76,10 +80,12 @@ final class AppModel {
         self.modelStatuses = modelStatuses
         self.modelUpdateInfo = modelUpdateInfo
         self.modelDownloadStatus = modelDownloadStatus
+        self.transcripts = transcripts
         self.microphoneDevices = microphoneDevices
         self.lastTestResult = lastTestResult
         self.microphoneAuthorized = microphoneAuthorized
         self.accessibilityTrusted = accessibilityTrusted
+        self.streamingDiagnostics = streamingDiagnostics
     }
 
     var activeTheme: OmniVoiceTheme {
@@ -164,6 +170,19 @@ final class AppModel {
         statusText = "Custom accent: \(color.hex)"
     }
 
+    func setAppearanceMode(_ mode: AppAppearanceMode) {
+        guard preferences.appearanceMode != mode else {
+            return
+        }
+
+        preferences.appearanceMode = mode
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = "Appearance: \(mode.displayName)"
+    }
+
     func setWaveformMode(_ mode: WaveformMode) {
         guard preferences.waveformMode != mode else {
             return
@@ -177,19 +196,6 @@ final class AppModel {
         statusText = "Waveform: \(mode.displayName)"
     }
 
-    func setCommitAnimationMode(_ mode: CommitAnimationMode) {
-        guard preferences.commitAnimationMode != mode else {
-            return
-        }
-
-        preferences.commitAnimationMode = mode
-        guard persistPreferences() else {
-            return
-        }
-
-        statusText = "Animation: \(mode.displayName)"
-    }
-
     func setEngineFrameSide(_ side: EngineFrameSide) {
         guard preferences.engineFrameSide != side else {
             return
@@ -201,6 +207,128 @@ final class AppModel {
         }
 
         statusText = "Engine frame: \(side.displayName)"
+    }
+
+    func setEngineFrameHandlePosition(_ position: Double) {
+        let clamped = OmniVoicePreferences.clampedHandlePosition(position)
+        guard abs(preferences.engineFrameHandlePosition - clamped) > 0.005 else {
+            return
+        }
+
+        preferences.engineFrameHandlePosition = clamped
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = "History handle moved"
+    }
+
+    func setCustomSpeechModelPath(_ path: String) {
+        guard preferences.customSpeechModelPath != path else {
+            return
+        }
+
+        preferences.customSpeechModelPath = path
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = path.isEmpty ? "Custom speech model cleared" : "Custom speech model selected"
+    }
+
+    func setCustomTranslationModelPath(_ path: String) {
+        guard preferences.customTranslationModelPath != path else {
+            return
+        }
+
+        preferences.customTranslationModelPath = path
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = path.isEmpty ? "Translation model cleared" : "Translation model selected"
+    }
+
+    func setLiveTranslationEnabled(_ enabled: Bool) {
+        guard preferences.liveTranslationEnabled != enabled else {
+            return
+        }
+
+        preferences.liveTranslationEnabled = enabled
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = enabled ? "Live translation enabled" : "Live translation disabled"
+    }
+
+    func setLiveDraftInsertionEnabled(_ enabled: Bool) {
+        guard preferences.liveDraftInsertionEnabled != enabled else {
+            return
+        }
+
+        preferences.liveDraftInsertionEnabled = enabled
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = enabled ? "Live draft typing enabled" : "Live draft typing disabled"
+    }
+
+    func setTranslationSourceLanguage(_ language: String) {
+        let normalized = normalizedLanguageCode(language, fallback: "auto")
+        guard preferences.translationSourceLanguage != normalized else {
+            return
+        }
+
+        preferences.translationSourceLanguage = normalized
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = "Translation source: \(normalized)"
+    }
+
+    func setTranslationTargetLanguage(_ language: String) {
+        let normalized = normalizedLanguageCode(language, fallback: "en")
+        guard preferences.translationTargetLanguage != normalized else {
+            return
+        }
+
+        preferences.translationTargetLanguage = normalized
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = "Translation target: \(normalized)"
+    }
+
+    func setOpenAICompatibleBaseURL(_ url: String) {
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard preferences.openAICompatibleBaseURL != trimmed else {
+            return
+        }
+
+        preferences.openAICompatibleBaseURL = trimmed
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = trimmed.isEmpty ? "AI endpoint cleared" : "AI endpoint updated"
+    }
+
+    func setOpenAICompatibleModel(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard preferences.openAICompatibleModel != trimmed else {
+            return
+        }
+
+        preferences.openAICompatibleModel = trimmed
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = trimmed.isEmpty ? "AI model cleared" : "AI model updated"
     }
 
     func setDictationHotkey(_ binding: HotkeyBinding) {
@@ -239,11 +367,29 @@ final class AppModel {
         await loadEngineStatus(startEngineIfOffline: true)
     }
 
+    func restartEngine() async {
+        engineState = .checking
+        statusText = "Restarting engine"
+
+        let startResult = await EngineSupervisor.shared.restart()
+        switch startResult {
+        case .alreadyOnline, .started:
+            await loadEngineStatus(startEngineIfOffline: false)
+        case .stillStarting, .unavailable, .failed:
+            providerStatuses = []
+            modelStatuses = []
+            transcripts = []
+            engineState = .offline(startResult.detail)
+            statusText = startResult.detail
+        }
+    }
+
     private func loadEngineStatus(startEngineIfOffline: Bool) async {
         do {
             _ = try await engineClient.health()
             providerStatuses = try await engineClient.providers()
             modelStatuses = try await engineClient.models()
+            transcripts = (try? await engineClient.transcripts(limit: 100)) ?? transcripts
             engineState = .online
             statusText = "Engine online"
         } catch {
@@ -256,6 +402,7 @@ final class AppModel {
                 case .stillStarting, .unavailable, .failed:
                     providerStatuses = []
                     modelStatuses = []
+                    transcripts = []
                     engineState = .offline(startResult.detail)
                     statusText = startResult.detail
                     return
@@ -263,8 +410,18 @@ final class AppModel {
             }
             providerStatuses = []
             modelStatuses = []
+            transcripts = []
             engineState = .offline(error.localizedDescription)
             statusText = "Engine offline"
+        }
+    }
+
+    func refreshTranscripts() async {
+        do {
+            transcripts = try await engineClient.transcripts(limit: 100)
+            statusText = "Conversation history refreshed"
+        } catch {
+            statusText = "Conversation history unavailable"
         }
     }
 
@@ -383,5 +540,10 @@ final class AppModel {
             statusText = "Preferences save failed"
             return false
         }
+    }
+
+    private func normalizedLanguageCode(_ language: String, fallback: String) -> String {
+        let trimmed = language.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return trimmed.isEmpty ? fallback : trimmed
     }
 }

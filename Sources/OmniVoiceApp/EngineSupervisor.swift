@@ -62,6 +62,20 @@ final class EngineSupervisor {
         process.terminate()
     }
 
+    func restart() async -> EngineStartResult {
+        didAttemptStart = false
+
+        if let process, process.isRunning {
+            process.terminate()
+            for _ in 0..<20 where process.isRunning {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+        process = nil
+
+        return await startIfNeeded()
+    }
+
     private func launchEngine(using launcherURL: URL) throws {
         let supportURL = try applicationSupportURL()
         let modelRoot = supportURL.appending(path: "models", directoryHint: .isDirectory)

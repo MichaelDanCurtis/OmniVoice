@@ -11,9 +11,18 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
         static let centerY = "CaptionOverlayWindow.centerY"
     }
 
+    private struct Presentation {
+        let text: String
+        let styleName: String
+        let level: Float
+        let theme: OmniVoiceTheme
+    }
+
     private var window: NSWindow?
+    private var presentation: Presentation?
 
     func show(text: String, styleName: String, level: Float = 0, theme: OmniVoiceTheme) {
+        presentation = Presentation(text: text, styleName: styleName, level: level, theme: theme)
         let content = DraggableCaptionHostingView(
             rootView: CaptionOverlayView(text: text, styleName: styleName, level: level, theme: theme)
         )
@@ -36,6 +45,7 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
             )
             created.isOpaque = false
             created.backgroundColor = .clear
+            created.hasShadow = false
             created.level = .floating
             created.ignoresMouseEvents = false
             created.isMovableByWindowBackground = true
@@ -44,6 +54,7 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
             window = created
         }
 
+        window?.alphaValue = 1
         window?.contentView = content
         window?.setFrame(CGRect(origin: origin, size: targetSize), display: true)
         window?.orderFrontRegardless()
@@ -56,6 +67,52 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
 
     func hide() {
         window?.orderOut(nil)
+    }
+
+    func commitSourceFrame() -> CGRect? {
+        window?.frame
+    }
+
+    func commitAndHide(mode: CommitAnimationMode) {
+        guard let window else { return }
+        guard mode != .none else {
+            hide()
+            return
+        }
+        guard let presentation else {
+            hide()
+            return
+        }
+
+        let originalFrame = window.frame
+        let targetFrame = commitTargetFrame(from: originalFrame, mode: mode)
+        let content = DraggableCaptionHostingView(
+            rootView: CaptionOverlayView(
+                text: presentation.text,
+                styleName: presentation.styleName,
+                level: presentation.level,
+                theme: presentation.theme,
+                phase: .committing(mode)
+            )
+        )
+        window.contentView = content
+        window.orderFrontRegardless()
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration(for: mode)
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            window.animator().alphaValue = 0.02
+            window.animator().setFrame(targetFrame, display: true)
+        } completionHandler: { [weak self, weak window] in
+            Task { @MainActor in
+                guard let window else { return }
+                window.orderOut(nil)
+                window.alphaValue = 1
+                window.setFrame(originalFrame, display: false)
+                self?.saveCenter(originalFrame.center)
+                self?.presentation = nil
+            }
+        }
     }
 
     private var savedOrigin: CGPoint? {
@@ -88,6 +145,47 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
         let defaults = UserDefaults.standard
         defaults.set(center.x, forKey: DefaultsKey.centerX)
         defaults.set(center.y, forKey: DefaultsKey.centerY)
+    }
+
+    private func commitTargetFrame(from frame: CGRect, mode: CommitAnimationMode) -> CGRect {
+        let center = frame.center
+        let size: CGSize
+        let yOffset: CGFloat
+
+        switch mode {
+        case .glyphStream:
+            size = CGSize(width: max(120, frame.width * 0.36), height: max(22, frame.height * 0.34))
+            yOffset = 18
+        case .beamSnap:
+            size = CGSize(width: 96, height: 8)
+            yOffset = 6
+        case .cometCollapse:
+            size = CGSize(width: 28, height: 28)
+            yOffset = 28
+        case .none:
+            size = frame.size
+            yOffset = 0
+        }
+
+        return CGRect(
+            x: center.x - size.width / 2,
+            y: center.y - size.height / 2 + yOffset,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    private func duration(for mode: CommitAnimationMode) -> TimeInterval {
+        switch mode {
+        case .glyphStream:
+            0.52
+        case .beamSnap:
+            0.42
+        case .cometCollapse:
+            0.58
+        case .none:
+            0
+        }
     }
 }
 

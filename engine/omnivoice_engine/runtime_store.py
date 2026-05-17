@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-from .schemas import EngineEvent, TranscriptRecord
+from .schemas import EngineEvent, StreamingStats, TranscriptRecord
 
 
 def utc_now() -> str:
@@ -22,6 +22,7 @@ class RuntimeStore:
         self.transcripts_path = self.data_dir / "transcripts.jsonl"
         self.started_at = utc_now()
         self._lock = threading.Lock()
+        self._streaming_stats: dict[str, object] = StreamingStats().model_dump()
 
     def record_event(
         self,
@@ -80,6 +81,49 @@ class RuntimeStore:
 
     def transcript_count(self) -> int:
         return self._line_count(self.transcripts_path)
+
+    def streaming_stats(self) -> StreamingStats:
+        with self._lock:
+            return StreamingStats.model_validate(dict(self._streaming_stats))
+
+    def record_stream_opened(self, *, provider: str, sample_rate: int) -> None:
+        with self._lock:
+            self._streaming_stats["active_streams"] = int(self._streaming_stats["active_streams"]) + 1
+            self._streaming_stats["opened_streams"] = int(self._streaming_stats["opened_streams"]) + 1
+            self._streaming_stats["last_provider"] = provider
+            self._streaming_stats["last_sample_rate"] = sample_rate
+            self._streaming_stats["last_error"] = None
+
+    def record_stream_chunk(self, *, provider: str, chunk_bytes: int) -> None:
+        with self._lock:
+            self._streaming_stats["total_chunks"] = int(self._streaming_stats["total_chunks"]) + 1
+            self._streaming_stats["total_audio_bytes"] = int(self._streaming_stats["total_audio_bytes"]) + chunk_bytes
+            self._streaming_stats["last_provider"] = provider
+
+    def record_stream_partial(self, *, provider: str, text: str) -> None:
+        with self._lock:
+            self._streaming_stats["total_partials"] = int(self._streaming_stats["total_partials"]) + 1
+            self._streaming_stats["last_provider"] = provider
+            self._streaming_stats["last_partial_text"] = text
+
+    def record_stream_completed(self, *, provider: str) -> None:
+        with self._lock:
+            self._streaming_stats["completed_streams"] = int(self._streaming_stats["completed_streams"]) + 1
+            self._streaming_stats["active_streams"] = max(0, int(self._streaming_stats["active_streams"]) - 1)
+            self._streaming_stats["last_provider"] = provider
+
+    def record_stream_failed(self, *, provider: str, error: str) -> None:
+        with self._lock:
+            self._streaming_stats["failed_streams"] = int(self._streaming_stats["failed_streams"]) + 1
+            self._streaming_stats["active_streams"] = max(0, int(self._streaming_stats["active_streams"]) - 1)
+            self._streaming_stats["last_provider"] = provider
+            self._streaming_stats["last_error"] = error
+
+    def record_stream_closed(self, *, provider: str) -> None:
+        with self._lock:
+            self._streaming_stats["closed_streams"] = int(self._streaming_stats["closed_streams"]) + 1
+            self._streaming_stats["active_streams"] = max(0, int(self._streaming_stats["active_streams"]) - 1)
+            self._streaming_stats["last_provider"] = provider
 
     def export_events(self) -> str:
         return self._read_text(self.events_path)

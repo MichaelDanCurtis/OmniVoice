@@ -243,6 +243,7 @@ async def transcribe(request: Request, provider: str = Query(default="fake")) ->
 @app.websocket("/stream")
 async def stream(websocket: WebSocket, provider: str = "fake", sample_rate: int = 16000) -> None:
     await websocket.accept()
+    runtime_store.record_stream_opened(provider=provider, sample_rate=sample_rate)
     runtime_store.record_event(
         "stream.opened",
         f"Streaming session opened for {provider}",
@@ -258,6 +259,7 @@ async def stream(websocket: WebSocket, provider: str = "fake", sample_rate: int 
             level="warning",
             detail={"provider": provider},
         )
+        runtime_store.record_stream_failed(provider=provider, error=f"unknown provider: {provider}")
         await websocket.close()
         return
 
@@ -270,10 +272,16 @@ async def stream(websocket: WebSocket, provider: str = "fake", sample_rate: int 
             level="warning",
             detail={"provider": provider, "reason": info.reason},
         )
+        runtime_store.record_stream_failed(
+            provider=provider,
+            error=info.reason or f"provider unavailable: {provider}",
+        )
         await websocket.close()
         return
 
     chunks: list[bytes] = []
+    chunk_count = 0
+    partial_count = 0
     last_decode_size = 0
     last_decode_time = 0.0
     partial_decode_bytes = max(4096, sample_rate * 4)
@@ -296,8 +304,16 @@ async def stream(websocket: WebSocket, provider: str = "fake", sample_rate: int 
                         "stream.failed",
                         f"Streaming transcription failed for {provider}",
                         level="error",
-                        detail={"provider": provider, "sample_rate": sample_rate, "audio_bytes": len(combined), "error": str(exc)},
+                        detail={
+                            "provider": provider,
+                            "sample_rate": sample_rate,
+                            "audio_bytes": len(combined),
+                            "chunk_count": chunk_count,
+                            "partial_count": partial_count,
+                            "error": str(exc),
+                        },
                     )
+                    runtime_store.record_stream_failed(provider=provider, error=str(exc))
                     await websocket.close()
                     return
                 duration_ms = int((time.monotonic() - started) * 1000)
@@ -316,16 +332,21 @@ async def stream(websocket: WebSocket, provider: str = "fake", sample_rate: int 
                         "provider": provider,
                         "sample_rate": sample_rate,
                         "audio_bytes": len(combined),
+                        "chunk_count": chunk_count,
+                        "partial_count": partial_count,
                         "duration_ms": duration_ms,
                         "text_length": len(final_text),
                     },
                 )
+                runtime_store.record_stream_completed(provider=provider)
                 await websocket.send_json({"type": "final", "text": final_text})
                 await websocket.close()
                 return
 
             if bytes_message:
                 chunks.append(bytes_message)
+                chunk_count += 1
+                runtime_store.record_stream_chunk(provider=provider, chunk_bytes=len(bytes_message))
                 combined = b"".join(chunks)
                 now = time.monotonic()
                 enough_new_audio = len(combined) - last_decode_size >= partial_decode_bytes
@@ -343,20 +364,35 @@ async def stream(websocket: WebSocket, provider: str = "fake", sample_rate: int 
                                 "provider": provider,
                                 "sample_rate": sample_rate,
                                 "audio_bytes": len(combined),
+                                "chunk_count": chunk_count,
+                                "partial_count": partial_count,
                                 "error": str(exc),
                             },
                         )
+                        runtime_store.record_stream_failed(provider=provider, error=str(exc))
                         await websocket.close()
                         return
+                    partial_count += 1
+                    runtime_store.record_stream_partial(provider=provider, text=partial)
                     await websocket.send_json({"type": "partial", "text": partial})
                     last_decode_size = len(combined)
                     last_decode_time = now
     except WebSocketDisconnect:
-        runtime_store.record_event("stream.closed", f"Streaming session disconnected for {provider}", detail={"provider": provider})
+        runtime_store.record_stream_closed(provider=provider)
+        runtime_store.record_event(
+            "stream.closed",
+            f"Streaming session disconnected for {provider}",
+            detail={"provider": provider, "chunk_count": chunk_count, "partial_count": partial_count},
+        )
         return
     except RuntimeError as exc:
         if "disconnect" in str(exc).lower():
-            runtime_store.record_event("stream.closed", f"Streaming session disconnected for {provider}", detail={"provider": provider})
+            runtime_store.record_stream_closed(provider=provider)
+            runtime_store.record_event(
+                "stream.closed",
+                f"Streaming session disconnected for {provider}",
+                detail={"provider": provider, "chunk_count": chunk_count, "partial_count": partial_count},
+            )
             return
         raise
 
@@ -371,6 +407,7 @@ def engine_status() -> EngineStatus:
         models=model_manager.list_statuses(),
         event_count=runtime_store.event_count(),
         transcript_count=runtime_store.transcript_count(),
+        streaming=runtime_store.streaming_stats(),
     )
 
 

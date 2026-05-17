@@ -47,6 +47,12 @@ final class ThemeTests: XCTestCase {
         XCTAssertEqual(color.hex, "#38BDF8")
     }
 
+    func testAppearanceModesExposeDisplayNames() {
+        XCTAssertEqual(AppAppearanceMode.system.displayName, "System")
+        XCTAssertEqual(AppAppearanceMode.dark.displayName, "Dark")
+        XCTAssertEqual(AppAppearanceMode.light.displayName, "Light")
+    }
+
     func testCSSVariablesClampAlphaValues() {
         let theme = OmniVoiceTheme(
             id: .custom,

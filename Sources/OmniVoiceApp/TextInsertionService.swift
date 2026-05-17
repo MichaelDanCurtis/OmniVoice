@@ -14,6 +14,15 @@ final class TextInsertionService {
         let selectedRange: NSRange?
     }
 
+    struct LiveDraft {
+        let application: NSRunningApplication?
+        let element: AXUIElement
+        let originalText: String
+        let selectedRange: NSRange
+        let placeholderValues: [String]
+        var currentText: String
+    }
+
     enum InsertionError: LocalizedError {
         case accessibilityPermissionRequired
         case noInsertionToUndo
@@ -90,6 +99,48 @@ final class TextInsertionService {
             logger.error("Pasteboard insertion failed; falling back to synthetic typing")
             try typeWithSyntheticKeystrokes(insertionText)
         }
+    }
+
+    func beginLiveDraft(target: Target?) -> LiveDraft? {
+        guard AXIsProcessTrusted() else {
+            logger.warning("Live draft skipped because accessibility trust is missing")
+            return nil
+        }
+        guard let target,
+              let focusedElement = target.focusedElement,
+              let selectedRange = target.selectedRange,
+              selectedRange.length == 0 else {
+            logger.info("Live draft skipped because the target is not a plain insertion point")
+            return nil
+        }
+
+        return LiveDraft(
+            application: target.application,
+            element: focusedElement,
+            originalText: target.currentValue,
+            selectedRange: selectedRange,
+            placeholderValues: Self.placeholderValues(for: focusedElement),
+            currentText: ""
+        )
+    }
+
+    @discardableResult
+    func updateLiveDraft(_ text: String, draft: inout LiveDraft) -> Bool {
+        applyLiveDraftText(text, draft: &draft, recordUndo: false)
+    }
+
+    @discardableResult
+    func commitLiveDraft(_ text: String, draft: inout LiveDraft) -> Bool {
+        applyLiveDraftText(text, draft: &draft, recordUndo: true)
+    }
+
+    func cancelLiveDraft(_ draft: LiveDraft) {
+        guard AXIsProcessTrusted() else { return }
+        guard AXUIElementSetAttributeValue(draft.element, kAXValueAttribute as CFString, draft.originalText as CFString) == .success else {
+            logger.warning("Live draft restore failed")
+            return
+        }
+        _ = setCaretLocation(draft.selectedRange.location, in: draft.element)
     }
 
     func undoLastInsertion() async throws {
@@ -207,6 +258,37 @@ final class TextInsertionService {
         if !setCaretLocation(edit.cursorLocation, in: focused) {
             logger.warning("Accessibility insertion succeeded but caret confirmation failed")
         }
+        return true
+    }
+
+    private func applyLiveDraftText(_ text: String, draft: inout LiveDraft, recordUndo: Bool) -> Bool {
+        let insertionText = TextInsertionEdit.sanitizedInsertionText(text)
+        guard !insertionText.isEmpty else {
+            return false
+        }
+        guard let edit = TextInsertionEdit.make(
+            currentValue: draft.originalText,
+            selectedRange: draft.selectedRange,
+            insertion: insertionText,
+            placeholderValues: draft.placeholderValues
+        ) else {
+            return false
+        }
+
+        guard AXUIElementSetAttributeValue(draft.element, kAXValueAttribute as CFString, edit.text as CFString) == .success else {
+            logger.warning("Live draft accessibility update failed")
+            return false
+        }
+        if recordUndo {
+            lastDirectInsertion = DirectInsertionRecord(
+                application: draft.application,
+                element: draft.element,
+                previousText: draft.originalText,
+                previousCursorLocation: draft.selectedRange.location
+            )
+        }
+        draft.currentText = insertionText
+        _ = setCaretLocation(edit.cursorLocation, in: draft.element)
         return true
     }
 

@@ -77,6 +77,24 @@ final class EngineClientTests: XCTestCase {
         XCTAssertEqual(status.message, "Download queued")
     }
 
+    func testTranscriptRecordDecodesEnginePayload() throws {
+        let data = #"{"id":"t1","created_at":"2026-05-16T08:12:30Z","source":"dictation","raw_text":"no wait house","cleaned_text":"I'm going to the house.","provider":"parakeet-tdt","style":"neutral","audio_bytes":128000,"sample_rate":16000,"duration_ms":1500}"#.data(using: .utf8)!
+
+        let record = try EngineCoding.decoder.decode(EngineTranscriptRecord.self, from: data)
+
+        XCTAssertEqual(record.id, "t1")
+        XCTAssertEqual(record.createdAt, "2026-05-16T08:12:30Z")
+        XCTAssertEqual(record.source, "dictation")
+        XCTAssertEqual(record.rawText, "no wait house")
+        XCTAssertEqual(record.cleanedText, "I'm going to the house.")
+        XCTAssertEqual(record.provider, "parakeet-tdt")
+        XCTAssertEqual(record.style, "neutral")
+        XCTAssertEqual(record.audioBytes, 128000)
+        XCTAssertEqual(record.sampleRate, 16000)
+        XCTAssertEqual(record.durationMs, 1500)
+        XCTAssertEqual(record.displayText, "I'm going to the house.")
+    }
+
     func testTranscriptUpdateDecodesStreamingPayload() throws {
         let data = #"{"text":"live words","is_final":false}"#.data(using: .utf8)!
 

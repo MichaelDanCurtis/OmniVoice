@@ -22,6 +22,9 @@ const nodes = {
   providerValue: document.querySelector("#providerValue"),
   modelValue: document.querySelector("#modelValue"),
   transcriptValue: document.querySelector("#transcriptValue"),
+  streamValue: document.querySelector("#streamValue"),
+  streamAudioValue: document.querySelector("#streamAudioValue"),
+  streamPartialValue: document.querySelector("#streamPartialValue"),
   providerList: document.querySelector("#providerList"),
   modelList: document.querySelector("#modelList"),
   transcriptList: document.querySelector("#transcriptList"),
@@ -102,6 +105,9 @@ function render() {
   nodes.providerValue.textContent = `${availableProviders}/${state.status.providers.length}`;
   nodes.modelValue.textContent = `${installedModels}/${state.status.models.length}`;
   nodes.transcriptValue.textContent = String(state.status.transcript_count);
+  nodes.streamValue.textContent = String(state.status.streaming?.active_streams ?? 0);
+  nodes.streamAudioValue.textContent = formatBytes(state.status.streaming?.total_audio_bytes ?? 0);
+  nodes.streamPartialValue.textContent = String(state.status.streaming?.total_partials ?? 0);
 
   renderProviders(state.status.providers);
   renderModels(state.status.models);
@@ -313,6 +319,12 @@ function formatDuration(seconds) {
   if (hours > 0) return `${hours}h ${minutes % 60}m`;
   if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
   return `${seconds}s`;
+}
+
+function formatBytes(value) {
+  if (value >= 1_048_576) return `${(value / 1_048_576).toFixed(1)} MB`;
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${value} B`;
 }
 
 function formatTime(value) {

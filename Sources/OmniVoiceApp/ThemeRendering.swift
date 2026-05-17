@@ -31,6 +31,19 @@ extension ThemeColor {
     }
 }
 
+extension AppAppearanceMode {
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system:
+            nil
+        case .dark:
+            .dark
+        case .light:
+            .light
+        }
+    }
+}
+
 struct ThemeSurface: ViewModifier {
     let theme: OmniVoiceTheme
     let cornerRadius: CGFloat

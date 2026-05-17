@@ -137,6 +137,48 @@ public struct EngineModelDownloadStatus: Codable, Equatable, Sendable {
     }
 }
 
+public struct EngineTranscriptRecord: Codable, Equatable, Identifiable, Sendable {
+    public let id: String
+    public let createdAt: String
+    public let source: String
+    public let rawText: String
+    public let cleanedText: String?
+    public let provider: String?
+    public let style: String?
+    public let audioBytes: Int?
+    public let sampleRate: Int?
+    public let durationMs: Int?
+
+    public var displayText: String {
+        let cleaned = cleanedText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return cleaned.isEmpty ? rawText : cleaned
+    }
+
+    public init(
+        id: String,
+        createdAt: String,
+        source: String,
+        rawText: String,
+        cleanedText: String? = nil,
+        provider: String? = nil,
+        style: String? = nil,
+        audioBytes: Int? = nil,
+        sampleRate: Int? = nil,
+        durationMs: Int? = nil
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.source = source
+        self.rawText = rawText
+        self.cleanedText = cleanedText
+        self.provider = provider
+        self.style = style
+        self.audioBytes = audioBytes
+        self.sampleRate = sampleRate
+        self.durationMs = durationMs
+    }
+}
+
 public struct EngineClient: Sendable {
     public enum EngineError: Error, Equatable {
         case badStatus(Int, String?)
@@ -170,6 +212,16 @@ public struct EngineClient: Sendable {
         let (data, response) = try await urlSession.data(from: endpoint)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode([EngineModelStatus].self, from: data)
+    }
+
+    public func transcripts(limit: Int = 200) async throws -> [EngineTranscriptRecord] {
+        var components = URLComponents(url: baseURL.appending(path: "api").appending(path: "transcripts"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        guard let endpoint = components?.url else { throw EngineError.invalidURL }
+
+        let (data, response) = try await urlSession.data(from: endpoint)
+        try validate(response, data: data)
+        return try EngineCoding.decoder.decode([EngineTranscriptRecord].self, from: data)
     }
 
     public func checkModelUpdate(provider: ASRProviderKind) async throws -> EngineModelUpdateInfo {

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from omnivoice_engine.paths import default_model_root
 from omnivoice_engine.schemas import ProviderInfo
 
 from .base import ASRProvider
@@ -18,7 +19,7 @@ class ParakeetSherpaProvider(ASRProvider):
 
     def __init__(self, model_dir: str | None = None) -> None:
         configured = model_dir or os.environ.get("OMNIVOICE_PARAKEET_MODEL_DIR")
-        self.model_dir = Path(configured or "models/parakeet-tdt").expanduser()
+        self.model_dir = Path(configured).expanduser() if configured else default_model_root(__file__) / "parakeet-tdt"
         self._recognizer = None
 
     def info(self) -> ProviderInfo:
