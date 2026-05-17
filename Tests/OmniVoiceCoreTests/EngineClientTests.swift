@@ -102,4 +102,40 @@ final class EngineClientTests: XCTestCase {
 
         XCTAssertEqual(update, TranscriptUpdate(text: "live words", isFinal: false))
     }
+
+    func testAIHandoffRequestEncodesSnakeCasePayload() throws {
+        let request = AIHandoffRequest(
+            prompt: "write a reply",
+            provider: "claude",
+            baseURL: "https://openrouter.ai/api/v1",
+            model: "anthropic/claude-sonnet",
+            apiKey: "secret",
+            context: "Jane asked for an update."
+        )
+
+        let data = try EngineCoding.encoder.encode(request)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(object["prompt"] as? String, "write a reply")
+        XCTAssertEqual(object["provider"] as? String, "claude")
+        XCTAssertEqual(object["base_url"] as? String, "https://openrouter.ai/api/v1")
+        XCTAssertEqual(object["model"] as? String, "anthropic/claude-sonnet")
+        XCTAssertEqual(object["api_key"] as? String, "secret")
+        XCTAssertEqual(object["context"] as? String, "Jane asked for an update.")
+    }
+
+    func testAIHandoffResultDecodesEnginePayload() throws {
+        let data = #"{"text":"Hi Jane, here is the update.","provider":"claude","model":"anthropic/claude-sonnet"}"#.data(using: .utf8)!
+
+        let result = try EngineCoding.decoder.decode(AIHandoffResult.self, from: data)
+
+        XCTAssertEqual(
+            result,
+            AIHandoffResult(
+                text: "Hi Jane, here is the update.",
+                provider: "claude",
+                model: "anthropic/claude-sonnet"
+            )
+        )
+    }
 }

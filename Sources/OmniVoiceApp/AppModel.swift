@@ -336,6 +336,20 @@ final class AppModel {
         statusText = trimmed.isEmpty ? "AI model cleared" : "AI model updated"
     }
 
+    func setOpenAICompatibleAPIKey(_ key: String) {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard preferences.openAICompatibleAPIKey != trimmed else {
+            return
+        }
+
+        preferences.openAICompatibleAPIKey = trimmed
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = trimmed.isEmpty ? "AI API key cleared" : "AI API key updated"
+    }
+
     func setDictationHotkey(_ binding: HotkeyBinding) {
         guard binding != preferences.styleHotkey else {
             statusText = "Hotkeys must be different"

@@ -13,6 +13,21 @@ class CleanupResponse(BaseModel):
     cleanup_applied: bool
 
 
+class AIHandoffRequest(BaseModel):
+    prompt: str = Field(min_length=1)
+    provider: str = "custom"
+    base_url: str = ""
+    model: str = ""
+    api_key: str = ""
+    context: str = ""
+
+
+class AIHandoffResponse(BaseModel):
+    text: str
+    provider: str
+    model: str
+
+
 class ProviderInfo(BaseModel):
     id: str
     label: str

@@ -1,7 +1,10 @@
 import asyncio
+import json
 import os
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
@@ -13,6 +16,8 @@ from .model_manager import ModelManager
 from .providers.registry import ProviderRegistry
 from .runtime_store import RuntimeStore
 from .schemas import (
+    AIHandoffRequest,
+    AIHandoffResponse,
     CleanupRequest,
     CleanupResponse,
     DesktopAppLaunchResponse,
@@ -198,6 +203,60 @@ def cleanup(request: CleanupRequest) -> CleanupResponse:
         },
     )
     return result
+
+
+@app.post("/api/ai/handoff", response_model=AIHandoffResponse)
+def ai_handoff(request: AIHandoffRequest) -> AIHandoffResponse:
+    base_url = request.base_url.strip()
+    model = request.model.strip()
+    prompt = request.prompt.strip()
+    context = request.context.strip()
+    provider = request.provider.strip() or "custom"
+    if not base_url or not model:
+        raise HTTPException(status_code=400, detail="AI endpoint and model are required")
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You write concise, directly usable text to insert at the user's cursor. "
+                "Return only the text to insert."
+            ),
+        },
+        {
+            "role": "user",
+            "content": _ai_handoff_user_content(prompt=prompt, context=context),
+        },
+    ]
+
+    try:
+        text = openai_compatible_chat_completion(
+            base_url=base_url,
+            api_key=request.api_key.strip(),
+            model=model,
+            messages=messages,
+            timeout=45.0,
+        )
+    except Exception as exc:
+        runtime_store.record_event(
+            "ai_handoff.failed",
+            "AI handoff failed",
+            level="error",
+            detail={"provider": provider, "model": model, "error": str(exc)},
+        )
+        raise HTTPException(status_code=502, detail=f"AI handoff failed: {exc}") from exc
+
+    runtime_store.record_event(
+        "ai_handoff.completed",
+        "AI handoff completed",
+        detail={
+            "provider": provider,
+            "model": model,
+            "prompt_length": len(prompt),
+            "context_length": len(context),
+        },
+    )
+    return AIHandoffResponse(text=text, provider=provider, model=model)
 
 
 @app.post("/transcribe", response_model=TranscribeResponse)
@@ -455,6 +514,57 @@ def _download_model(provider_id: str) -> None:
             detail={"provider_id": provider_id, "error": str(exc)},
         )
         return
+
+
+def _ai_handoff_user_content(*, prompt: str, context: str) -> str:
+    if context:
+        return f"Foreground context:\n{context}\n\nUser request:\n{prompt}"
+    return prompt
+
+
+def openai_compatible_chat_completion(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    messages: list[dict[str, str]],
+    timeout: float,
+) -> str:
+    endpoint = f"{base_url.rstrip('/')}/chat/completions"
+    payload = json.dumps(
+        {
+            "model": model,
+            "messages": messages,
+            "temperature": 0.3,
+        }
+    ).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    request = urllib.request.Request(endpoint, data=payload, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            response_body = response.read()
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace").strip()
+        message = f"upstream returned {exc.code}"
+        if detail:
+            message = f"{message}: {detail}"
+        raise RuntimeError(message) from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(str(exc.reason)) from exc
+
+    try:
+        body = json.loads(response_body.decode("utf-8"))
+        text = body["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise RuntimeError("upstream response did not include message content") from exc
+
+    cleaned = str(text).strip()
+    if not cleaned:
+        raise RuntimeError("upstream returned empty content")
+    return cleaned
 
 
 def desktop_app_path() -> Path:

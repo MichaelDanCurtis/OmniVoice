@@ -51,12 +51,12 @@ This file maps OmniVoice features to the GUI surface where a user should discove
 | Undo last dictation command | Implemented | Help/Quick Reference | Help/Capabilities | Also add to menu bar quick actions. |
 | Selection rewrite MVP | Implemented | Overview capabilities; Help/Quick Reference | Help/Capabilities | Needs a stronger GUI explanation and examples. |
 | Read foreground text and respond | Planned | Integrations/AI tab capability surface | Integrations/AI tab | Requires foreground selection/context capture plus LLM provider configuration. |
-| "Ask Claude/Codex/OpenRouter" inline replies | Planned | Integrations/AI tab capability surface | Integrations/AI tab | Voice patterns are now visible; provider auth, prompt templates, and insertion destination controls remain planned. |
-| OpenAI-compatible custom API integration | Partially implemented | Integrations/AI tab | Integrations/AI tab | Base URL and model are configurable and persisted; API key/test prompt controls remain planned. |
+| "Ask Claude/Codex/OpenRouter" inline replies | Implemented MVP | Integrations/AI tab capability surface | Integrations/AI tab | Explicit voice patterns route to the OpenAI-compatible handoff endpoint and insert the AI response inline. Provider-native OAuth remains planned. |
+| OpenAI-compatible custom API integration | Implemented MVP | Integrations/AI tab | Integrations/AI tab | Base URL, model, and API key are configurable and persisted. Test prompt controls remain planned. |
 | Claude Desktop integration | Partial utility support | Integrations/AI tab; docs/INTEGRATIONS.md | Integrations/AI tab and Help/Capabilities | Current support strips Claude placeholder text and can open Claude. No Claude API/OAuth GUI yet. |
 | Codex integration | Partial utility support | Integrations/AI tab; docs/INTEGRATIONS.md | Integrations/AI tab and Help/Capabilities | Current support strips Codex placeholder text and works through normal insertion. No Codex OAuth GUI yet. |
 | Copilot OAuth integration | Planned | Not available | Integrations/AI tab | Need to validate API/OAuth feasibility before implementation. |
-| OpenRouter integration | Planned | Not available | Integrations/AI tab | Should be provider-agnostic with OpenAI-compatible endpoint support. |
+| OpenRouter integration | Implemented MVP | Integrations/AI tab | Integrations/AI tab | Works through OpenRouter's OpenAI-compatible API when configured with base URL, model, and API key. Native account/OAuth setup remains planned. |
 | Raycast integration | Implemented externally | Integrations/AI tab; integrations/raycast README | Integrations tab | App-visible entry point now opens the Raycast files. |
 | Live translation | Partially implemented | Translation tab | Translation tab | Source/target language, enabled flag, and model path are persisted; runtime translation route remains planned. |
 | External translation model selection | Partially implemented | Models tab and Translation tab | Translation tab or Models tab | Local translation model path can be selected and persisted; runtime execution selector is still planned. |
@@ -85,7 +85,7 @@ The current Quick Reference and Capabilities sections should become one "Capabil
 | Literal/raw mode | How to preserve exact terms, commands, code, and file paths. |
 | Personal dictionary | How casing preservation works and when to add terms. |
 | Translation | Input/output language controls and model requirements once implemented. |
-| AI handoff | "Ask Claude/OpenAI/OpenRouter" examples once implemented. |
+| AI handoff | Configure an OpenAI-compatible endpoint, then use "Ask Claude/OpenAI/OpenRouter" commands. |
 | Conversation mode | Transcript, speaker labels, copy/insert, and export once implemented. |
 
 ## Immediate UI Decisions

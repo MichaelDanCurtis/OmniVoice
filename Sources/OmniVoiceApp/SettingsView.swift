@@ -429,9 +429,11 @@ struct SettingsView: View {
                 .textFieldStyle(.roundedBorder)
             TextField("Model", text: openAICompatibleModelBinding)
                 .textFieldStyle(.roundedBorder)
+            SecureField("API Key", text: openAICompatibleAPIKeyBinding)
+                .textFieldStyle(.roundedBorder)
 
-            LabeledContent("Claude", value: "Command phrasing and app cleanup ready")
-            LabeledContent("Codex", value: "Inline insertion ready")
+            LabeledContent("Claude", value: "Ask Claude phrasing enabled")
+            LabeledContent("Codex", value: "Hey Codex phrasing enabled")
             LabeledContent("OpenRouter", value: model.preferences.openAICompatibleBaseURL.isEmpty ? "Add endpoint" : "Endpoint configured")
             LabeledContent("Raycast", value: "Scripts available in integrations/raycast")
 
@@ -612,6 +614,13 @@ struct SettingsView: View {
         Binding(
             get: { model.preferences.openAICompatibleModel },
             set: { model.setOpenAICompatibleModel($0) }
+        )
+    }
+
+    private var openAICompatibleAPIKeyBinding: Binding<String> {
+        Binding(
+            get: { model.preferences.openAICompatibleAPIKey },
+            set: { model.setOpenAICompatibleAPIKey($0) }
         )
     }
 
@@ -1070,7 +1079,7 @@ private enum CapabilityInfo: String, CaseIterable, Identifiable {
         case .aiHandoff:
             [
                 "Ask Claude, write a quick reply to Jane.",
-                "Read this email and write a response in Spanish saying we will not be coming.",
+                "Select text, then say: Have OpenRouter take a look at this and respond in Spanish.",
             ]
         case .conversationHistory:
             [

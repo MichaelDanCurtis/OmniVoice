@@ -35,6 +35,7 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.translationTargetLanguage, "en")
         XCTAssertEqual(preferences.openAICompatibleBaseURL, "")
         XCTAssertEqual(preferences.openAICompatibleModel, "")
+        XCTAssertEqual(preferences.openAICompatibleAPIKey, "")
         XCTAssertFalse(preferences.liveDraftInsertionEnabled)
     }
 
@@ -62,6 +63,7 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertFalse(preferences.liveTranslationEnabled)
         XCTAssertEqual(preferences.translationSourceLanguage, "auto")
         XCTAssertEqual(preferences.translationTargetLanguage, "en")
+        XCTAssertEqual(preferences.openAICompatibleAPIKey, "")
         XCTAssertFalse(preferences.liveDraftInsertionEnabled)
     }
 
@@ -83,6 +85,7 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertNotNil(object["translation_target_language"])
         XCTAssertNotNil(object["open_ai_compatible_base_url"])
         XCTAssertNotNil(object["open_ai_compatible_model"])
+        XCTAssertNotNil(object["open_ai_compatible_api_key"])
         XCTAssertNotNil(object["live_draft_insertion_enabled"])
     }
 
@@ -129,6 +132,7 @@ final class PreferencesStoreTests: XCTestCase {
             translationTargetLanguage: "en",
             openAICompatibleBaseURL: "http://127.0.0.1:11434/v1",
             openAICompatibleModel: "local-qwen",
+            openAICompatibleAPIKey: "test-key",
             liveDraftInsertionEnabled: true
         )
 

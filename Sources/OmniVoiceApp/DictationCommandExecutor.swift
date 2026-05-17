@@ -18,7 +18,7 @@ struct DictationCommandExecutor {
         switch command.action {
         case .openApplication(let name):
             try openApplication(named: name)
-        case .showCommandPalette, .undoLastDictation:
+        case .showCommandPalette, .undoLastDictation, .aiHandoff:
             break
         }
     }

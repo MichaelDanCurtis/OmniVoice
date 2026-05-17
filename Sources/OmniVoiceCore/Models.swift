@@ -196,3 +196,40 @@ public struct CleanupResult: Codable, Equatable, Sendable {
         self.cleanupApplied = cleanupApplied
     }
 }
+
+public struct AIHandoffRequest: Codable, Equatable, Sendable {
+    public let prompt: String
+    public let provider: String
+    public let baseURL: String
+    public let model: String
+    public let apiKey: String
+    public let context: String
+
+    public init(
+        prompt: String,
+        provider: String,
+        baseURL: String,
+        model: String,
+        apiKey: String = "",
+        context: String = ""
+    ) {
+        self.prompt = prompt
+        self.provider = provider
+        self.baseURL = baseURL
+        self.model = model
+        self.apiKey = apiKey
+        self.context = context
+    }
+}
+
+public struct AIHandoffResult: Codable, Equatable, Sendable {
+    public let text: String
+    public let provider: String
+    public let model: String
+
+    public init(text: String, provider: String, model: String) {
+        self.text = text
+        self.provider = provider
+        self.model = model
+    }
+}

@@ -165,6 +165,88 @@ def test_cleanup_endpoint_records_cleaned_transcript(monkeypatch, tmp_path):
     assert history[0]["cleaned_text"] == "Send it to Sara."
 
 
+def test_ai_handoff_endpoint_posts_openai_compatible_request(monkeypatch, tmp_path):
+    store = RuntimeStore(tmp_path)
+    captured: dict[str, object] = {}
+
+    def fake_chat_completion(*, base_url, api_key, model, messages, timeout):
+        captured["base_url"] = base_url
+        captured["api_key"] = api_key
+        captured["model"] = model
+        captured["messages"] = messages
+        captured["timeout"] = timeout
+        return "Hi Jane, there are about 375,000 airline passengers per day in the United States."
+
+    monkeypatch.setattr("omnivoice_engine.main.runtime_store", store, raising=False)
+    monkeypatch.setattr(engine_main, "openai_compatible_chat_completion", fake_chat_completion, raising=False)
+
+    response = client.post(
+        "/api/ai/handoff",
+        json={
+            "prompt": "write a quick reply to Jane",
+            "provider": "claude",
+            "base_url": "https://openrouter.ai/api/v1",
+            "model": "anthropic/claude-sonnet",
+            "api_key": "test-key",
+            "context": "Jane asked how many people fly in the US.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "text": "Hi Jane, there are about 375,000 airline passengers per day in the United States.",
+        "provider": "claude",
+        "model": "anthropic/claude-sonnet",
+    }
+    assert captured["base_url"] == "https://openrouter.ai/api/v1"
+    assert captured["api_key"] == "test-key"
+    assert captured["model"] == "anthropic/claude-sonnet"
+    assert captured["messages"][0]["role"] == "system"
+    assert "Return only the text to insert" in captured["messages"][0]["content"]
+    assert "write a quick reply to Jane" in captured["messages"][1]["content"]
+    assert "Jane asked how many people fly in the US." in captured["messages"][1]["content"]
+    assert any(event.kind == "ai_handoff.completed" for event in store.recent_events(5))
+
+
+def test_ai_handoff_endpoint_requires_base_url_and_model():
+    response = client.post(
+        "/api/ai/handoff",
+        json={
+            "prompt": "write a quick reply",
+            "provider": "custom",
+            "base_url": "",
+            "model": "",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "AI endpoint and model are required"
+
+
+def test_ai_handoff_endpoint_reports_upstream_failure(monkeypatch, tmp_path):
+    store = RuntimeStore(tmp_path)
+
+    def fake_chat_completion(**_kwargs):
+        raise RuntimeError("upstream timed out")
+
+    monkeypatch.setattr("omnivoice_engine.main.runtime_store", store, raising=False)
+    monkeypatch.setattr(engine_main, "openai_compatible_chat_completion", fake_chat_completion, raising=False)
+
+    response = client.post(
+        "/api/ai/handoff",
+        json={
+            "prompt": "write a quick reply",
+            "provider": "custom",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "model": "local-qwen",
+        },
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "AI handoff failed: upstream timed out"
+    assert any(event.kind == "ai_handoff.failed" for event in store.recent_events(5))
+
+
 def test_providers_endpoint_includes_fake():
     response = client.get("/providers")
 

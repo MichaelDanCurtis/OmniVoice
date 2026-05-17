@@ -357,6 +357,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 showCommandPalette()
             case .undoLastDictation:
                 try await insertionService.undoLastInsertion()
+            case .aiHandoff(let target, let prompt):
+                await handleAIHandoff(target: target, prompt: prompt, model: model)
+                return
             }
             model.statusText = command.displayText
             showOverlay(text: command.displayText, styleName: "Command")
@@ -371,9 +374,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func handleAIHandoff(target: AIHandoffTarget, prompt: String, model: AppModel) async {
+        let baseURL = model.preferences.openAICompatibleBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let aiModel = model.preferences.openAICompatibleModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !baseURL.isEmpty, !aiModel.isEmpty else {
+            model.session.fail("AI endpoint and model are required")
+            model.statusText = "AI endpoint required"
+            showOverlay(text: "Add an OpenAI-compatible endpoint and model in Integrations.", styleName: "AI handoff")
+            return
+        }
+
+        let context = insertionTarget?.selectedText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        model.statusText = "Asking \(target.displayName)"
+        showOverlay(text: "Asking \(target.displayName)...", styleName: "AI handoff")
+
+        do {
+            let result = try await engineClient.aiHandoff(
+                AIHandoffRequest(
+                    prompt: prompt,
+                    provider: target.rawValue,
+                    baseURL: baseURL,
+                    model: aiModel,
+                    apiKey: model.preferences.openAICompatibleAPIKey,
+                    context: context
+                )
+            )
+            let insertion = TextInsertionEdit.sanitizedInsertionText(result.text)
+            guard !insertion.isEmpty else {
+                model.session.fail("AI returned empty text")
+                model.statusText = "AI returned empty text"
+                showOverlay(text: "AI returned empty text", styleName: "AI handoff")
+                return
+            }
+
+            await insertFinalText(insertion, model: model, successStatus: "AI response inserted")
+        } catch {
+            model.session.fail("AI handoff failed: \(error.localizedDescription)")
+            model.statusText = "AI handoff failed"
+            showOverlay(text: error.localizedDescription, styleName: "AI handoff failed")
+        }
+    }
+
     private func showCommandPalette() {
         showOverlay(
-            text: "Command, open Safari\nCommand, undo last dictation\nCommand, show commands",
+            text: "Command, open Safari\nCommand, undo last dictation\nAsk Claude, write a reply",
             styleName: "Commands"
         )
     }

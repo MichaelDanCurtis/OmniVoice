@@ -26,6 +26,23 @@ Useful defaults:
 - Use `Command, undo last dictation` if an inserted prompt needs to be removed.
 - Use the Personal Dictionary for repo names, model names, and project-specific terms.
 
+## AI Handoff
+
+OmniVoice can route explicit AI commands through any OpenAI-compatible chat completions endpoint. Configure the endpoint in Settings -> Integrations:
+
+- Base URL, for example `https://openrouter.ai/api/v1` or a local OpenAI-compatible server.
+- Model, for example `anthropic/claude-sonnet` or a local model name.
+- API Key, if the endpoint requires one.
+
+Supported phrases:
+
+- `Ask Claude, write a quick reply to Jane`
+- `Hey Codex, summarize this in two sentences`
+- `Have OpenRouter take a look at this and respond in Spanish`
+- `Ask OpenAI, make this sound more professional`
+
+If text is selected when dictation starts, OmniVoice sends the selected text as foreground context. OAuth-specific Codex, Claude, Copilot, and provider-native account integrations are still planned; the active implementation is OpenAI-compatible API access.
+
 ## Local API
 
 The local engine API is available at `http://127.0.0.1:8765`.
@@ -37,4 +54,5 @@ Useful endpoints:
 - `GET /api/transcripts`
 - `GET /api/events`
 - `POST /api/desktop-app/start`
+- `POST /api/ai/handoff`
 - `POST /cleanup`

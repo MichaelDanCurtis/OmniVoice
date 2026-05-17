@@ -40,7 +40,7 @@ Becomes:
 
 ## Command Mode
 
-Start with `command`, then say an app-opening command.
+Start with `command`, then say an app-opening or OmniVoice command.
 
 Examples:
 
@@ -50,7 +50,20 @@ Examples:
 - `Command, undo last dictation`
 - `Command, show commands`
 
-Command mode currently opens supported applications only. It does not run shell commands, delete files, send messages, or take destructive actions.
+Command mode opens supported applications and runs safe OmniVoice actions. It does not run shell commands, delete files, send messages, or take destructive actions.
+
+## AI Handoff
+
+Open Settings -> Integrations and configure an OpenAI-compatible Base URL, Model, and API Key. Then hold the dictation hotkey and use an explicit AI phrase.
+
+Examples:
+
+- `Ask Claude, write a quick reply to Jane`
+- `Hey Codex, summarize this in two sentences`
+- `Have OpenRouter take a look at this and respond in Spanish`
+- `Ask OpenAI, make this sound more professional`
+
+If text is selected when dictation starts, OmniVoice sends that selected text as context. Only the AI response is inserted at the cursor.
 
 ## Selection Rewrite
 
