@@ -501,9 +501,17 @@ final class AppModel {
 
     func appendConversationSegment(_ request: ConversationSegmentCreateRequest) async {
         guard isConversationRecording, let activeConversation, activeConversation.isActive else { return }
+        let sessionID = activeConversation.id
 
+        if request.state == .live {
+            updateLiveConversationSegment(request, sessionID: sessionID)
+            return
+        }
+
+        removeLiveConversationSegment(sessionID: sessionID)
         do {
-            let segment = try await engineClient.addConversationSegment(sessionID: activeConversation.id, request: request)
+            let segment = try await engineClient.addConversationSegment(sessionID: sessionID, request: request)
+            guard isConversationRecording, self.activeConversation?.id == sessionID else { return }
             conversationSegments.append(segment)
         } catch {
             statusText = "Conversation segment failed"
@@ -512,9 +520,11 @@ final class AppModel {
 
     func appendConversationAssistCard(_ request: ConversationAssistCardCreateRequest) async {
         guard isConversationRecording, let activeConversation, activeConversation.isActive else { return }
+        let sessionID = activeConversation.id
 
         do {
-            let card = try await engineClient.addConversationAssistCard(sessionID: activeConversation.id, request: request)
+            let card = try await engineClient.addConversationAssistCard(sessionID: sessionID, request: request)
+            guard isConversationRecording, self.activeConversation?.id == sessionID else { return }
             conversationAssistCards.append(card)
         } catch {
             statusText = "Assist card failed"
@@ -523,9 +533,12 @@ final class AppModel {
 
     func stopConversationSession() async {
         guard let activeConversation else { return }
+        let sessionID = activeConversation.id
+        removeLiveConversationSegment(sessionID: sessionID)
 
         do {
-            let stopped = try await engineClient.stopConversation(sessionID: activeConversation.id)
+            let stopped = try await engineClient.stopConversation(sessionID: sessionID)
+            guard self.activeConversation?.id == sessionID else { return }
             conversationSessions.insert(stopped, at: 0)
             self.activeConversation = nil
             isConversationRecording = false
@@ -560,14 +573,10 @@ final class AppModel {
                 provider: preferences.asrProvider,
                 microphoneID: preferences.microphoneID,
                 onSegment: { [weak self] request in
-                    Task { @MainActor in
-                        await self?.appendConversationSegment(request)
-                    }
+                    await self?.appendConversationSegment(request)
                 },
                 onAssistCard: { [weak self] request in
-                    Task { @MainActor in
-                        await self?.appendConversationAssistCard(request)
-                    }
+                    await self?.appendConversationAssistCard(request)
                 }
             )
             if let deferredConversationAction {
@@ -580,6 +589,8 @@ final class AppModel {
             _ = try? await engineClient.stopConversation(sessionID: session.id)
             activeConversation = nil
             isConversationRecording = false
+            conversationSegments = []
+            conversationAssistCards = []
             statusText = error.localizedDescription
         }
     }
@@ -619,6 +630,8 @@ final class AppModel {
         conversationRecorder.cancel()
         activeConversation = nil
         isConversationRecording = false
+        conversationSegments = []
+        conversationAssistCards = []
         statusText = "Conversation cancelled"
 
         if let sessionID {
@@ -656,8 +669,40 @@ final class AppModel {
             _ = try? await engineClient.stopConversation(sessionID: sessionID)
             activeConversation = nil
             isConversationRecording = false
+            conversationSegments = []
+            conversationAssistCards = []
             statusText = "Conversation cancelled"
         }
+    }
+
+    private func updateLiveConversationSegment(_ request: ConversationSegmentCreateRequest, sessionID: String) {
+        let liveID = liveConversationSegmentID(sessionID: sessionID)
+        let segment = ConversationSegment(
+            id: liveID,
+            sessionID: sessionID,
+            speakerID: request.speakerID,
+            speakerDisplayName: request.speakerDisplayName,
+            startMs: request.startMs,
+            endMs: request.endMs,
+            text: request.text,
+            state: .live,
+            confidence: request.confidence
+        )
+
+        if let index = conversationSegments.firstIndex(where: { $0.id == liveID }) {
+            conversationSegments[index] = segment
+        } else {
+            conversationSegments.append(segment)
+        }
+    }
+
+    private func removeLiveConversationSegment(sessionID: String) {
+        let liveID = liveConversationSegmentID(sessionID: sessionID)
+        conversationSegments.removeAll { $0.id == liveID }
+    }
+
+    private func liveConversationSegmentID(sessionID: String) -> String {
+        "live-\(sessionID)"
     }
 
     func refreshModelStatus() async {

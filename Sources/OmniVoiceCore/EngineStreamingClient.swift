@@ -92,6 +92,8 @@ public final class EngineStreamingClient: @unchecked Sendable {
     private let session: URLSession
     private let queue = DispatchQueue(label: "omnivoice.engine.streaming")
     private var task: URLSessionWebSocketTask?
+    private let connectionGate = EngineStreamingConnectionGate()
+    private var connectionToken: EngineStreamingConnectionToken?
     private var onUpdate: (@Sendable (TranscriptUpdate) -> Void)?
     private var onDiagnostics: (@Sendable (EngineStreamingDiagnostics) -> Void)?
     private var diagnostics: EngineStreamingDiagnostics = .idle
@@ -107,16 +109,23 @@ public final class EngineStreamingClient: @unchecked Sendable {
         }
     }
 
-    public func setOnDiagnostics(_ handler: (@Sendable (EngineStreamingDiagnostics) -> Void)?) {
+    public func setOnDiagnostics(
+        _ handler: (@Sendable (EngineStreamingDiagnostics) -> Void)?,
+        emitCurrent: Bool = true
+    ) {
         queue.async {
             self.onDiagnostics = handler
-            handler?(self.diagnostics)
+            if emitCurrent {
+                handler?(self.diagnostics)
+            }
         }
     }
 
     public func connect(provider: ASRProviderKind, sampleRate: Double) {
         queue.async {
             self.task?.cancel(with: .normalClosure, reason: nil)
+            let token = self.connectionGate.start()
+            self.connectionToken = token
             self.updateDiagnostics {
                 $0 = EngineStreamingDiagnostics(
                     state: .connecting,
@@ -143,13 +152,13 @@ public final class EngineStreamingClient: @unchecked Sendable {
             self.task = task
             task.resume()
             self.updateDiagnostics { $0.state = .open }
-            self.receiveNext()
+            self.receiveNext(task: task, token: token)
         }
     }
 
     public func sendPCMFloat32(_ data: Data) {
         queue.async {
-            guard let task = self.task else {
+            guard let task = self.task, let token = self.connectionToken else {
                 self.updateDiagnostics {
                     $0.droppedChunks += 1
                     $0.droppedBytes += data.count
@@ -164,6 +173,7 @@ public final class EngineStreamingClient: @unchecked Sendable {
             task.send(.data(data)) { [weak self] error in
                 guard let self, let error else { return }
                 self.queue.async {
+                    guard self.isCurrent(task: task, token: token) else { return }
                     self.updateDiagnostics {
                         $0.state = .failed
                         $0.lastError = error.localizedDescription
@@ -175,7 +185,7 @@ public final class EngineStreamingClient: @unchecked Sendable {
 
     public func finish() {
         queue.async {
-            guard let task = self.task else {
+            guard let task = self.task, let token = self.connectionToken else {
                 self.updateDiagnostics { $0.state = .closed }
                 return
             }
@@ -184,6 +194,7 @@ public final class EngineStreamingClient: @unchecked Sendable {
             task.send(.string("__finish__")) { [weak self] error in
                 guard let self, let error else { return }
                 self.queue.async {
+                    guard self.isCurrent(task: task, token: token) else { return }
                     self.updateDiagnostics {
                         $0.state = .failed
                         $0.lastError = error.localizedDescription
@@ -196,16 +207,20 @@ public final class EngineStreamingClient: @unchecked Sendable {
     public func cancel() {
         queue.async {
             self.task?.cancel(with: .normalClosure, reason: nil)
+            if let token = self.connectionToken {
+                self.connectionGate.clear(token)
+            }
+            self.connectionToken = nil
             self.task = nil
             self.updateDiagnostics { $0.state = .cancelled }
         }
     }
 
-    private func receiveNext() {
-        task?.receive { [weak self] result in
+    private func receiveNext(task: URLSessionWebSocketTask, token: EngineStreamingConnectionToken) {
+        task.receive { [weak self] result in
             guard let self else { return }
             self.queue.async {
-                guard self.task != nil else { return }
+                guard self.isCurrent(task: task, token: token) else { return }
                 if case let .success(message) = result, case let .string(json) = message {
                     if let update = Self.decode(json) {
                         self.updateDiagnostics {
@@ -219,9 +234,9 @@ public final class EngineStreamingClient: @unchecked Sendable {
                         }
                         self.onUpdate?(update)
                     }
-                    self.receiveNext()
+                    self.receiveNext(task: task, token: token)
                 } else if case .success = result {
-                    self.receiveNext()
+                    self.receiveNext(task: task, token: token)
                 } else {
                     if case let .failure(error) = result,
                        self.diagnostics.state != .closing,
@@ -233,10 +248,16 @@ public final class EngineStreamingClient: @unchecked Sendable {
                     } else if self.diagnostics.state == .closing {
                         self.updateDiagnostics { $0.state = .closed }
                     }
+                    self.connectionGate.clear(token)
+                    self.connectionToken = nil
                     self.task = nil
                 }
             }
         }
+    }
+
+    private func isCurrent(task: URLSessionWebSocketTask, token: EngineStreamingConnectionToken) -> Bool {
+        self.task === task && connectionGate.isCurrent(token)
     }
 
     private func updateDiagnostics(_ update: (inout EngineStreamingDiagnostics) -> Void) {

@@ -27,12 +27,15 @@ final class ConversationRecorderService {
     private var isRecording = false
     private var isStopping = false
     private var activeSessionID: String?
-    private var onSegment: ((ConversationSegmentCreateRequest) -> Void)?
-    private var onAssistCard: ((ConversationAssistCardCreateRequest) -> Void)?
+    private var activeGeneration: UUID?
+    private var onSegment: ((ConversationSegmentCreateRequest) async -> Void)?
+    private var onAssistCard: ((ConversationAssistCardCreateRequest) async -> Void)?
     private var diagnostics: EngineStreamingDiagnostics = .idle
     private var stopContinuation: CheckedContinuation<Void, Never>?
     private var openContinuation: CheckedContinuation<Void, Never>?
     private let speakerCycler = MockConversationDiarizer()
+    private var transcriptAccumulator = ConversationTranscriptAccumulator()
+    private let pendingUpdates = ConversationUpdateTracker()
 
     var recordingActive: Bool { isRecording || isStopping }
 
@@ -48,30 +51,40 @@ final class ConversationRecorderService {
         sessionID: String,
         provider: ASRProviderKind,
         microphoneID: String?,
-        onSegment: @escaping (ConversationSegmentCreateRequest) -> Void,
-        onAssistCard: @escaping (ConversationAssistCardCreateRequest) -> Void
+        onSegment: @escaping (ConversationSegmentCreateRequest) async -> Void,
+        onAssistCard: @escaping (ConversationAssistCardCreateRequest) async -> Void
     ) async throws {
         guard !isRecording, !isStopping else { throw RecorderError.alreadyRecording }
 
+        let generation = UUID()
         activeSessionID = sessionID
+        activeGeneration = generation
         self.onSegment = onSegment
         self.onAssistCard = onAssistCard
         diagnostics = .idle
+        transcriptAccumulator = ConversationTranscriptAccumulator()
         startedAt = Date()
         segmentIndex = 0
         isRecording = true
         isStopping = false
+        pendingUpdates.start(generation: generation)
 
-        streamingClient.setOnUpdate { [weak self] update in
+        streamingClient.setOnUpdate { [weak self, pendingUpdates] update in
+            guard let self else { return }
+            guard let token = pendingUpdates.begin(generation: generation) else { return }
             Task { @MainActor in
-                self?.handle(update)
+                defer {
+                    pendingUpdates.end(token)
+                }
+                await self.handle(update, sessionID: sessionID, generation: generation)
             }
         }
-        streamingClient.setOnDiagnostics { [weak self] diagnostics in
+        streamingClient.setOnDiagnostics({ [weak self] diagnostics in
             Task { @MainActor in
+                guard self?.activeSessionID == sessionID, self?.activeGeneration == generation else { return }
                 self?.handle(diagnostics)
             }
-        }
+        }, emitCurrent: false)
         audioCapture.onPCMChunk = { [weak streamingClient] data in
             streamingClient?.sendPCMFloat32(data)
         }
@@ -90,6 +103,7 @@ final class ConversationRecorderService {
 
     func stop() async throws {
         guard isRecording, !isStopping else { return }
+        let generation = activeGeneration
         isStopping = true
 
         audioCapture.onPCMChunk = nil
@@ -102,6 +116,9 @@ final class ConversationRecorderService {
 
         streamingClient.finish()
         await waitForStreamFinalization()
+        if let generation {
+            await waitForPendingUpdates(generation: generation)
+        }
         clearRecordingState()
 
         if let stopError {
@@ -121,18 +138,24 @@ final class ConversationRecorderService {
         streamingClient.setOnUpdate(nil)
         streamingClient.setOnDiagnostics(nil)
         activeSessionID = nil
+        if let activeGeneration {
+            pendingUpdates.retire(generation: activeGeneration)
+        }
+        activeGeneration = nil
         onSegment = nil
         onAssistCard = nil
         isRecording = false
         isStopping = false
         diagnostics = .idle
+        transcriptAccumulator = ConversationTranscriptAccumulator()
         resumeOpenWaiterIfNeeded(force: true)
         resumeStopWaiterIfNeeded()
     }
 
-    private func handle(_ update: TranscriptUpdate) {
-        let text = update.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, activeSessionID != nil else { return }
+    private func handle(_ update: TranscriptUpdate, sessionID: String, generation: UUID) async {
+        guard activeSessionID == sessionID, activeGeneration == generation else { return }
+        let decision = transcriptAccumulator.ingest(update)
+        guard case let .segment(text, isFinal) = decision else { return }
 
         let nowMs = Int(Date().timeIntervalSince(startedAt) * 1000)
         let speaker = speakerCycler.speaker(forSegmentIndex: segmentIndex, text: text)
@@ -140,17 +163,21 @@ final class ConversationRecorderService {
             speakerID: speaker.id,
             speakerDisplayName: speaker.displayName,
             startMs: max(0, nowMs - 2_500),
-            endMs: update.isFinal ? nowMs : nil,
+            endMs: isFinal ? nowMs : nil,
             text: text,
-            state: update.isFinal ? .settled : .live,
+            state: isFinal ? .settled : .live,
             confidence: nil
         )
-        onSegment?(request)
+        if let onSegment {
+            await onSegment(request)
+        }
 
-        if update.isFinal {
+        if isFinal {
             segmentIndex += 1
             if let card = ConversationAssistCardDetector.card(for: text) {
-                onAssistCard?(card)
+                if let onAssistCard {
+                    await onAssistCard(card)
+                }
             }
         }
     }
@@ -197,6 +224,10 @@ final class ConversationRecorderService {
         }
     }
 
+    private func waitForPendingUpdates(generation: UUID) async {
+        await pendingUpdates.waitForIdle(generation: generation)
+    }
+
     private var isStreamFinalized: Bool {
         switch diagnostics.state {
         case .closed, .failed, .cancelled:
@@ -222,6 +253,7 @@ final class ConversationRecorderService {
             self.openContinuation = nil
         }
     }
+
 }
 
 private struct MockConversationDiarizer {

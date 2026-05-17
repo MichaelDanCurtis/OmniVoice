@@ -103,6 +103,17 @@ final class EngineClientTests: XCTestCase {
         XCTAssertEqual(update, TranscriptUpdate(text: "live words", isFinal: false))
     }
 
+    func testStreamingDiagnosticsCanSkipCurrentSnapshot() {
+        let client = EngineStreamingClient()
+        let diagnostics = expectation(description: "diagnostics should not be delivered immediately")
+        diagnostics.isInverted = true
+
+        client.setOnDiagnostics({ _ in diagnostics.fulfill() }, emitCurrent: false)
+
+        wait(for: [diagnostics], timeout: 0.05)
+        client.setOnDiagnostics(nil)
+    }
+
     func testAIHandoffRequestEncodesSnakeCasePayload() throws {
         let request = AIHandoffRequest(
             prompt: "write a reply",
