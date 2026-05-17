@@ -59,19 +59,6 @@ add_local_keychain_to_search_list() {
   /usr/bin/security list-keychains -d user -s "$LOCAL_CODESIGN_KEYCHAIN" "${current_keychains[@]}"
 }
 
-remove_local_keychain_from_search_list() {
-  local current_keychains=()
-  local keychain
-  while IFS= read -r keychain; do
-    keychain="${keychain#"${keychain%%[![:space:]]*}"}"
-    keychain="${keychain%"${keychain##*[![:space:]]}"}"
-    keychain="${keychain//\"/}"
-    [[ "$keychain" == /* && "$keychain" != "$LOCAL_CODESIGN_KEYCHAIN" ]] && current_keychains+=("$keychain")
-  done < <(/usr/bin/security list-keychains -d user)
-
-  [[ ${#current_keychains[@]} -gt 0 ]] && /usr/bin/security list-keychains -d user -s "${current_keychains[@]}"
-}
-
 run_with_timeout() {
   local timeout_seconds="$1"
   shift
@@ -98,41 +85,6 @@ run_with_timeout() {
 reset_app_signature_artifacts() {
   rm -rf "$APP_BUNDLE/Contents/_CodeSignature"
   find "$APP_BUNDLE" -name "*.cstemp" -type f -delete 2>/dev/null || true
-}
-
-can_codesign_with_identity() {
-  local identity="$1"
-  local probe_root
-  probe_root="$(mktemp -d "$DIST_DIR/codesign-probe.XXXXXX")"
-  local probe_bundle="$probe_root/Probe.app"
-  local probe_macos="$probe_bundle/Contents/MacOS"
-
-  mkdir -p "$probe_macos"
-  cp /bin/echo "$probe_macos/Probe"
-  cat >"$probe_bundle/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleExecutable</key>
-  <string>Probe</string>
-  <key>CFBundleIdentifier</key>
-  <string>$BUNDLE_ID.codesign-probe</string>
-  <key>CFBundleName</key>
-  <string>OmniVoice Codesign Probe</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-</dict>
-</plist>
-PLIST
-
-  if run_with_timeout "$LOCAL_CODESIGN_TIMEOUT_SECONDS" /usr/bin/codesign --force --sign "$identity" --identifier "$BUNDLE_ID.codesign-probe" "$probe_bundle"; then
-    rm -rf "$probe_root"
-    return 0
-  fi
-
-  rm -rf "$probe_root"
-  return 1
 }
 
 engine_session_matches_root() {
@@ -292,15 +244,6 @@ resolve_codesign_identity() {
     return
   fi
 
-  CODESIGN_IDENTITY="$(
-    /usr/bin/security find-identity -v -p codesigning "$HOME/Library/Keychains/login.keychain-db" 2>/dev/null \
-      | /usr/bin/awk -v name="$LOCAL_CODESIGN_NAME" '$0 ~ name { print $2; exit }'
-  )"
-  if [[ -n "$CODESIGN_IDENTITY" ]]; then
-    CODESIGN_IDENTITY_SOURCE="login"
-    return
-  fi
-
   resolve_local_codesign_identity
 }
 
@@ -319,16 +262,9 @@ resolve_local_codesign_identity() {
 
 sign_app_bundle() {
   resolve_codesign_identity
-  if [[ "$CODESIGN_IDENTITY_SOURCE" == "login" ]] && ! can_codesign_with_identity "$CODESIGN_IDENTITY"; then
-    echo "warning: login-keychain codesign identity is present but unavailable; falling back to project-local identity" >&2
-    resolve_local_codesign_identity
-  fi
 
   reset_app_signature_artifacts
   if run_with_timeout "$LOCAL_CODESIGN_TIMEOUT_SECONDS" /usr/bin/codesign --force --deep --sign "$CODESIGN_IDENTITY" --identifier "$BUNDLE_ID" "$APP_BUNDLE"; then
-    if [[ "$CODESIGN_IDENTITY_SOURCE" == "login" ]]; then
-      remove_local_keychain_from_search_list
-    fi
     return
   fi
 
@@ -337,10 +273,8 @@ sign_app_bundle() {
     return 1
   fi
 
-  echo "warning: login-keychain codesign identity could not sign within ${LOCAL_CODESIGN_TIMEOUT_SECONDS}s; falling back to project-local identity" >&2
-  resolve_local_codesign_identity
-  reset_app_signature_artifacts
-  run_with_timeout "$LOCAL_CODESIGN_TIMEOUT_SECONDS" /usr/bin/codesign --force --deep --sign "$CODESIGN_IDENTITY" --identifier "$BUNDLE_ID" "$APP_BUNDLE"
+  echo "codesign failed with project-local identity $CODESIGN_IDENTITY" >&2
+  return 1
 }
 
 swift build
