@@ -50,6 +50,11 @@ final class AppModel {
     var microphoneAuthorized: Bool
     var accessibilityTrusted: Bool
     var streamingDiagnostics: EngineStreamingDiagnostics
+    var activeConversation: ConversationSession?
+    var conversationSegments: [ConversationSegment]
+    var conversationAssistCards: [ConversationAssistCard]
+    var conversationSessions: [ConversationSession]
+    var isConversationRecording: Bool
 
     private let preferencesStore: PreferencesStore
     private let engineClient: EngineClient
@@ -72,7 +77,12 @@ final class AppModel {
         lastTestResult: String = "No test run yet",
         microphoneAuthorized: Bool = false,
         accessibilityTrusted: Bool = false,
-        streamingDiagnostics: EngineStreamingDiagnostics = .idle
+        streamingDiagnostics: EngineStreamingDiagnostics = .idle,
+        activeConversation: ConversationSession? = nil,
+        conversationSegments: [ConversationSegment] = [],
+        conversationAssistCards: [ConversationAssistCard] = [],
+        conversationSessions: [ConversationSession] = [],
+        isConversationRecording: Bool = false
     ) {
         self.preferencesStore = preferencesStore
         self.engineClient = engineClient
@@ -91,6 +101,11 @@ final class AppModel {
         self.microphoneAuthorized = microphoneAuthorized
         self.accessibilityTrusted = accessibilityTrusted
         self.streamingDiagnostics = streamingDiagnostics
+        self.activeConversation = activeConversation
+        self.conversationSegments = conversationSegments
+        self.conversationAssistCards = conversationAssistCards
+        self.conversationSessions = conversationSessions
+        self.isConversationRecording = isConversationRecording
     }
 
     var activeTheme: OmniVoiceTheme {
@@ -441,6 +456,74 @@ final class AppModel {
             statusText = "Conversation history refreshed"
         } catch {
             statusText = "Conversation history unavailable"
+        }
+    }
+
+    func loadConversations() async {
+        do {
+            conversationSessions = try await engineClient.conversations(limit: 100)
+        } catch {
+            statusText = "Conversation history unavailable"
+        }
+    }
+
+    func createConversationSession(captureMode: ConversationCaptureMode = .microphoneOnly) async -> ConversationSession? {
+        do {
+            let session = try await engineClient.createConversation(
+                ConversationSessionCreateRequest(
+                    title: "Conversation",
+                    captureMode: captureMode,
+                    asrProvider: preferences.asrProvider.rawValue,
+                    diarizationProvider: "mock",
+                    externalProcessingEnabled: false
+                )
+            )
+            activeConversation = session
+            conversationSegments = []
+            conversationAssistCards = []
+            isConversationRecording = true
+            statusText = "Conversation recording"
+            return session
+        } catch {
+            statusText = "Conversation start failed"
+            return nil
+        }
+    }
+
+    func appendConversationSegment(_ request: ConversationSegmentCreateRequest) async {
+        guard isConversationRecording, let activeConversation, activeConversation.isActive else { return }
+
+        do {
+            let segment = try await engineClient.addConversationSegment(sessionID: activeConversation.id, request: request)
+            conversationSegments.append(segment)
+        } catch {
+            statusText = "Conversation segment failed"
+        }
+    }
+
+    func appendConversationAssistCard(_ request: ConversationAssistCardCreateRequest) async {
+        guard isConversationRecording, let activeConversation, activeConversation.isActive else { return }
+
+        do {
+            let card = try await engineClient.addConversationAssistCard(sessionID: activeConversation.id, request: request)
+            conversationAssistCards.append(card)
+        } catch {
+            statusText = "Assist card failed"
+        }
+    }
+
+    func stopConversationSession() async {
+        guard let activeConversation else { return }
+
+        do {
+            let stopped = try await engineClient.stopConversation(sessionID: activeConversation.id)
+            conversationSessions.insert(stopped, at: 0)
+            self.activeConversation = nil
+            isConversationRecording = false
+            await loadConversations()
+            statusText = "Conversation saved"
+        } catch {
+            statusText = "Conversation stop failed"
         }
     }
 
