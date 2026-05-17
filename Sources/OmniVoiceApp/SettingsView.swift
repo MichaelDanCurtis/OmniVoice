@@ -8,6 +8,7 @@ struct SettingsView: View {
     @Bindable var model: AppModel
     let showTestCaption: () -> Void
     let requestAccessibilityPermission: () -> Void
+    let resetAccessibilityPermission: () -> Void
     let refreshPermissions: () -> Void
     let showConversationHistory: () -> Void
     let openConversationMode: () -> Void
@@ -179,6 +180,10 @@ struct SettingsView: View {
                 Button("Open Accessibility Settings") {
                     requestAccessibilityPermission()
                 }
+
+                Button("Reset Accessibility") {
+                    resetAccessibilityPermission()
+                }
             }
         }
     }
@@ -206,6 +211,13 @@ struct SettingsView: View {
                 if startupChecksContainAction(.accessibility) {
                     Button("Fix Accessibility") {
                         requestAccessibilityPermission()
+                        Task {
+                            await model.refreshStartupChecks()
+                        }
+                    }
+
+                    Button("Reset Accessibility") {
+                        resetAccessibilityPermission()
                         Task {
                             await model.refreshStartupChecks()
                         }

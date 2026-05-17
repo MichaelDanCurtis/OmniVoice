@@ -96,6 +96,9 @@ struct OmniVoiceApp: App {
             requestAccessibilityPermission: {
                 appDelegate.requestAccessibilityPermission()
             },
+            resetAccessibilityPermission: {
+                appDelegate.resetAccessibilityPermission()
+            },
             refreshPermissions: {
                 appDelegate.refreshPermissionStatus()
             },

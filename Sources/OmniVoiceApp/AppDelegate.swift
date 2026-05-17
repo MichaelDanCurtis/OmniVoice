@@ -82,6 +82,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func resetAccessibilityPermission() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        process.arguments = [
+            "reset",
+            "Accessibility",
+            Bundle.main.bundleIdentifier ?? "com.omnivoice.OmniVoiceApp",
+        ]
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            permissionLogger.error("Failed to reset Accessibility with tccutil: \(error.localizedDescription, privacy: .public)")
+        }
+
+        didPromptForAccessibility = false
+        updatePermissionStatus()
+        requestAccessibilityPermission()
+    }
+
     func showOverlay(
         text: String,
         styleName: String,

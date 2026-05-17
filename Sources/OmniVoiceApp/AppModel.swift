@@ -546,7 +546,7 @@ final class AppModel {
                 title: "Accessibility",
                 detail: accessibilityTrusted
                     ? "Allowed for cursor detection and text insertion."
-                    : "Required for cursor detection and final text insertion.",
+                    : "Required for cursor detection and final text insertion. If it still shows required after allowing it, reset the OmniVoice Accessibility record.",
                 state: accessibilityTrusted ? .passed : .failed,
                 action: accessibilityTrusted ? nil : .accessibility
             ),
