@@ -6,6 +6,7 @@ struct MenuBarControlsView: View {
     @Bindable var model: AppModel
     let showTestCaption: () -> Void
     let requestAccessibilityPermission: () -> Void
+    let openConversationMode: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -76,6 +77,10 @@ struct MenuBarControlsView: View {
             }
 
             Divider()
+
+            Button("Open Conversation Mode") {
+                openConversationMode()
+            }
 
             Button("Open Engine Dashboard") {
                 NSWorkspace.shared.open(URL(string: "http://127.0.0.1:8765/")!)

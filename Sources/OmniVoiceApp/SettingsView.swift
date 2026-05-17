@@ -10,6 +10,7 @@ struct SettingsView: View {
     let requestAccessibilityPermission: () -> Void
     let refreshPermissions: () -> Void
     let showConversationHistory: () -> Void
+    let openConversationMode: () -> Void
 
     @State private var selectedTab: SettingsTab = .overview
     @State private var selectedCapability: CapabilityInfo?
@@ -158,6 +159,12 @@ struct SettingsView: View {
                     Task {
                         await model.refreshTranscripts()
                     }
+                }
+
+                Button {
+                    openConversationMode()
+                } label: {
+                    Label("Conversation Mode", systemImage: "bubble.left.and.text.bubble.right")
                 }
 
                 Button("Restart Engine") {

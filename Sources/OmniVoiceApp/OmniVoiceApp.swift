@@ -5,6 +5,7 @@ import OmniVoiceCore
 @main
 struct OmniVoiceApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @Environment(\.openWindow) private var openWindow
     @State private var model = AppModel()
     @State private var isEngineFrameExpanded = false
 
@@ -42,6 +43,9 @@ struct OmniVoiceApp: App {
                 },
                 requestAccessibilityPermission: {
                     appDelegate.requestAccessibilityPermission()
+                },
+                openConversationMode: {
+                    openWindow(id: "conversation-mode")
                 }
             )
             .preferredColorScheme(model.preferences.appearanceMode.colorScheme)
@@ -97,6 +101,9 @@ struct OmniVoiceApp: App {
             },
             showConversationHistory: {
                 isEngineFrameExpanded = true
+            },
+            openConversationMode: {
+                openWindow(id: "conversation-mode")
             }
         )
         .preferredColorScheme(model.preferences.appearanceMode.colorScheme)
