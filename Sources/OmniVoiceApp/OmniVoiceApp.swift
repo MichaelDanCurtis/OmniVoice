@@ -17,6 +17,16 @@ struct OmniVoiceApp: App {
             }
         }
 
+        Window("Conversation", id: "conversation-mode") {
+            ConversationModeView(model: model)
+                .preferredColorScheme(model.preferences.appearanceMode.colorScheme)
+                .task {
+                    appDelegate.attach(model: model)
+                    await model.loadConversations()
+                }
+        }
+        .defaultSize(width: 980, height: 680)
+
         MenuBarExtra("OmniVoice", systemImage: "waveform") {
             MenuBarControlsView(
                 model: model,
