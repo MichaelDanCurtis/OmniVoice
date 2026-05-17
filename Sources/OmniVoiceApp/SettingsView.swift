@@ -80,6 +80,7 @@ struct SettingsView: View {
         case .overview:
             tabPage {
                 statusSection
+                startupPreflightSection
                 capabilitiesSection
                 testSection
             }
@@ -179,6 +180,120 @@ struct SettingsView: View {
                     requestAccessibilityPermission()
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var startupPreflightSection: some View {
+        Section("Startup Preflight") {
+            if model.startupChecks.isEmpty {
+                Text("No startup check has run yet.")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(model.startupChecks) { check in
+                    startupCheckRow(check)
+                }
+            }
+
+            HStack {
+                Button("Refresh Checks") {
+                    refreshPermissions()
+                    Task {
+                        await model.refreshStartupChecks()
+                    }
+                }
+
+                if startupChecksContainAction(.accessibility) {
+                    Button("Fix Accessibility") {
+                        requestAccessibilityPermission()
+                        Task {
+                            await model.refreshStartupChecks()
+                        }
+                    }
+                }
+
+                if startupChecksContainAction(.microphone) {
+                    Button("Fix Microphone") {
+                        openMicrophoneSettings()
+                        Task {
+                            await model.refreshStartupChecks()
+                        }
+                    }
+                }
+
+                if startupChecksContainAction(.engine) {
+                    Button("Restart Engine") {
+                        Task {
+                            await model.restartEngine()
+                        }
+                    }
+                }
+
+                if startupChecksContainAction(.model) {
+                    Button("Download Model") {
+                        Task {
+                            await model.downloadSelectedModel()
+                            await model.refreshStartupChecks()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func startupCheckRow(_ check: StartupCheckItem) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: startupCheckIcon(for: check.state))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(startupCheckColor(for: check.state))
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(check.title)
+                    .font(.callout.weight(.semibold))
+                Text(check.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            Spacer(minLength: 10)
+
+            Text(check.state.label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(startupCheckColor(for: check.state))
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func startupChecksContainAction(_ action: StartupCheckAction) -> Bool {
+        model.startupChecks.contains { $0.action == action }
+    }
+
+    private func openMicrophoneSettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+        ) else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func startupCheckIcon(for state: StartupCheckState) -> String {
+        switch state {
+        case .checking: "clock"
+        case .passed: "checkmark.circle.fill"
+        case .warning: "exclamationmark.triangle.fill"
+        case .failed: "xmark.octagon.fill"
+        }
+    }
+
+    private func startupCheckColor(for state: StartupCheckState) -> Color {
+        switch state {
+        case .checking: .secondary
+        case .passed: .green
+        case .warning: .orange
+        case .failed: .red
         }
     }
 

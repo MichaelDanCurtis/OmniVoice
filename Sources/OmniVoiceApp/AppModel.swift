@@ -32,6 +32,38 @@ struct ProviderRecoveryIssue: Equatable {
     let detail: String
 }
 
+enum StartupCheckState: Equatable {
+    case checking
+    case passed
+    case warning
+    case failed
+
+    var label: String {
+        switch self {
+        case .checking: "Checking"
+        case .passed: "OK"
+        case .warning: "Warning"
+        case .failed: "Fix needed"
+        }
+    }
+}
+
+enum StartupCheckAction: Equatable {
+    case accessibility
+    case microphone
+    case engine
+    case model
+    case refresh
+}
+
+struct StartupCheckItem: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let detail: String
+    let state: StartupCheckState
+    let action: StartupCheckAction?
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -60,6 +92,7 @@ final class AppModel {
     var conversationAssistCards: [ConversationAssistCard]
     var conversationSessions: [ConversationSession]
     var isConversationRecording: Bool
+    var startupChecks: [StartupCheckItem]
 
     private let preferencesStore: PreferencesStore
     private let engineClient: EngineClient
@@ -91,7 +124,8 @@ final class AppModel {
         conversationSegments: [ConversationSegment] = [],
         conversationAssistCards: [ConversationAssistCard] = [],
         conversationSessions: [ConversationSession] = [],
-        isConversationRecording: Bool = false
+        isConversationRecording: Bool = false,
+        startupChecks: [StartupCheckItem] = []
     ) {
         self.preferencesStore = preferencesStore
         self.engineClient = engineClient
@@ -115,6 +149,7 @@ final class AppModel {
         self.conversationAssistCards = conversationAssistCards
         self.conversationSessions = conversationSessions
         self.isConversationRecording = isConversationRecording
+        self.startupChecks = startupChecks
     }
 
     var activeTheme: OmniVoiceTheme {
@@ -408,6 +443,7 @@ final class AppModel {
     func refreshEngineStatus() async {
         engineState = .checking
         await loadEngineStatus(startEngineIfOffline: true)
+        await refreshStartupChecks()
     }
 
     func restartEngine() async {
@@ -425,6 +461,117 @@ final class AppModel {
             engineState = .offline(startResult.detail)
             statusText = startResult.detail
         }
+        await refreshStartupChecks()
+    }
+
+    func refreshStartupChecks() async {
+        startupChecks = [
+            StartupCheckItem(
+                id: "preflight",
+                title: "Startup preflight",
+                detail: "Checking app, permissions, engine, and model state.",
+                state: .checking,
+                action: nil
+            )
+        ]
+
+        async let launchServicesCount = Self.omniVoiceLaunchServicesRegistrationCount()
+        async let localSigningIdentityCount = Self.omniVoiceSigningIdentityCount()
+
+        let currentAppPath = Bundle.main.bundleURL.path
+        let expectedAppPath = "\(NSHomeDirectory())/Applications/OmniVoice.app"
+        let appPathState: StartupCheckState = currentAppPath == expectedAppPath ? .passed : .failed
+
+        let registrationCount = await launchServicesCount
+        let registrationState: StartupCheckState = registrationCount == 1 ? .passed : .failed
+
+        let signingIdentityCount = await localSigningIdentityCount
+        let signingState: StartupCheckState = signingIdentityCount == 1 ? .passed : .warning
+        let signingDetail: String
+        if signingIdentityCount == 1 {
+            signingDetail = "One OmniVoice signing identity is visible."
+        } else if signingIdentityCount == 0 {
+            signingDetail = "No OmniVoice signing identity is visible to the user keychain search list."
+        } else {
+            signingDetail = "\(signingIdentityCount) OmniVoice signing identities are visible. The launcher will probe signing and fall back if Apple blocks one."
+        }
+
+        let selectedModel = modelStatus(for: preferences.asrProvider)
+        let selectedProvider = providerInfo(for: preferences.asrProvider)
+        let modelState: StartupCheckState
+        let modelDetail: String
+        if preferences.asrProvider == .fake {
+            modelState = .warning
+            modelDetail = "Fake ASR is selected for testing."
+        } else if let selectedProvider, !selectedProvider.available {
+            modelState = .failed
+            modelDetail = selectedProvider.reason ?? "\(selectedProvider.label) is unavailable."
+        } else if let selectedModel, selectedModel.installed {
+            modelState = .passed
+            modelDetail = "\(selectedModel.label) is installed."
+        } else if let selectedModel {
+            modelState = .failed
+            modelDetail = "\(selectedModel.label) is missing: \(selectedModel.missingFiles.joined(separator: ", "))"
+        } else {
+            modelState = .warning
+            modelDetail = "Model status has not loaded yet."
+        }
+
+        startupChecks = [
+            StartupCheckItem(
+                id: "app-path",
+                title: "Stable app path",
+                detail: appPathState == .passed ? currentAppPath : "Running from \(currentAppPath); expected \(expectedAppPath).",
+                state: appPathState,
+                action: .refresh
+            ),
+            StartupCheckItem(
+                id: "launch-services",
+                title: "Apple app registry",
+                detail: registrationCount == 1
+                    ? "One OmniVoice registration is active."
+                    : "\(registrationCount) OmniVoice registrations are active. Relaunch through the OmniVoice launcher to repair this.",
+                state: registrationState,
+                action: .refresh
+            ),
+            StartupCheckItem(
+                id: "signing",
+                title: "Signing identity",
+                detail: signingDetail,
+                state: signingState,
+                action: .refresh
+            ),
+            StartupCheckItem(
+                id: "accessibility",
+                title: "Accessibility",
+                detail: accessibilityTrusted
+                    ? "Allowed for cursor detection and text insertion."
+                    : "Required for cursor detection and final text insertion.",
+                state: accessibilityTrusted ? .passed : .failed,
+                action: accessibilityTrusted ? nil : .accessibility
+            ),
+            StartupCheckItem(
+                id: "microphone",
+                title: "Microphone",
+                detail: microphoneAuthorized ? "Allowed for recording." : "Required for dictation.",
+                state: microphoneAuthorized ? .passed : .failed,
+                action: microphoneAuthorized ? nil : .microphone
+            ),
+            StartupCheckItem(
+                id: "engine",
+                title: "Engine",
+                detail: engineState.detail,
+                state: engineState == .online ? .passed : .failed,
+                action: engineState == .online ? nil : .engine
+            ),
+            StartupCheckItem(
+                id: "model",
+                title: "Selected model",
+                detail: modelDetail,
+                state: modelState,
+                action: modelState == .failed ? .model : nil
+            )
+        ]
     }
 
     private func loadEngineStatus(startEngineIfOffline: Bool) async {
@@ -872,5 +1019,48 @@ final class AppModel {
     private func normalizedLanguageCode(_ language: String, fallback: String) -> String {
         let trimmed = language.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return trimmed.isEmpty ? fallback : trimmed
+    }
+
+    private static func omniVoiceLaunchServicesRegistrationCount() async -> Int {
+        guard let output = await commandOutput(
+            "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+            arguments: ["-dump"]
+        ) else {
+            return 0
+        }
+
+        return output.components(separatedBy: "identifier:                 com.omnivoice.OmniVoiceApp").count - 1
+    }
+
+    private static func omniVoiceSigningIdentityCount() async -> Int {
+        guard let output = await commandOutput("/usr/bin/security", arguments: ["find-identity", "-v", "-p", "codesigning"]) else {
+            return 0
+        }
+
+        return output
+            .split(separator: "\n")
+            .filter { $0.contains("\"OmniVoice Local Development\"") }
+            .count
+    }
+
+    private static func commandOutput(_ executable: String, arguments: [String]) async -> String? {
+        await Task.detached {
+            let process = Process()
+            let pipe = Pipe()
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = arguments
+            process.standardOutput = pipe
+            process.standardError = Pipe()
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+            } catch {
+                return nil
+            }
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8)
+        }.value
     }
 }

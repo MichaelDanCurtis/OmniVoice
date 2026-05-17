@@ -1,9 +1,11 @@
 import AppKit
 import AVFoundation
 import OmniVoiceCore
+import OSLog
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let permissionLogger = Logger(subsystem: "com.omnivoice.OmniVoiceApp", category: "Permissions")
     private weak var model: AppModel?
     private let overlay = CaptionOverlayWindow()
     private let hotkeys = HotkeyController()
@@ -18,6 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var liveDraft: TextInsertionService.LiveDraft?
     private var didPromptForAccessibility = false
     private var permissionRefreshTimer: Timer?
+    private var lastLoggedMicStatus: AVAuthorizationStatus?
+    private var lastLoggedAccessibilityEnabled: Bool?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -136,7 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startPermissionRefreshTimer() {
         permissionRefreshTimer?.invalidate()
-        permissionRefreshTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+        permissionRefreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.updatePermissionStatus(updateStatusText: false)
             }
@@ -146,11 +150,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updatePermissionStatus(updateStatusText: Bool = true) {
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         let accessibilityEnabled = AXIsProcessTrusted()
+        logPermissionStatus(micStatus: micStatus, accessibilityEnabled: accessibilityEnabled)
         model?.microphoneAuthorized = micStatus == .authorized
         model?.accessibilityTrusted = accessibilityEnabled
         if accessibilityEnabled {
             didPromptForAccessibility = false
         }
+        updatePermissionRefreshTimer(micStatus: micStatus, accessibilityEnabled: accessibilityEnabled)
 
         guard updateStatusText, model?.session.state == .idle else { return }
 
@@ -168,6 +174,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model?.statusText = "Accessibility permission required"
         default:
             model?.statusText = "Permissions required"
+        }
+    }
+
+    private func logPermissionStatus(micStatus: AVAuthorizationStatus, accessibilityEnabled: Bool) {
+        guard micStatus != lastLoggedMicStatus || accessibilityEnabled != lastLoggedAccessibilityEnabled else {
+            return
+        }
+
+        lastLoggedMicStatus = micStatus
+        lastLoggedAccessibilityEnabled = accessibilityEnabled
+        permissionLogger.notice(
+            "Permission status microphone=\(String(describing: micStatus), privacy: .public) accessibilityTrusted=\(accessibilityEnabled, privacy: .public) bundle=\(Bundle.main.bundleURL.path, privacy: .public)"
+        )
+    }
+
+    private func updatePermissionRefreshTimer(micStatus: AVAuthorizationStatus, accessibilityEnabled: Bool) {
+        if micStatus == .authorized && accessibilityEnabled {
+            permissionRefreshTimer?.invalidate()
+            permissionRefreshTimer = nil
+        } else if permissionRefreshTimer == nil {
+            startPermissionRefreshTimer()
         }
     }
 
