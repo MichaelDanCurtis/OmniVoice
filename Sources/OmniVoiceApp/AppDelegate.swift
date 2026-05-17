@@ -591,7 +591,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var activeOverlayAnchor: CGRect? {
-        insertionTarget?.caretFrame
+        // Keep the live caption and VU meter in the stable draggable overlay.
+        // AX caret bounds vary too much across rich composers to move this
+        // whole window without also dragging the meter away from the user.
+        nil
     }
 
     private func updateInputLevel(_ level: Float) {
