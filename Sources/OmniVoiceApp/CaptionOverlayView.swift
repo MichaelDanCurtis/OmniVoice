@@ -62,39 +62,43 @@ struct CaptionOverlayView: View {
                 CommitTrail(mode: mode, accent: accent, secondary: secondary, isActive: commitStarted)
             }
 
-            VStack(spacing: 8) {
-            Text(styleName)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(mutedTextColor.opacity(commitStarted ? 0 : 0.50))
+            VStack(spacing: 7) {
+                Text(text.isEmpty ? "Listening..." : text)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(textColor.opacity(0.90))
+                    .lineLimit(CaptionOverlayLayout.captionLineLimit)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.center)
+                    .frame(width: CaptionOverlayLayout.captionWidth)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .captionGlassSurface(accent: accent)
+                    .scaleEffect(x: captionScale.width, y: captionScale.height)
+                    .opacity(captionOpacity)
+                    .blur(radius: commitStarted ? captionBlurRadius : 0)
+                    .offset(y: commitStarted ? captionYOffset : 0)
 
-            Text(text.isEmpty ? "Listening..." : text)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(textColor.opacity(0.90))
-                .lineLimit(3)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .captionGlassSurface(accent: accent)
-                .scaleEffect(x: captionScale.width, y: captionScale.height)
-                .opacity(captionOpacity)
-                .blur(radius: commitStarted ? captionBlurRadius : 0)
-                .offset(y: commitStarted ? captionYOffset : 0)
+                WaveformPreview(
+                    mode: theme.waveformMode,
+                    level: level,
+                    accent: accent,
+                    secondary: secondary,
+                    muted: mutedTextColor
+                )
+                .opacity(commitStarted ? 0 : 1)
+                .scaleEffect(commitStarted ? 0.72 : 1)
 
-            WaveformPreview(
-                mode: theme.waveformMode,
-                level: level,
-                accent: accent,
-                secondary: secondary,
-                muted: mutedTextColor
-            )
-            .opacity(commitStarted ? 0 : 1)
-            .scaleEffect(commitStarted ? 0.72 : 1)
+                Text(styleName)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(mutedTextColor.opacity(commitStarted ? 0 : 0.50))
             }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
-        .frame(minWidth: 320, maxWidth: 760)
+        .frame(
+            minWidth: CaptionOverlayLayout.windowMinWidth,
+            maxWidth: CaptionOverlayLayout.windowMaxWidth
+        )
         .onAppear {
             guard let mode = phase.mode, mode != .none else { return }
             commitStarted = false
