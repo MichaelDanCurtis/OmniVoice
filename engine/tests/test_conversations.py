@@ -366,3 +366,36 @@ def test_conversation_detail_ignores_invalid_segment_and_assist_card_rows(monkey
     detail = response.json()
     assert len(detail["segments"]) == 1
     assert len(detail["assist_cards"]) == 1
+
+
+def test_conversation_export_returns_text(monkeypatch, tmp_path):
+    store = RuntimeStore(tmp_path)
+    monkeypatch.setattr("omnivoice_engine.main.runtime_store", store, raising=False)
+    session = client.post(
+        "/api/conversations",
+        json={
+            "title": "Roadmap call",
+            "capture_mode": "microphone_only",
+            "asr_provider": "parakeet-tdt",
+            "diarization_provider": "mock",
+            "external_processing_enabled": False,
+        },
+    ).json()
+    client.post(
+        f"/api/conversations/{session['id']}/segments",
+        json={
+            "speaker_id": "speaker-1",
+            "speaker_display_name": "Speaker 1",
+            "start_ms": 18130,
+            "end_ms": 21900,
+            "text": "How many users did we have last year?",
+            "state": "settled",
+            "confidence": 0.91,
+        },
+    )
+
+    response = client.get(f"/api/conversations/{session['id']}/export")
+
+    assert response.status_code == 200
+    assert "Speaker 1 [00:18]" in response.text
+    assert "How many users did we have last year?" in response.text

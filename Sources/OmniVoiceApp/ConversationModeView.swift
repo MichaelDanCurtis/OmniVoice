@@ -252,7 +252,7 @@ struct ConversationModeView: View {
 
     private var transcriptText: String {
         model.conversationSegments
-            .map { "\($0.timestampLabel) \($0.speakerDisplayName): \($0.text)" }
+            .map { "\($0.speakerDisplayName) [\($0.timestampLabel)]: \($0.text)" }
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }

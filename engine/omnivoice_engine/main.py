@@ -499,6 +499,25 @@ def conversations(limit: int = Query(default=100, ge=1, le=1000)) -> list[Conver
     return runtime_store.recent_conversation_sessions(limit)
 
 
+@app.get("/api/conversations/{session_id}/export")
+def export_conversation(session_id: str) -> Response:
+    session = runtime_store.conversation_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"conversation not found: {session_id}")
+
+    lines = [f"# {session.title}", ""]
+    for segment in runtime_store.conversation_segments(session_id):
+        seconds = max(0, segment.start_ms // 1000)
+        timestamp = f"{seconds // 60:02d}:{seconds % 60:02d}"
+        lines.append(f"{segment.speaker_display_name} [{timestamp}]: {segment.text}")
+
+    return Response(
+        content="\n".join(lines).strip() + "\n",
+        media_type="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="conversation-{session_id}.txt"'},
+    )
+
+
 @app.get("/api/conversations/{session_id}", response_model=ConversationDetail)
 def conversation_detail(session_id: str) -> ConversationDetail:
     session = runtime_store.conversation_session(session_id)
