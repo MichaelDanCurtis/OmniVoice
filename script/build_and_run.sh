@@ -41,8 +41,10 @@ add_local_keychain_to_search_list() {
   local current_keychains=()
   local keychain
   while IFS= read -r keychain; do
+    keychain="${keychain#"${keychain%%[![:space:]]*}"}"
+    keychain="${keychain%"${keychain##*[![:space:]]}"}"
     keychain="${keychain//\"/}"
-    [[ -n "$keychain" ]] && current_keychains+=("$keychain")
+    [[ "$keychain" == /* ]] && current_keychains+=("$keychain")
   done < <(/usr/bin/security list-keychains -d user)
 
   for keychain in "${current_keychains[@]}"; do
@@ -50,6 +52,13 @@ add_local_keychain_to_search_list() {
   done
 
   /usr/bin/security list-keychains -d user -s "$LOCAL_CODESIGN_KEYCHAIN" "${current_keychains[@]}"
+}
+
+engine_session_matches_root() {
+  command -v tmux >/dev/null 2>&1 || return 1
+  local pane_path
+  pane_path="$(tmux display-message -p -t omnivoice-engine:0.0 '#{pane_current_path}' 2>/dev/null || true)"
+  [[ "$pane_path" == "$ROOT_DIR" || "$pane_path" == "$ROOT_DIR/engine" ]]
 }
 
 ensure_local_codesign_identity() {
@@ -110,17 +119,17 @@ ensure_local_codesign_identity() {
 }
 
 ensure_engine() {
-  if curl -fsS http://127.0.0.1:8765/health >/dev/null 2>&1; then
+  if curl -fsS http://127.0.0.1:8765/health >/dev/null 2>&1 && engine_session_matches_root; then
     return
   fi
 
   mkdir -p "$DIST_DIR"
   if command -v tmux >/dev/null 2>&1; then
     tmux kill-session -t omnivoice-engine >/dev/null 2>&1 || true
-    tmux new-session -d -s omnivoice-engine "cd \"$ROOT_DIR\" && OMNIVOICE_DESKTOP_APP_PATH=\"$APP_BUNDLE\" OMNIVOICE_INSTALL_ASR=\"${OMNIVOICE_INSTALL_ASR:-1}\" scripts/run-engine.sh >>\"$DIST_DIR/engine.log\" 2>&1"
+    tmux new-session -d -s omnivoice-engine "cd \"$ROOT_DIR\" && OMNIVOICE_DESKTOP_APP_PATH=\"$APP_BUNDLE\" OMNIVOICE_MODEL_ROOT=\"${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}\" OMNIVOICE_INSTALL_ASR=\"${OMNIVOICE_INSTALL_ASR:-1}\" scripts/run-engine.sh >>\"$DIST_DIR/engine.log\" 2>&1"
     echo "tmux:omnivoice-engine" >"$ENGINE_PID_FILE"
   else
-    nohup env OMNIVOICE_DESKTOP_APP_PATH="$APP_BUNDLE" OMNIVOICE_INSTALL_ASR="${OMNIVOICE_INSTALL_ASR:-1}" "$ROOT_DIR/scripts/run-engine.sh" >"$DIST_DIR/engine.log" 2>&1 &
+    nohup env OMNIVOICE_DESKTOP_APP_PATH="$APP_BUNDLE" OMNIVOICE_MODEL_ROOT="${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}" OMNIVOICE_INSTALL_ASR="${OMNIVOICE_INSTALL_ASR:-1}" "$ROOT_DIR/scripts/run-engine.sh" >"$DIST_DIR/engine.log" 2>&1 &
     echo "$!" >"$ENGINE_PID_FILE"
   fi
 
@@ -194,7 +203,14 @@ resolve_codesign_identity() {
     CODESIGN_IDENTITY="$OMNIVOICE_CODESIGN_IDENTITY"
   else
     ensure_local_codesign_identity
-    CODESIGN_IDENTITY="$LOCAL_CODESIGN_NAME"
+    CODESIGN_IDENTITY="$(
+      /usr/bin/security find-identity -v -p codesigning "$LOCAL_CODESIGN_KEYCHAIN" \
+        | /usr/bin/awk -v name="$LOCAL_CODESIGN_NAME" '$0 ~ name { print $2; exit }'
+    )"
+    if [[ -z "$CODESIGN_IDENTITY" ]]; then
+      echo "local codesign identity was not found in $LOCAL_CODESIGN_KEYCHAIN" >&2
+      return 1
+    fi
   fi
 }
 

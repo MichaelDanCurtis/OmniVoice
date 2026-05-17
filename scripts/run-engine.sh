@@ -10,6 +10,9 @@ if [ ! -d ".venv" ]; then
 fi
 
 . .venv/bin/activate
+if ! python -m pip --version >/dev/null 2>&1; then
+  python -m ensurepip --upgrade
+fi
 python -m pip install -e ".[dev]"
 
 if [ "${OMNIVOICE_INSTALL_ASR:-1}" = "1" ]; then
