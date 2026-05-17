@@ -10,6 +10,9 @@ struct SettingsView: View {
     let requestAccessibilityPermission: () -> Void
     let refreshPermissions: () -> Void
     let showConversationHistory: () -> Void
+    let retryPendingAIHandoff: () -> Void
+    let copyPendingAIHandoffPrompt: () -> Void
+    let insertPendingAIHandoffOriginal: () -> Void
 
     @State private var selectedTab: SettingsTab = .overview
     @State private var selectedCapability: CapabilityInfo?
@@ -425,12 +428,32 @@ struct SettingsView: View {
     @ViewBuilder
     private var integrationsSection: some View {
         Section("AI Handoff") {
+            Picker("Provider Preset", selection: aiProviderPresetBinding) {
+                ForEach(AIProviderPreset.builtIn) { preset in
+                    Text(preset.name).tag(preset.id)
+                }
+            }
+
             TextField("OpenAI-Compatible Base URL", text: openAICompatibleBaseURLBinding)
                 .textFieldStyle(.roundedBorder)
             TextField("Model", text: openAICompatibleModelBinding)
                 .textFieldStyle(.roundedBorder)
             SecureField("API Key", text: openAICompatibleAPIKeyBinding)
                 .textFieldStyle(.roundedBorder)
+
+            HStack {
+                Button("Test AI Connection") {
+                    Task {
+                        await model.testAIHandoffConnection()
+                    }
+                }
+                .disabled(model.preferences.openAICompatibleBaseURL.isEmpty || model.preferences.openAICompatibleModel.isEmpty)
+
+                Text(model.lastTestResult)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
 
             LabeledContent("Claude", value: "Ask Claude phrasing enabled")
             LabeledContent("Codex", value: "Hey Codex phrasing enabled")
@@ -460,6 +483,24 @@ struct SettingsView: View {
             CapabilityMiniRow(title: "Ask Claude", detail: "Say \"Ask Claude\" or \"Hey Claude\" before a prompt, then insert the answer at the cursor.")
             CapabilityMiniRow(title: "Have AI take a look", detail: "Read selected or foreground text, then respond in the requested tone or language.")
             CapabilityMiniRow(title: "Custom API", detail: "Use the OpenAI-compatible endpoint and model configured above.")
+        }
+
+        if let pending = model.pendingAIHandoffCommand {
+            Section("Pending AI Request") {
+                CapabilityMiniRow(title: pending.target.displayName, detail: pending.prompt)
+
+                HStack {
+                    Button("Retry") {
+                        retryPendingAIHandoff()
+                    }
+                    Button("Copy Prompt") {
+                        copyPendingAIHandoffPrompt()
+                    }
+                    Button("Insert Original") {
+                        insertPendingAIHandoffOriginal()
+                    }
+                }
+            }
         }
     }
 
@@ -603,6 +644,13 @@ struct SettingsView: View {
         )
     }
 
+    private var aiProviderPresetBinding: Binding<AIProviderPresetID> {
+        Binding(
+            get: { model.preferences.aiProviderPresetID },
+            set: { model.setAIProviderPresetID($0) }
+        )
+    }
+
     private var openAICompatibleBaseURLBinding: Binding<String> {
         Binding(
             get: { model.preferences.openAICompatibleBaseURL },
@@ -619,7 +667,7 @@ struct SettingsView: View {
 
     private var openAICompatibleAPIKeyBinding: Binding<String> {
         Binding(
-            get: { model.preferences.openAICompatibleAPIKey },
+            get: { model.openAICompatibleAPIKey },
             set: { model.setOpenAICompatibleAPIKey($0) }
         )
     }

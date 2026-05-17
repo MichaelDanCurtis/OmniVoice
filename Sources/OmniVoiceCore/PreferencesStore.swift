@@ -19,9 +19,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var liveTranslationEnabled: Bool
     public var translationSourceLanguage: String
     public var translationTargetLanguage: String
+    public var aiProviderPresetID: AIProviderPresetID
     public var openAICompatibleBaseURL: String
     public var openAICompatibleModel: String
-    public var openAICompatibleAPIKey: String
     public var liveDraftInsertionEnabled: Bool
 
     public var microphoneID: String? {
@@ -48,9 +48,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         liveTranslationEnabled: false,
         translationSourceLanguage: "auto",
         translationTargetLanguage: "en",
+        aiProviderPresetID: .custom,
         openAICompatibleBaseURL: "",
         openAICompatibleModel: "",
-        openAICompatibleAPIKey: "",
         liveDraftInsertionEnabled: false
     )
 
@@ -73,9 +73,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         liveTranslationEnabled: Bool = false,
         translationSourceLanguage: String = "auto",
         translationTargetLanguage: String = "en",
+        aiProviderPresetID: AIProviderPresetID = .custom,
         openAICompatibleBaseURL: String = "",
         openAICompatibleModel: String = "",
-        openAICompatibleAPIKey: String = "",
         liveDraftInsertionEnabled: Bool = false
     ) {
         self.asrProvider = asrProvider
@@ -96,9 +96,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         self.liveTranslationEnabled = liveTranslationEnabled
         self.translationSourceLanguage = translationSourceLanguage
         self.translationTargetLanguage = translationTargetLanguage
+        self.aiProviderPresetID = aiProviderPresetID
         self.openAICompatibleBaseURL = openAICompatibleBaseURL
         self.openAICompatibleModel = openAICompatibleModel
-        self.openAICompatibleAPIKey = openAICompatibleAPIKey
         self.liveDraftInsertionEnabled = liveDraftInsertionEnabled
     }
 
@@ -136,14 +136,14 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             liveTranslationEnabled: try container.decodeIfPresent(Bool.self, forKey: .liveTranslationEnabled) ?? false,
             translationSourceLanguage: try container.decodeIfPresent(String.self, forKey: .translationSourceLanguage) ?? "auto",
             translationTargetLanguage: try container.decodeIfPresent(String.self, forKey: .translationTargetLanguage) ?? "en",
+            aiProviderPresetID: try container.decodeIfPresent(AIProviderPresetID.self, forKey: .aiProviderPresetID)
+                ?? acronymContainer.decodeIfPresent(AIProviderPresetID.self, forKey: .aiProviderPresetID)
+                ?? .custom,
             openAICompatibleBaseURL: try container.decodeIfPresent(String.self, forKey: .openAICompatibleBaseURL)
                 ?? acronymContainer.decodeIfPresent(String.self, forKey: .openAICompatibleBaseURL)
                 ?? "",
             openAICompatibleModel: try container.decodeIfPresent(String.self, forKey: .openAICompatibleModel)
                 ?? acronymContainer.decodeIfPresent(String.self, forKey: .openAICompatibleModel)
-                ?? "",
-            openAICompatibleAPIKey: try container.decodeIfPresent(String.self, forKey: .openAICompatibleAPIKey)
-                ?? acronymContainer.decodeIfPresent(String.self, forKey: .openAICompatibleAPIKey)
                 ?? "",
             liveDraftInsertionEnabled: try container.decodeIfPresent(Bool.self, forKey: .liveDraftInsertionEnabled) ?? false
         )
@@ -169,9 +169,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             liveTranslationEnabled: try container.decodeIfPresent(Bool.self, forKey: .liveTranslationEnabled) ?? false,
             translationSourceLanguage: try container.decodeIfPresent(String.self, forKey: .translationSourceLanguage) ?? "auto",
             translationTargetLanguage: try container.decodeIfPresent(String.self, forKey: .translationTargetLanguage) ?? "en",
+            aiProviderPresetID: try container.decodeIfPresent(AIProviderPresetID.self, forKey: .aiProviderPresetID) ?? .custom,
             openAICompatibleBaseURL: try container.decodeIfPresent(String.self, forKey: .openAICompatibleBaseURL) ?? "",
             openAICompatibleModel: try container.decodeIfPresent(String.self, forKey: .openAICompatibleModel) ?? "",
-            openAICompatibleAPIKey: try container.decodeIfPresent(String.self, forKey: .openAICompatibleAPIKey) ?? "",
             liveDraftInsertionEnabled: try container.decodeIfPresent(Bool.self, forKey: .liveDraftInsertionEnabled) ?? false
         )
     }
@@ -195,6 +195,14 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         min(max(value, 0.08), 0.92)
     }
 
+    public mutating func applyAIProviderPreset(_ preset: AIProviderPreset) {
+        aiProviderPresetID = preset.id
+        openAICompatibleBaseURL = preset.baseURL
+        if !preset.defaultModel.isEmpty {
+            openAICompatibleModel = preset.defaultModel
+        }
+    }
+
     private enum CodingKeys: String, CodingKey {
         case asrProvider = "asr_provider"
         case style = "style"
@@ -214,9 +222,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case liveTranslationEnabled = "live_translation_enabled"
         case translationSourceLanguage = "translation_source_language"
         case translationTargetLanguage = "translation_target_language"
+        case aiProviderPresetID = "ai_provider_preset_id"
         case openAICompatibleBaseURL = "open_ai_compatible_base_url"
         case openAICompatibleModel = "open_ai_compatible_model"
-        case openAICompatibleAPIKey = "open_ai_compatible_api_key"
         case liveDraftInsertionEnabled = "live_draft_insertion_enabled"
     }
 
@@ -239,16 +247,16 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case liveTranslationEnabled
         case translationSourceLanguage
         case translationTargetLanguage
+        case aiProviderPresetID = "aiProviderPresetId"
         case openAICompatibleBaseURL = "openAiCompatibleBaseUrl"
         case openAICompatibleModel = "openAiCompatibleModel"
-        case openAICompatibleAPIKey = "openAiCompatibleApiKey"
         case liveDraftInsertionEnabled
     }
 
     private enum AcronymCodingKeys: String, CodingKey {
+        case aiProviderPresetID = "aiProviderPresetId"
         case openAICompatibleBaseURL = "openAiCompatibleBaseUrl"
         case openAICompatibleModel = "openAiCompatibleModel"
-        case openAICompatibleAPIKey = "openAiCompatibleApiKey"
     }
 }
 
@@ -283,5 +291,21 @@ public struct PreferencesStore {
     public func save(_ preferences: OmniVoicePreferences) throws {
         let data = try EngineCoding.encoder.encode(preferences)
         userDefaults.set(data, forKey: key)
+    }
+
+    public func legacyOpenAICompatibleAPIKey() -> String? {
+        guard let data = userDefaults.data(forKey: key),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        let candidates = [
+            object["open_ai_compatible_api_key"],
+            object["openAiCompatibleApiKey"],
+            object["openAICompatibleAPIKey"],
+        ]
+        return candidates.compactMap { $0 as? String }
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

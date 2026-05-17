@@ -35,7 +35,7 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.translationTargetLanguage, "en")
         XCTAssertEqual(preferences.openAICompatibleBaseURL, "")
         XCTAssertEqual(preferences.openAICompatibleModel, "")
-        XCTAssertEqual(preferences.openAICompatibleAPIKey, "")
+        XCTAssertEqual(preferences.aiProviderPresetID, .custom)
         XCTAssertFalse(preferences.liveDraftInsertionEnabled)
     }
 
@@ -63,11 +63,11 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertFalse(preferences.liveTranslationEnabled)
         XCTAssertEqual(preferences.translationSourceLanguage, "auto")
         XCTAssertEqual(preferences.translationTargetLanguage, "en")
-        XCTAssertEqual(preferences.openAICompatibleAPIKey, "")
+        XCTAssertEqual(preferences.aiProviderPresetID, .custom)
         XCTAssertFalse(preferences.liveDraftInsertionEnabled)
     }
 
-    func testPreferencesEncodingUsesExplicitSnakeCaseThemeKeys() throws {
+    func testPreferencesEncodingUsesExplicitSnakeCaseKeysWithoutAPIKey() throws {
         let data = try JSONEncoder().encode(OmniVoicePreferences.defaults)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
@@ -85,7 +85,8 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertNotNil(object["translation_target_language"])
         XCTAssertNotNil(object["open_ai_compatible_base_url"])
         XCTAssertNotNil(object["open_ai_compatible_model"])
-        XCTAssertNotNil(object["open_ai_compatible_api_key"])
+        XCTAssertNotNil(object["ai_provider_preset_id"])
+        XCTAssertNil(object["open_ai_compatible_api_key"])
         XCTAssertNotNil(object["live_draft_insertion_enabled"])
     }
 
@@ -130,15 +131,31 @@ final class PreferencesStoreTests: XCTestCase {
             liveTranslationEnabled: true,
             translationSourceLanguage: "es",
             translationTargetLanguage: "en",
+            aiProviderPresetID: .openRouter,
             openAICompatibleBaseURL: "http://127.0.0.1:11434/v1",
             openAICompatibleModel: "local-qwen",
-            openAICompatibleAPIKey: "test-key",
             liveDraftInsertionEnabled: true
         )
 
         try store.save(preferences)
 
         XCTAssertEqual(try store.load(), preferences)
+    }
+
+    func testLegacyOpenAICompatibleAPIKeyCanBeReadForMigration() throws {
+        let suiteName = "OmniVoicePreferencesStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = PreferencesStore(userDefaults: defaults)
+        let legacy = """
+        {
+          "open_ai_compatible_api_key": "legacy-key"
+        }
+        """.data(using: .utf8)!
+        defaults.set(legacy, forKey: "omnivoice.preferences")
+
+        XCTAssertEqual(store.legacyOpenAICompatibleAPIKey(), "legacy-key")
     }
 
     func testModifierOnlyHotkeysRoundTripThroughStore() throws {

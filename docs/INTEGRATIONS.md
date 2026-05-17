@@ -30,9 +30,10 @@ Useful defaults:
 
 OmniVoice can route explicit AI commands through any OpenAI-compatible chat completions endpoint. Configure the endpoint in Settings -> Integrations:
 
-- Base URL, for example `https://openrouter.ai/api/v1` or a local OpenAI-compatible server.
-- Model, for example `anthropic/claude-sonnet` or a local model name.
-- API Key, if the endpoint requires one.
+- Choose a provider preset: OpenRouter, LM Studio, Ollama, or Custom.
+- Set a model, for example an OpenRouter model id or the local model name exposed by LM Studio/Ollama.
+- Add an API key if the endpoint requires one. OmniVoice stores this key in macOS Keychain, not normal preferences.
+- Use `Test AI Connection` before dictating an AI command.
 
 Supported phrases:
 
@@ -41,7 +42,9 @@ Supported phrases:
 - `Have OpenRouter take a look at this and respond in Spanish`
 - `Ask OpenAI, make this sound more professional`
 
-If text is selected when dictation starts, OmniVoice sends the selected text as foreground context. OAuth-specific Codex, Claude, Copilot, and provider-native account integrations are still planned; the active implementation is OpenAI-compatible API access.
+If text is selected when dictation starts, OmniVoice sends the selected text as foreground context. If an AI handoff fails, OmniVoice keeps the pending request in Settings -> Integrations so you can retry it, copy the prompt, or insert the original dictated command.
+
+OAuth-specific Codex, Claude, Copilot, and provider-native account integrations are still planned; the active implementation is OpenAI-compatible API access.
 
 ## Local API
 

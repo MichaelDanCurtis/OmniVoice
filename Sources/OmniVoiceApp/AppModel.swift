@@ -50,15 +50,21 @@ final class AppModel {
     var microphoneAuthorized: Bool
     var accessibilityTrusted: Bool
     var streamingDiagnostics: EngineStreamingDiagnostics
+    var openAICompatibleAPIKey: String
+    var pendingAIHandoffCommand: PendingAIHandoffCommand?
 
     private let preferencesStore: PreferencesStore
     private let engineClient: EngineClient
+    @ObservationIgnored private let secretStore: any SecretStore
     @ObservationIgnored var onHotkeysChanged: ((OmniVoicePreferences) -> Void)?
+
+    private static let openAICompatibleAPIKeyAccount = "openai-compatible-api-key"
 
     init(
         preferences: OmniVoicePreferences? = nil,
         preferencesStore: PreferencesStore = PreferencesStore(),
         engineClient: EngineClient = EngineClient(),
+        secretStore: any SecretStore = KeychainSecretStore(),
         session: DictationSession = DictationSession(),
         captionText: String = "",
         statusText: String = "Ready",
@@ -72,10 +78,12 @@ final class AppModel {
         lastTestResult: String = "No test run yet",
         microphoneAuthorized: Bool = false,
         accessibilityTrusted: Bool = false,
-        streamingDiagnostics: EngineStreamingDiagnostics = .idle
+        streamingDiagnostics: EngineStreamingDiagnostics = .idle,
+        pendingAIHandoffCommand: PendingAIHandoffCommand? = nil
     ) {
         self.preferencesStore = preferencesStore
         self.engineClient = engineClient
+        self.secretStore = secretStore
         self.preferences = preferences ?? (try? preferencesStore.load()) ?? .defaults
         self.session = session
         self.captionText = captionText
@@ -91,6 +99,13 @@ final class AppModel {
         self.microphoneAuthorized = microphoneAuthorized
         self.accessibilityTrusted = accessibilityTrusted
         self.streamingDiagnostics = streamingDiagnostics
+        let storedAPIKey = secretStore.string(for: Self.openAICompatibleAPIKeyAccount)
+        let legacyAPIKey = storedAPIKey == nil ? preferencesStore.legacyOpenAICompatibleAPIKey() : nil
+        self.openAICompatibleAPIKey = storedAPIKey ?? legacyAPIKey ?? ""
+        if storedAPIKey == nil, let legacyAPIKey, !legacyAPIKey.isEmpty {
+            try? secretStore.setString(legacyAPIKey, for: Self.openAICompatibleAPIKeyAccount)
+        }
+        self.pendingAIHandoffCommand = pendingAIHandoffCommand
     }
 
     var activeTheme: OmniVoiceTheme {
@@ -338,16 +353,75 @@ final class AppModel {
 
     func setOpenAICompatibleAPIKey(_ key: String) {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard preferences.openAICompatibleAPIKey != trimmed else {
+        guard openAICompatibleAPIKey != trimmed else {
             return
         }
 
-        preferences.openAICompatibleAPIKey = trimmed
+        do {
+            if trimmed.isEmpty {
+                try secretStore.deleteString(for: Self.openAICompatibleAPIKeyAccount)
+            } else {
+                try secretStore.setString(trimmed, for: Self.openAICompatibleAPIKeyAccount)
+            }
+            openAICompatibleAPIKey = trimmed
+            statusText = trimmed.isEmpty ? "AI API key cleared" : "AI API key updated"
+        } catch {
+            statusText = "AI API key save failed"
+        }
+    }
+
+    func applyAIProviderPreset(_ preset: AIProviderPreset) {
+        preferences.applyAIProviderPreset(preset)
         guard persistPreferences() else {
             return
         }
 
-        statusText = trimmed.isEmpty ? "AI API key cleared" : "AI API key updated"
+        statusText = "AI preset: \(preset.name)"
+    }
+
+    func setAIProviderPresetID(_ id: AIProviderPresetID) {
+        guard let preset = AIProviderPreset.preset(for: id) else {
+            return
+        }
+        applyAIProviderPreset(preset)
+    }
+
+    func testAIHandoffConnection() async {
+        let baseURL = preferences.openAICompatibleBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = preferences.openAICompatibleModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !baseURL.isEmpty, !model.isEmpty else {
+            lastTestResult = "Add an AI endpoint and model first"
+            statusText = "AI test needs endpoint"
+            return
+        }
+
+        lastTestResult = "Testing AI handoff..."
+        statusText = "Testing AI handoff"
+        do {
+            let result = try await engineClient.aiHandoff(
+                AIHandoffRequest(
+                    prompt: "Reply with exactly: OmniVoice AI handoff OK",
+                    provider: preferences.aiProviderPresetID.rawValue,
+                    baseURL: baseURL,
+                    model: model,
+                    apiKey: openAICompatibleAPIKey
+                )
+            )
+            let response = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            lastTestResult = response.isEmpty ? "AI responded with empty text" : "AI connected: \(response)"
+            statusText = "AI connected"
+        } catch {
+            lastTestResult = "AI test failed: \(error.localizedDescription)"
+            statusText = "AI test failed"
+        }
+    }
+
+    func setPendingAIHandoffCommand(_ command: PendingAIHandoffCommand) {
+        pendingAIHandoffCommand = command
+    }
+
+    func clearPendingAIHandoffCommand() {
+        pendingAIHandoffCommand = nil
     }
 
     func setDictationHotkey(_ binding: HotkeyBinding) {

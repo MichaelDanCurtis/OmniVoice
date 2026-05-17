@@ -87,6 +87,19 @@ struct OmniVoiceApp: App {
             },
             showConversationHistory: {
                 isEngineFrameExpanded = true
+            },
+            retryPendingAIHandoff: {
+                Task {
+                    await appDelegate.retryPendingAIHandoff()
+                }
+            },
+            copyPendingAIHandoffPrompt: {
+                appDelegate.copyPendingAIHandoffPrompt()
+            },
+            insertPendingAIHandoffOriginal: {
+                Task {
+                    await appDelegate.insertPendingAIHandoffOriginal()
+                }
             }
         )
         .preferredColorScheme(model.preferences.appearanceMode.colorScheme)

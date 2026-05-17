@@ -299,7 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let command = DictationCommandParser.parse(finalText) {
             cancelLiveDraftIfNeeded()
-            await handle(command: command, model: model)
+            await handle(command: command, originalText: finalText, model: model)
             return
         }
 
@@ -348,7 +348,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func handle(command: DictationCommand, model: AppModel) async {
+    private func handle(command: DictationCommand, originalText: String, model: AppModel) async {
         do {
             switch command.action {
             case .openApplication:
@@ -358,7 +358,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .undoLastDictation:
                 try await insertionService.undoLastInsertion()
             case .aiHandoff(let target, let prompt):
-                await handleAIHandoff(target: target, prompt: prompt, model: model)
+                let context = insertionTarget?.selectedText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                await runAIHandoff(
+                    PendingAIHandoffCommand(
+                        target: target,
+                        prompt: prompt,
+                        context: context,
+                        originalText: originalText
+                    ),
+                    model: model
+                )
                 return
             }
             model.statusText = command.displayText
@@ -374,7 +383,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func handleAIHandoff(target: AIHandoffTarget, prompt: String, model: AppModel) async {
+    func retryPendingAIHandoff() async {
+        guard let model, let pending = model.pendingAIHandoffCommand else {
+            return
+        }
+
+        insertionTarget = insertionService.captureTarget()
+        defer { insertionTarget = nil }
+        await runAIHandoff(pending, model: model)
+    }
+
+    func copyPendingAIHandoffPrompt() {
+        guard let model, let pending = model.pendingAIHandoffCommand else {
+            return
+        }
+
+        copyToPasteboard(pending.prompt)
+        model.statusText = "AI prompt copied"
+    }
+
+    func insertPendingAIHandoffOriginal() async {
+        guard let model, let pending = model.pendingAIHandoffCommand else {
+            return
+        }
+
+        insertionTarget = insertionService.captureTarget()
+        defer { insertionTarget = nil }
+        await insertFinalText(pending.originalText, model: model, successStatus: "Original AI command inserted")
+        model.clearPendingAIHandoffCommand()
+    }
+
+    private func runAIHandoff(_ pending: PendingAIHandoffCommand, model: AppModel) async {
+        model.setPendingAIHandoffCommand(pending)
         let baseURL = model.preferences.openAICompatibleBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let aiModel = model.preferences.openAICompatibleModel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !baseURL.isEmpty, !aiModel.isEmpty else {
@@ -384,19 +424,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let context = insertionTarget?.selectedText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        model.statusText = "Asking \(target.displayName)"
-        showOverlay(text: "Asking \(target.displayName)...", styleName: "AI handoff")
+        model.statusText = "Asking \(pending.target.displayName)"
+        showOverlay(text: "Asking \(pending.target.displayName)...", styleName: "AI handoff")
 
         do {
             let result = try await engineClient.aiHandoff(
                 AIHandoffRequest(
-                    prompt: prompt,
-                    provider: target.rawValue,
+                    prompt: pending.prompt,
+                    provider: pending.provider,
                     baseURL: baseURL,
                     model: aiModel,
-                    apiKey: model.preferences.openAICompatibleAPIKey,
-                    context: context
+                    apiKey: model.openAICompatibleAPIKey,
+                    context: pending.context
                 )
             )
             let insertion = TextInsertionEdit.sanitizedInsertionText(result.text)
@@ -407,6 +446,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
+            model.clearPendingAIHandoffCommand()
             await insertFinalText(insertion, model: model, successStatus: "AI response inserted")
         } catch {
             model.session.fail("AI handoff failed: \(error.localizedDescription)")

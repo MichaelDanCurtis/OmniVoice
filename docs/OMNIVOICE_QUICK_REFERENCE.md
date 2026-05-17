@@ -54,7 +54,7 @@ Command mode opens supported applications and runs safe OmniVoice actions. It do
 
 ## AI Handoff
 
-Open Settings -> Integrations and configure an OpenAI-compatible Base URL, Model, and API Key. Then hold the dictation hotkey and use an explicit AI phrase.
+Open Settings -> Integrations, choose a provider preset, configure the model and API key, then use `Test AI Connection`. After it passes, hold the dictation hotkey and use an explicit AI phrase.
 
 Examples:
 
@@ -63,7 +63,7 @@ Examples:
 - `Have OpenRouter take a look at this and respond in Spanish`
 - `Ask OpenAI, make this sound more professional`
 
-If text is selected when dictation starts, OmniVoice sends that selected text as context. Only the AI response is inserted at the cursor.
+If text is selected when dictation starts, OmniVoice sends that selected text as context. Only the AI response is inserted at the cursor. If the request fails, return to Integrations to retry, copy the prompt, or insert the original command.
 
 ## Selection Rewrite
 
