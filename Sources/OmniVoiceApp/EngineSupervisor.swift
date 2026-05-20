@@ -62,6 +62,20 @@ final class EngineSupervisor {
         process.terminate()
     }
 
+    func restart() async -> EngineStartResult {
+        didAttemptStart = false
+
+        if let process, process.isRunning {
+            process.terminate()
+            for _ in 0..<20 where process.isRunning {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+        process = nil
+
+        return await startIfNeeded()
+    }
+
     private func launchEngine(using launcherURL: URL) throws {
         let supportURL = try applicationSupportURL()
         let modelRoot = supportURL.appending(path: "models", directoryHint: .isDirectory)
@@ -82,10 +96,15 @@ final class EngineSupervisor {
         environment["OMNIVOICE_APP_SUPPORT_DIR"] = supportURL.path
         environment["OMNIVOICE_MODEL_ROOT"] = modelRoot.path
         environment["OMNIVOICE_PARAKEET_MODEL_DIR"] = modelRoot.appending(path: "parakeet-tdt").path
+        environment["OMNIVOICE_PARAKEET_MLX_MODEL_DIR"] = modelRoot.appending(path: "parakeet-tdt-mlx").path
         environment["OMNIVOICE_CANARY_MODEL_DIR"] = modelRoot.appending(path: "canary-qwen-2.5b").path
+        environment["OMNIVOICE_MLX_SORTFORMER_FP16_DIR"] = modelRoot.appending(path: "mlx-sortformer-streaming-fp16").path
+        environment["OMNIVOICE_MLX_SORTFORMER_FP32_DIR"] = modelRoot.appending(path: "mlx-sortformer-streaming-fp32").path
         environment["OMNIVOICE_ENGINE_DATA_DIR"] = dataURL.path
         environment["OMNIVOICE_DESKTOP_APP_PATH"] = Bundle.main.bundleURL.path
         environment["OMNIVOICE_INSTALL_ASR"] = environment["OMNIVOICE_INSTALL_ASR"] ?? "1"
+        environment["OMNIVOICE_INSTALL_MLX_DIARIZATION"] = environment["OMNIVOICE_INSTALL_MLX_DIARIZATION"] ?? "1"
+        environment["OMNIVOICE_INSTALL_MLX_ASR"] = environment["OMNIVOICE_INSTALL_MLX_ASR"] ?? "1"
 
         let launched = Process()
         launched.executableURL = launcherURL

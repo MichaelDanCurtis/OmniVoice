@@ -9,6 +9,8 @@ final class HotkeyController {
         case dictationPressed
         case dictationReleased
         case stylePressed
+        case hotMenuPressed
+        case hotMenuReleased
     }
 
     enum HotkeyError: Error {
@@ -20,20 +22,24 @@ final class HotkeyController {
 
     private var dictationHotkey: EventHotKeyRef?
     private var styleHotkey: EventHotKeyRef?
+    private var hotMenuHotkey: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
     private var dictationModifierChord: HotkeyBinding?
     private var styleModifierChord: HotkeyBinding?
+    private var hotMenuModifierChord: HotkeyBinding?
     private var localModifierMonitor: Any?
     private var globalModifierMonitor: Any?
     private var isDictationModifierActive = false
     private var isStyleModifierActive = false
+    private var isHotMenuModifierActive = false
     private var isRegistered = false
 
-    func register(dictation: HotkeyBinding, style: HotkeyBinding) throws {
+    func register(dictation: HotkeyBinding, style: HotkeyBinding, hotMenu: HotkeyBinding) throws {
         guard !isRegistered else { return }
 
         dictationModifierChord = dictation.isModifierOnly ? dictation : nil
         styleModifierChord = style.isModifierOnly ? style : nil
+        hotMenuModifierChord = hotMenu.isModifierOnly ? hotMenu : nil
 
         var eventTypes = [
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
@@ -104,7 +110,23 @@ final class HotkeyController {
             }
         }
 
-        if dictation.isModifierOnly || style.isModifierOnly {
+        if !hotMenu.isModifierOnly {
+            let hotMenuID = EventHotKeyID(signature: OSType(0x4F4D4E49), id: 3)
+            let hotMenuStatus = RegisterEventHotKey(
+                hotMenu.keyCode,
+                hotMenu.modifiers,
+                hotMenuID,
+                GetApplicationEventTarget(),
+                UInt32(kEventHotKeyExclusive),
+                &hotMenuHotkey
+            )
+            guard hotMenuStatus == noErr else {
+                unregister()
+                throw HotkeyError.registrationFailed(hotMenuStatus)
+            }
+        }
+
+        if dictation.isModifierOnly || style.isModifierOnly || hotMenu.isModifierOnly {
             installModifierMonitors()
         }
 
@@ -118,6 +140,9 @@ final class HotkeyController {
         if let styleHotkey {
             UnregisterEventHotKey(styleHotkey)
         }
+        if let hotMenuHotkey {
+            UnregisterEventHotKey(hotMenuHotkey)
+        }
         if let eventHandler {
             RemoveEventHandler(eventHandler)
         }
@@ -129,13 +154,16 @@ final class HotkeyController {
         }
         dictationHotkey = nil
         styleHotkey = nil
+        hotMenuHotkey = nil
         eventHandler = nil
         dictationModifierChord = nil
         styleModifierChord = nil
+        hotMenuModifierChord = nil
         localModifierMonitor = nil
         globalModifierMonitor = nil
         isDictationModifierActive = false
         isStyleModifierActive = false
+        isHotMenuModifierActive = false
         isRegistered = false
     }
 
@@ -144,6 +172,8 @@ final class HotkeyController {
             onEvent?(kind == UInt32(kEventHotKeyPressed) ? .dictationPressed : .dictationReleased)
         } else if hotkeyID.id == 2, kind == UInt32(kEventHotKeyPressed) {
             onEvent?(.stylePressed)
+        } else if hotkeyID.id == 3 {
+            onEvent?(kind == UInt32(kEventHotKeyPressed) ? .hotMenuPressed : .hotMenuReleased)
         }
     }
 
@@ -183,6 +213,17 @@ final class HotkeyController {
                 onEvent?(.stylePressed)
             } else if !isActive {
                 isStyleModifierActive = false
+            }
+        }
+
+        if let hotMenuModifierChord {
+            let isActive = modifiers == hotMenuModifierChord.modifiers
+            if isActive, !isHotMenuModifierActive {
+                isHotMenuModifierActive = true
+                onEvent?(.hotMenuPressed)
+            } else if !isActive, isHotMenuModifierActive {
+                isHotMenuModifierActive = false
+                onEvent?(.hotMenuReleased)
             }
         }
     }

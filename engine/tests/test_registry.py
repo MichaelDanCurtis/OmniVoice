@@ -1,8 +1,11 @@
+import importlib.util
 import sys
+from types import ModuleType
 from types import SimpleNamespace
 
 from omnivoice_engine.providers.registry import ProviderRegistry
 from omnivoice_engine.providers.parakeet_sherpa import ParakeetSherpaProvider
+from omnivoice_engine.providers.parakeet_mlx import ParakeetMLXProvider
 
 
 def test_fake_provider_is_available():
@@ -33,6 +36,133 @@ def test_parakeet_provider_is_reported_even_when_model_is_absent(monkeypatch):
     parakeet = next(provider for provider in providers if provider.id == "parakeet-tdt")
     assert parakeet.available is False
     assert "model files not found" in parakeet.reason
+
+
+def test_mlx_parakeet_provider_is_visible_as_optional_apple_silicon_backend(monkeypatch):
+    monkeypatch.setenv("OMNIVOICE_PARAKEET_MLX_MODEL_DIR", "/tmp/omnivoice-missing-mlx-parakeet-model")
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr("platform.machine", lambda: "arm64")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "parakeet_mlx" else None)
+    registry = ProviderRegistry()
+
+    providers = registry.list_providers()
+
+    parakeet = next(provider for provider in providers if provider.id == "parakeet-tdt-mlx")
+    assert parakeet.available is False
+    assert "model files not found" in parakeet.reason
+
+
+def test_mlx_parakeet_provider_requires_apple_silicon(monkeypatch):
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr("platform.machine", lambda: "x86_64")
+
+    info = ParakeetMLXProvider("/tmp/unused").info()
+
+    assert info.available is False
+    assert info.reason == "Parakeet MLX requires Apple Silicon macOS"
+
+
+def test_mlx_parakeet_provider_reports_missing_runtime(tmp_path, monkeypatch):
+    for filename in ["config.json", "model.safetensors"]:
+        (tmp_path / filename).write_text("model")
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr("platform.machine", lambda: "arm64")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+
+    info = ParakeetMLXProvider(str(tmp_path)).info()
+
+    assert info.available is False
+    assert info.reason == "parakeet-mlx runtime is not installed"
+
+
+def test_mlx_parakeet_provider_transcribes_with_local_model_dir(tmp_path, monkeypatch):
+    captured = {}
+    fake_module = ModuleType("parakeet_mlx")
+
+    for filename in ["config.json", "model.safetensors"]:
+        (tmp_path / filename).write_text("model")
+
+    class FakeModel:
+        def transcribe(self, audio_path):
+            captured["audio_path"] = audio_path
+            return SimpleNamespace(text="hello from mlx")
+
+    def fake_from_pretrained(model_path):
+        captured["model_path"] = model_path
+        return FakeModel()
+
+    fake_module.from_pretrained = fake_from_pretrained
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr("platform.machine", lambda: "arm64")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "parakeet_mlx" else None)
+    monkeypatch.setitem(sys.modules, "parakeet_mlx", fake_module)
+
+    result = ParakeetMLXProvider(str(tmp_path)).transcribe(b"fake wav")
+
+    assert result == "hello from mlx"
+    assert captured["model_path"] == str(tmp_path)
+    assert captured["audio_path"].endswith(".wav")
+
+
+def test_mlx_parakeet_provider_preserves_aligned_tokens(tmp_path, monkeypatch):
+    fake_module = ModuleType("parakeet_mlx")
+
+    for filename in ["config.json", "model.safetensors"]:
+        (tmp_path / filename).write_text("model")
+
+    class FakeModel:
+        def transcribe(self, _audio_path):
+            return SimpleNamespace(
+                text="hello world",
+                sentences=[
+                    SimpleNamespace(
+                        text="hello world",
+                        start=0.10,
+                        end=0.85,
+                        confidence=0.91,
+                        tokens=[
+                            SimpleNamespace(text="hello", start=0.10, end=0.40, confidence=0.9),
+                            SimpleNamespace(text=" world", start=0.40, duration=0.45, confidence=0.8),
+                        ],
+                    )
+                ],
+            )
+
+    fake_module.from_pretrained = lambda _model_path: FakeModel()
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr("platform.machine", lambda: "arm64")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "parakeet_mlx" else None)
+    monkeypatch.setitem(sys.modules, "parakeet_mlx", fake_module)
+
+    transcript = ParakeetMLXProvider(str(tmp_path)).transcribe_aligned_pcm_float32(b"\0\0\0\0" * 16, 16000)
+
+    assert transcript.text == "hello world"
+    assert len(transcript.sentences) == 1
+    assert transcript.sentences[0].start_ms == 100
+    assert transcript.sentences[0].end_ms == 850
+    assert [token.text for token in transcript.tokens] == ["hello", " world"]
+    assert [(token.start_ms, token.end_ms) for token in transcript.tokens] == [(100, 400), (400, 850)]
+
+
+def test_parakeet_provider_default_dir_uses_project_models_when_started_from_engine_dir(tmp_path, monkeypatch):
+    project_root = tmp_path / "OmniVoice"
+    package_dir = project_root / "engine" / "omnivoice_engine" / "providers"
+    package_dir.mkdir(parents=True)
+    model_dir = project_root / "models" / "parakeet-tdt"
+    model_dir.mkdir(parents=True)
+    for filename in ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"]:
+        (model_dir / filename).write_text("model")
+
+    monkeypatch.chdir(project_root / "engine")
+    monkeypatch.delenv("OMNIVOICE_MODEL_ROOT", raising=False)
+    monkeypatch.delenv("OMNIVOICE_PARAKEET_MODEL_DIR", raising=False)
+    monkeypatch.setattr("omnivoice_engine.providers.parakeet_sherpa.__file__", str(package_dir / "parakeet_sherpa.py"))
+    monkeypatch.setitem(sys.modules, "sherpa_onnx", object())
+
+    provider = ParakeetSherpaProvider()
+
+    assert str(provider.model_dir) == str(model_dir)
+    assert provider.info().available is True
 
 
 def test_parakeet_provider_accepts_hugging_face_int8_layout(tmp_path, monkeypatch):
@@ -97,4 +227,4 @@ def test_canary_qwen_provider_is_visible_as_installable_accuracy_mode():
 
     canary = next(provider for provider in providers if provider.id == "canary-qwen-2.5b")
     assert canary.available is False
-    assert canary.reason == "Canary-Qwen-2.5B runtime is not installed in this MVP build"
+    assert canary.reason == "Canary-Qwen-2.5B runtime is not installed in this build"

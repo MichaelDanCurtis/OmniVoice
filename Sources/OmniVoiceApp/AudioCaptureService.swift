@@ -117,9 +117,21 @@ final class AudioCaptureService: @unchecked Sendable {
     }
 
     private static func float32MonoData(buffer: AVAudioPCMBuffer) -> Data? {
-        guard let channel = buffer.floatChannelData?[0] else { return nil }
         let frameCount = Int(buffer.frameLength)
-        return Data(bytes: channel, count: frameCount * MemoryLayout<Float>.size)
+        let channelCount = max(1, Int(buffer.format.channelCount))
+        guard frameCount > 0, let channels = buffer.floatChannelData else { return nil }
+
+        var samples = [Float](repeating: 0, count: frameCount)
+        for frame in 0..<frameCount {
+            var mixed: Float = 0
+            for channel in 0..<channelCount {
+                mixed += channels[channel][frame]
+            }
+            samples[frame] = mixed / Float(channelCount)
+        }
+        return samples.withUnsafeBufferPointer { pointer in
+            Data(buffer: pointer)
+        }
     }
 
     private static func level(buffer: AVAudioPCMBuffer) -> Float {

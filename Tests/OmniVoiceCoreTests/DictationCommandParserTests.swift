@@ -41,4 +41,68 @@ final class DictationCommandParserTests: XCTestCase {
             DictationCommand(action: .undoLastDictation, displayText: "Undoing last dictation")
         )
     }
+
+    func testAskClaudeCommandRoutesPromptToAIHandoff() {
+        let command = DictationCommandParser.parse("Ask Claude, write a quick reply to Jane.")
+
+        XCTAssertEqual(
+            command,
+            DictationCommand(
+                action: .aiHandoff(target: .claude, prompt: "write a quick reply to Jane"),
+                displayText: "Asking Claude"
+            )
+        )
+    }
+
+    func testHeyCodexCommandRoutesPromptToAIHandoff() {
+        let command = DictationCommandParser.parse("Hey Codex I need a two sentence summary")
+
+        XCTAssertEqual(
+            command,
+            DictationCommand(
+                action: .aiHandoff(target: .codex, prompt: "I need a two sentence summary"),
+                displayText: "Asking Codex"
+            )
+        )
+    }
+
+    func testAskCopilotCommandRoutesPromptToAIHandoff() {
+        let command = DictationCommandParser.parse("Ask GitHub Copilot, write a terminal command for this")
+
+        XCTAssertEqual(
+            command,
+            DictationCommand(
+                action: .aiHandoff(target: .githubCopilot, prompt: "write a terminal command for this"),
+                displayText: "Asking GitHub Copilot"
+            )
+        )
+    }
+
+    func testHaveOpenRouterTakeALookRoutesPromptToAIHandoff() {
+        let command = DictationCommandParser.parse("Have OpenRouter take a look at this and respond in Spanish")
+
+        XCTAssertEqual(
+            command,
+            DictationCommand(
+                action: .aiHandoff(target: .openRouter, prompt: "at this and respond in Spanish"),
+                displayText: "Asking OpenRouter"
+            )
+        )
+    }
+
+    func testAskOpenAICommandRoutesPromptToAIHandoff() {
+        let command = DictationCommandParser.parse("Ask OpenAI, make this sound more professional")
+
+        XCTAssertEqual(
+            command,
+            DictationCommand(
+                action: .aiHandoff(target: .openAI, prompt: "make this sound more professional"),
+                displayText: "Asking OpenAI"
+            )
+        )
+    }
+
+    func testAIHandoffParserIgnoresOrdinaryMentions() {
+        XCTAssertNil(DictationCommandParser.parse("Claude is a useful app for drafting emails."))
+    }
 }

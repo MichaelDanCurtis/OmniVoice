@@ -12,6 +12,17 @@ final class TextInsertionService {
         let selectedText: String
         let currentValue: String
         let selectedRange: NSRange?
+        let insertionStrategy: TextInsertionStrategy
+        let caretFrame: CGRect?
+    }
+
+    struct LiveDraft {
+        let application: NSRunningApplication?
+        let element: AXUIElement
+        let originalText: String
+        let selectedRange: NSRange
+        let placeholderValues: [String]
+        var currentText: String
     }
 
     enum InsertionError: LocalizedError {
@@ -48,16 +59,33 @@ final class TextInsertionService {
         let application = focusedElement.flatMap(Self.application(for:))
             ?? NSWorkspace.shared.frontmostApplication
         let textState = focusedElement.flatMap(Self.textState(for:))
+        let currentValue = textState?.currentValue ?? ""
+        let selectedRange = textState?.selectedRange
+        let insertionStrategy = TextInsertionTargetPolicy.strategy(
+            bundleIdentifier: application?.bundleIdentifier,
+            applicationName: application?.localizedName,
+            currentValue: currentValue,
+            selectedRange: selectedRange
+        )
+        let caretFrame = focusedElement.flatMap { element in
+            Self.caretFrame(
+                for: selectedRange,
+                currentValue: currentValue,
+                in: element
+            ) ?? Self.elementFrame(for: element)
+        }
         logger.info(
-            "Captured insertion target focused=\(focusedElement != nil, privacy: .public) app=\(application?.bundleIdentifier ?? "unknown", privacy: .public)"
+            "Captured insertion target focused=\(focusedElement != nil, privacy: .public) app=\(application?.bundleIdentifier ?? "unknown", privacy: .public) strategy=\(insertionStrategy.rawValue, privacy: .public)"
         )
 
         return Target(
             application: application,
             focusedElement: focusedElement,
             selectedText: textState?.selectedText ?? "",
-            currentValue: textState?.currentValue ?? "",
-            selectedRange: textState?.selectedRange
+            currentValue: currentValue,
+            selectedRange: selectedRange,
+            insertionStrategy: insertionStrategy,
+            caretFrame: caretFrame
         )
     }
 
@@ -71,6 +99,12 @@ final class TextInsertionService {
         if let application = target?.application, application.bundleIdentifier != Bundle.main.bundleIdentifier {
             application.activate()
             try await Task.sleep(nanoseconds: 150_000_000)
+        }
+
+        if target?.insertionStrategy == .pasteboardOnly {
+            logger.info("Using pasteboard-only insertion for rich composer target")
+            try insertWithPasteboard(insertionText)
+            return
         }
 
         if let focusedElement = target?.focusedElement, insertWithAccessibility(insertionText, into: focusedElement) {
@@ -90,6 +124,49 @@ final class TextInsertionService {
             logger.error("Pasteboard insertion failed; falling back to synthetic typing")
             try typeWithSyntheticKeystrokes(insertionText)
         }
+    }
+
+    func beginLiveDraft(target: Target?) -> LiveDraft? {
+        guard AXIsProcessTrusted() else {
+            logger.warning("Live draft skipped because accessibility trust is missing")
+            return nil
+        }
+        guard let target,
+              let focusedElement = target.focusedElement,
+              let selectedRange = target.selectedRange,
+              target.insertionStrategy == .directAccessibility,
+              selectedRange.length == 0 else {
+            logger.info("Live draft skipped because the target is not a plain insertion point")
+            return nil
+        }
+
+        return LiveDraft(
+            application: target.application,
+            element: focusedElement,
+            originalText: target.currentValue,
+            selectedRange: selectedRange,
+            placeholderValues: Self.placeholderValues(for: focusedElement),
+            currentText: ""
+        )
+    }
+
+    @discardableResult
+    func updateLiveDraft(_ text: String, draft: inout LiveDraft) -> Bool {
+        applyLiveDraftText(text, draft: &draft, recordUndo: false)
+    }
+
+    @discardableResult
+    func commitLiveDraft(_ text: String, draft: inout LiveDraft) -> Bool {
+        applyLiveDraftText(text, draft: &draft, recordUndo: true)
+    }
+
+    func cancelLiveDraft(_ draft: LiveDraft) {
+        guard AXIsProcessTrusted() else { return }
+        guard AXUIElementSetAttributeValue(draft.element, kAXValueAttribute as CFString, draft.originalText as CFString) == .success else {
+            logger.warning("Live draft restore failed")
+            return
+        }
+        _ = setCaretLocation(draft.selectedRange.location, in: draft.element)
     }
 
     func undoLastInsertion() async throws {
@@ -210,6 +287,37 @@ final class TextInsertionService {
         return true
     }
 
+    private func applyLiveDraftText(_ text: String, draft: inout LiveDraft, recordUndo: Bool) -> Bool {
+        let insertionText = TextInsertionEdit.sanitizedInsertionText(text)
+        guard !insertionText.isEmpty else {
+            return false
+        }
+        guard let edit = TextInsertionEdit.make(
+            currentValue: draft.originalText,
+            selectedRange: draft.selectedRange,
+            insertion: insertionText,
+            placeholderValues: draft.placeholderValues
+        ) else {
+            return false
+        }
+
+        guard AXUIElementSetAttributeValue(draft.element, kAXValueAttribute as CFString, edit.text as CFString) == .success else {
+            logger.warning("Live draft accessibility update failed")
+            return false
+        }
+        if recordUndo {
+            lastDirectInsertion = DirectInsertionRecord(
+                application: draft.application,
+                element: draft.element,
+                previousText: draft.originalText,
+                previousCursorLocation: draft.selectedRange.location
+            )
+        }
+        draft.currentText = insertionText
+        _ = setCaretLocation(edit.cursorLocation, in: draft.element)
+        return true
+    }
+
     private func setCaretLocation(_ location: Int, in element: AXUIElement) -> Bool {
         guard location >= 0 else {
             return false
@@ -248,6 +356,97 @@ final class TextInsertionService {
             return nil
         }
         return selectedRange.location
+    }
+
+    private static func caretFrame(for selectedRange: NSRange?, currentValue: String, in element: AXUIElement) -> CGRect? {
+        guard let selectedRange else { return nil }
+
+        if let frame = boundsForRange(
+            NSRange(location: selectedRange.location, length: selectedRange.length),
+            in: element
+        ) {
+            return frame
+        }
+
+        if selectedRange.length == 0, selectedRange.location < (currentValue as NSString).length,
+           let nextCharacterFrame = boundsForRange(NSRange(location: selectedRange.location, length: 1), in: element) {
+            return CGRect(
+                x: nextCharacterFrame.minX,
+                y: nextCharacterFrame.minY,
+                width: 2,
+                height: nextCharacterFrame.height
+            )
+        }
+
+        if selectedRange.length == 0, selectedRange.location > 0,
+           let previousCharacterFrame = boundsForRange(NSRange(location: selectedRange.location - 1, length: 1), in: element) {
+            return CGRect(
+                x: previousCharacterFrame.maxX,
+                y: previousCharacterFrame.minY,
+                width: 2,
+                height: previousCharacterFrame.height
+            )
+        }
+
+        return nil
+    }
+
+    private static func boundsForRange(_ range: NSRange, in element: AXUIElement) -> CGRect? {
+        var cfRange = CFRange(location: range.location, length: range.length)
+        guard let rangeValue = AXValueCreate(.cfRange, &cfRange) else { return nil }
+
+        var boundsRef: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXBoundsForRangeParameterizedAttribute as CFString,
+            rangeValue,
+            &boundsRef
+        ) == .success, let boundsValue = boundsRef else {
+            return nil
+        }
+
+        var bounds = CGRect.zero
+        guard AXValueGetValue(boundsValue as! AXValue, .cgRect, &bounds), !bounds.isEmpty else {
+            return nil
+        }
+        return appKitFrame(fromAccessibilityFrame: bounds)
+    }
+
+    private static func elementFrame(for element: AXUIElement) -> CGRect? {
+        var positionRef: CFTypeRef?
+        var sizeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionRef) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef) == .success,
+              let positionValue = positionRef,
+              let sizeValue = sizeRef else {
+            return nil
+        }
+
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
+              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size),
+              !size.equalTo(.zero) else {
+            return nil
+        }
+
+        return appKitFrame(fromAccessibilityFrame: CGRect(origin: position, size: size))
+    }
+
+    private static func appKitFrame(fromAccessibilityFrame frame: CGRect) -> CGRect {
+        let desktopFrame = NSScreen.screens.reduce(CGRect.null) { partial, screen in
+            partial.union(screen.frame)
+        }
+        guard !desktopFrame.isNull else {
+            return frame
+        }
+
+        return CGRect(
+            x: frame.minX,
+            y: desktopFrame.maxY - frame.maxY,
+            width: frame.width,
+            height: frame.height
+        )
     }
 
     private static func placeholderValues(for element: AXUIElement) -> [String] {

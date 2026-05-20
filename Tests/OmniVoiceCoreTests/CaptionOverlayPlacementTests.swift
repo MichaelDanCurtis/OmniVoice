@@ -53,4 +53,24 @@ final class CaptionOverlayPlacementTests: XCTestCase {
 
         XCTAssertEqual(origin, CGPoint(x: 1020, y: 40))
     }
+
+    func testCaretAnchoredOriginPlacesOverlayAboveCaretWhenSpaceAllows() {
+        let origin = CaptionOverlayPlacement.caretAnchoredOrigin(
+            caretFrame: CGRect(x: 640, y: 420, width: 2, height: 20),
+            screenFrame: CGRect(x: 0, y: 40, width: 1440, height: 860),
+            overlaySize: CGSize(width: 420, height: 96)
+        )
+
+        XCTAssertEqual(origin, CGPoint(x: 431, y: 460))
+    }
+
+    func testCaretAnchoredOriginPlacesOverlayBelowCaretNearTopOfScreen() {
+        let origin = CaptionOverlayPlacement.caretAnchoredOrigin(
+            caretFrame: CGRect(x: 640, y: 792, width: 2, height: 20),
+            screenFrame: CGRect(x: 0, y: 40, width: 1440, height: 860),
+            overlaySize: CGSize(width: 420, height: 96)
+        )
+
+        XCTAssertEqual(origin, CGPoint(x: 431, y: 676))
+    }
 }

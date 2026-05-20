@@ -6,7 +6,7 @@ APP_NAME="OmniVoiceApp"
 APP_DISPLAY_NAME="OmniVoice"
 BUNDLE_ID="com.omnivoice.OmniVoiceApp"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${OMNIVOICE_APP_VERSION:-0.1.0}"
+APP_VERSION="${OMNIVOICE_APP_VERSION:-2.0.0}"
 APP_BUILD="${OMNIVOICE_APP_BUILD:-1}"
 DMG_VOLUME_NAME="${OMNIVOICE_DMG_VOLUME_NAME:-OmniVoice}"
 
@@ -20,6 +20,7 @@ APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 ENGINE_BUNDLE_DIR="$APP_RESOURCES/Engine"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+RUN_APP_BUNDLE="${OMNIVOICE_RUN_APP_BUNDLE:-$HOME/Applications/$APP_DISPLAY_NAME.app}"
 ICON_SOURCE="$ROOT_DIR/Assets/AppIcon/OmniVoiceIcon.svg"
 ICONSET_DIR="$DIST_DIR/OmniVoice.iconset"
 ICON_DIST_FILE="$DIST_DIR/OmniVoice.icns"
@@ -27,11 +28,15 @@ ICON_BUNDLE_FILE="$APP_RESOURCES/OmniVoice.icns"
 DMG_STAGING="$DIST_DIR/dmg-staging"
 DMG_PATH="$DIST_DIR/OmniVoice.dmg"
 ENGINE_PID_FILE="$DIST_DIR/engine.pid"
+ENGINE_APP_PATH_FILE="$DIST_DIR/engine-app-path"
 LOCAL_CODESIGN_NAME="OmniVoice Local Development"
 LOCAL_CODESIGN_DIR="$DIST_DIR/codesign"
 LOCAL_CODESIGN_KEYCHAIN="$LOCAL_CODESIGN_DIR/OmniVoiceLocal.keychain-db"
 LOCAL_CODESIGN_P12_PASSWORD="omnivoice-local"
+LOCAL_CODESIGN_TIMEOUT_SECONDS="${OMNIVOICE_CODESIGN_TIMEOUT_SECONDS:-20}"
 CODESIGN_IDENTITY=""
+CODESIGN_IDENTITY_SOURCE=""
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 cd "$ROOT_DIR"
 
@@ -41,8 +46,10 @@ add_local_keychain_to_search_list() {
   local current_keychains=()
   local keychain
   while IFS= read -r keychain; do
+    keychain="${keychain#"${keychain%%[![:space:]]*}"}"
+    keychain="${keychain%"${keychain##*[![:space:]]}"}"
     keychain="${keychain//\"/}"
-    [[ -n "$keychain" ]] && current_keychains+=("$keychain")
+    [[ "$keychain" == /* ]] && current_keychains+=("$keychain")
   done < <(/usr/bin/security list-keychains -d user)
 
   for keychain in "${current_keychains[@]}"; do
@@ -50,6 +57,62 @@ add_local_keychain_to_search_list() {
   done
 
   /usr/bin/security list-keychains -d user -s "$LOCAL_CODESIGN_KEYCHAIN" "${current_keychains[@]}"
+}
+
+run_with_timeout() {
+  local timeout_seconds="$1"
+  shift
+
+  "$@" &
+  local command_pid=$!
+  local elapsed=0
+
+  while kill -0 "$command_pid" >/dev/null 2>&1; do
+    if [[ "$elapsed" -ge "$timeout_seconds" ]]; then
+      kill "$command_pid" >/dev/null 2>&1 || true
+      sleep 1
+      kill -9 "$command_pid" >/dev/null 2>&1 || true
+      wait "$command_pid" >/dev/null 2>&1 || true
+      return 124
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+
+  wait "$command_pid"
+}
+
+reset_app_signature_artifacts() {
+  rm -rf "$APP_BUNDLE/Contents/_CodeSignature"
+  find "$APP_BUNDLE" -name "*.cstemp" -type f -delete 2>/dev/null || true
+}
+
+engine_session_matches_root() {
+  command -v tmux >/dev/null 2>&1 || return 1
+  local pane_path
+  pane_path="$(tmux display-message -p -t omnivoice-engine:0.0 '#{pane_current_path}' 2>/dev/null || true)"
+  [[ "$pane_path" == "$ROOT_DIR" || "$pane_path" == "$ROOT_DIR/engine" ]]
+}
+
+engine_session_matches_runtime() {
+  engine_session_matches_root || return 1
+  [[ "$(cat "$ENGINE_APP_PATH_FILE" 2>/dev/null || true)" == "$RUN_APP_BUNDLE" ]]
+}
+
+stop_engine() {
+  if command -v tmux >/dev/null 2>&1; then
+    tmux kill-session -t omnivoice-engine >/dev/null 2>&1 || true
+  fi
+
+  local engine_pid
+  engine_pid="$(cat "$ENGINE_PID_FILE" 2>/dev/null || true)"
+  if [[ "$engine_pid" =~ ^[0-9]+$ ]]; then
+    kill "$engine_pid" >/dev/null 2>&1 || true
+  fi
+
+  pkill -f "$ROOT_DIR/engine/.venv/bin/uvicorn omnivoice_engine.main:app --host 127.0.0.1 --port 8765" >/dev/null 2>&1 || true
+  pkill -f "$ROOT_DIR/scripts/run-engine.sh" >/dev/null 2>&1 || true
+  rm -f "$ENGINE_PID_FILE" "$ENGINE_APP_PATH_FILE"
 }
 
 ensure_local_codesign_identity() {
@@ -110,19 +173,20 @@ ensure_local_codesign_identity() {
 }
 
 ensure_engine() {
-  if curl -fsS http://127.0.0.1:8765/health >/dev/null 2>&1; then
+  if curl -fsS http://127.0.0.1:8765/health >/dev/null 2>&1 && engine_session_matches_runtime; then
     return
   fi
 
   mkdir -p "$DIST_DIR"
   if command -v tmux >/dev/null 2>&1; then
     tmux kill-session -t omnivoice-engine >/dev/null 2>&1 || true
-    tmux new-session -d -s omnivoice-engine "cd \"$ROOT_DIR\" && OMNIVOICE_DESKTOP_APP_PATH=\"$APP_BUNDLE\" OMNIVOICE_INSTALL_ASR=\"${OMNIVOICE_INSTALL_ASR:-1}\" scripts/run-engine.sh >>\"$DIST_DIR/engine.log\" 2>&1"
+    tmux new-session -d -s omnivoice-engine "cd \"$ROOT_DIR\" && OMNIVOICE_DESKTOP_APP_PATH=\"$RUN_APP_BUNDLE\" OMNIVOICE_MODEL_ROOT=\"${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}\" OMNIVOICE_INSTALL_ASR=\"${OMNIVOICE_INSTALL_ASR:-1}\" OMNIVOICE_INSTALL_MLX_DIARIZATION=\"${OMNIVOICE_INSTALL_MLX_DIARIZATION:-1}\" OMNIVOICE_INSTALL_MLX_ASR=\"${OMNIVOICE_INSTALL_MLX_ASR:-1}\" scripts/run-engine.sh >>\"$DIST_DIR/engine.log\" 2>&1"
     echo "tmux:omnivoice-engine" >"$ENGINE_PID_FILE"
   else
-    nohup env OMNIVOICE_DESKTOP_APP_PATH="$APP_BUNDLE" OMNIVOICE_INSTALL_ASR="${OMNIVOICE_INSTALL_ASR:-1}" "$ROOT_DIR/scripts/run-engine.sh" >"$DIST_DIR/engine.log" 2>&1 &
+    nohup env OMNIVOICE_DESKTOP_APP_PATH="$RUN_APP_BUNDLE" OMNIVOICE_MODEL_ROOT="${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}" OMNIVOICE_INSTALL_ASR="${OMNIVOICE_INSTALL_ASR:-1}" OMNIVOICE_INSTALL_MLX_DIARIZATION="${OMNIVOICE_INSTALL_MLX_DIARIZATION:-1}" OMNIVOICE_INSTALL_MLX_ASR="${OMNIVOICE_INSTALL_MLX_ASR:-1}" "$ROOT_DIR/scripts/run-engine.sh" >"$DIST_DIR/engine.log" 2>&1 &
     echo "$!" >"$ENGINE_PID_FILE"
   fi
+  echo "$RUN_APP_BUNDLE" >"$ENGINE_APP_PATH_FILE"
 
   for _ in {1..120}; do
     if curl -fsS http://127.0.0.1:8765/health >/dev/null 2>&1; then
@@ -192,10 +256,41 @@ bundle_engine() {
 resolve_codesign_identity() {
   if [[ -n "${OMNIVOICE_CODESIGN_IDENTITY:-}" ]]; then
     CODESIGN_IDENTITY="$OMNIVOICE_CODESIGN_IDENTITY"
-  else
-    ensure_local_codesign_identity
-    CODESIGN_IDENTITY="$LOCAL_CODESIGN_NAME"
+    CODESIGN_IDENTITY_SOURCE="env"
+    return
   fi
+
+  resolve_local_codesign_identity
+}
+
+resolve_local_codesign_identity() {
+  ensure_local_codesign_identity
+  CODESIGN_IDENTITY="$(
+    /usr/bin/security find-identity -v -p codesigning "$LOCAL_CODESIGN_KEYCHAIN" \
+      | /usr/bin/awk -v name="$LOCAL_CODESIGN_NAME" '$0 ~ name { print $2; exit }'
+  )"
+  if [[ -z "$CODESIGN_IDENTITY" ]]; then
+    echo "local codesign identity was not found in $LOCAL_CODESIGN_KEYCHAIN" >&2
+    return 1
+  fi
+  CODESIGN_IDENTITY_SOURCE="local"
+}
+
+sign_app_bundle() {
+  resolve_codesign_identity
+
+  reset_app_signature_artifacts
+  if run_with_timeout "$LOCAL_CODESIGN_TIMEOUT_SECONDS" /usr/bin/codesign --force --deep --sign "$CODESIGN_IDENTITY" --identifier "$BUNDLE_ID" "$APP_BUNDLE"; then
+    return
+  fi
+
+  if [[ -n "${OMNIVOICE_CODESIGN_IDENTITY:-}" ]]; then
+    echo "codesign failed for OMNIVOICE_CODESIGN_IDENTITY=$OMNIVOICE_CODESIGN_IDENTITY" >&2
+    return 1
+  fi
+
+  echo "codesign failed with project-local identity $CODESIGN_IDENTITY" >&2
+  return 1
 }
 
 swift build
@@ -233,7 +328,7 @@ cat >"$INFO_PLIST" <<PLIST
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
   <key>LSUIElement</key>
-  <true/>
+  <false/>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
   <key>NSMicrophoneUsageDescription</key>
@@ -246,12 +341,46 @@ build_icon
 bundle_engine
 
 xattr -dr com.apple.quarantine "$APP_BUNDLE" >/dev/null 2>&1 || true
-resolve_codesign_identity
-/usr/bin/codesign --force --deep --sign "$CODESIGN_IDENTITY" --identifier "$BUNDLE_ID" "$APP_BUNDLE"
+sign_app_bundle
+
+unregister_stale_launch_services() {
+  local stale_bundle
+  for stale_bundle in "$APP_BUNDLE" "$LEGACY_APP_BUNDLE" "$DMG_STAGING/$APP_DISPLAY_NAME.app"; do
+    if [[ "$stale_bundle" != "$RUN_APP_BUNDLE" ]]; then
+      "$LSREGISTER" -u "$stale_bundle" >/dev/null 2>&1 || true
+    fi
+  done
+}
+
+register_launch_services() {
+  [[ -x "$LSREGISTER" ]] || return
+
+  unregister_stale_launch_services
+  "$LSREGISTER" -f "$RUN_APP_BUNDLE" >/dev/null 2>&1 || true
+  unregister_stale_launch_services
+  "$LSREGISTER" -f "$RUN_APP_BUNDLE" >/dev/null 2>&1 || true
+}
+
+install_run_bundle() {
+  if [[ "$RUN_APP_BUNDLE" != "$APP_BUNDLE" ]]; then
+    mkdir -p "$(dirname "$RUN_APP_BUNDLE")"
+    rm -rf "$RUN_APP_BUNDLE"
+    cp -R "$APP_BUNDLE" "$RUN_APP_BUNDLE"
+    rm -rf "$APP_BUNDLE"
+  fi
+
+  xattr -dr com.apple.quarantine "$RUN_APP_BUNDLE" >/dev/null 2>&1 || true
+  /usr/bin/codesign --verify --deep --strict "$RUN_APP_BUNDLE"
+  register_launch_services
+}
 
 open_app() {
+  install_run_bundle
+  if [[ "${OMNIVOICE_RESTART_ENGINE:-1}" != "0" ]]; then
+    stop_engine
+  fi
   ensure_engine
-  /usr/bin/open -n "$APP_BUNDLE"
+  /usr/bin/open -n "$RUN_APP_BUNDLE"
 }
 
 create_dmg() {

@@ -1,8 +1,17 @@
+window.omniVoiceApplyTheme = function omniVoiceApplyTheme(payload) {
+  if (!payload || !payload.css_variables) return;
+  for (const [name, value] of Object.entries(payload.css_variables)) {
+    document.documentElement.style.setProperty(name, value);
+  }
+};
+
 const state = {
   status: null,
   transcripts: [],
   events: [],
 };
+
+let themeLoadPromise = null;
 
 const nodes = {
   healthPill: document.querySelector("#healthPill"),
@@ -13,6 +22,9 @@ const nodes = {
   providerValue: document.querySelector("#providerValue"),
   modelValue: document.querySelector("#modelValue"),
   transcriptValue: document.querySelector("#transcriptValue"),
+  streamValue: document.querySelector("#streamValue"),
+  streamAudioValue: document.querySelector("#streamAudioValue"),
+  streamPartialValue: document.querySelector("#streamPartialValue"),
   providerList: document.querySelector("#providerList"),
   modelList: document.querySelector("#modelList"),
   transcriptList: document.querySelector("#transcriptList"),
@@ -33,6 +45,11 @@ setInterval(refresh, 4000);
 async function refresh() {
   nodes.refreshButton.disabled = true;
   try {
+    try {
+      await loadTheme();
+    } catch (error) {
+      console.warn("Unable to load dashboard theme", error);
+    }
     const [status, transcripts, events] = await Promise.all([
       fetchJson("/api/status"),
       fetchJson("/api/transcripts?limit=100"),
@@ -47,6 +64,26 @@ async function refresh() {
   } finally {
     nodes.refreshButton.disabled = false;
   }
+}
+
+async function loadTheme() {
+  if (window.__OMNIVOICE_THEME__) {
+    window.omniVoiceApplyTheme(window.__OMNIVOICE_THEME__);
+    return;
+  }
+  if (!themeLoadPromise) {
+    themeLoadPromise = fetchJson("/api/theme/default")
+      .then((theme) => {
+        window.__OMNIVOICE_THEME__ = theme;
+        return theme;
+      })
+      .catch((error) => {
+        themeLoadPromise = null;
+        throw error;
+      });
+  }
+  const theme = await themeLoadPromise;
+  window.omniVoiceApplyTheme(theme);
 }
 
 async function fetchJson(path, options = {}) {
@@ -68,6 +105,9 @@ function render() {
   nodes.providerValue.textContent = `${availableProviders}/${state.status.providers.length}`;
   nodes.modelValue.textContent = `${installedModels}/${state.status.models.length}`;
   nodes.transcriptValue.textContent = String(state.status.transcript_count);
+  nodes.streamValue.textContent = String(state.status.streaming?.active_streams ?? 0);
+  nodes.streamAudioValue.textContent = formatBytes(state.status.streaming?.total_audio_bytes ?? 0);
+  nodes.streamPartialValue.textContent = String(state.status.streaming?.total_partials ?? 0);
 
   renderProviders(state.status.providers);
   renderModels(state.status.models);
@@ -142,7 +182,13 @@ function renderModels(models) {
       await fetchJson(`/models/${encodeURIComponent(model.provider_id)}/download`, { method: "POST" });
       await refresh();
     });
-    actions.append(status, update, download);
+    const remove = button("Delete", async () => {
+      if (!confirm(`Delete local files for ${model.label}?`)) return;
+      await fetchJson(`/models/${encodeURIComponent(model.provider_id)}`, { method: "DELETE" });
+      await refresh();
+    });
+    remove.disabled = !model.installed || model.download_state === "queued" || model.download_state === "downloading";
+    actions.append(status, update, download, remove);
 
     row.append(body, actions);
     return row;
@@ -279,6 +325,12 @@ function formatDuration(seconds) {
   if (hours > 0) return `${hours}h ${minutes % 60}m`;
   if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
   return `${seconds}s`;
+}
+
+function formatBytes(value) {
+  if (value >= 1_048_576) return `${(value / 1_048_576).toFixed(1)} MB`;
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${value} B`;
 }
 
 function formatTime(value) {

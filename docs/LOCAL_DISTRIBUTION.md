@@ -2,7 +2,7 @@
 
 ## Build
 
-Create the local DMG:
+Create the V2 local DMG:
 
 ```bash
 ./script/build_and_run.sh --dmg
@@ -38,7 +38,7 @@ Models are downloaded locally from Hugging Face through the app settings or engi
 
 ## Signing Status
 
-The current DMG is locally signed for development with the generated `OmniVoice Local Development` identity. That is enough for local testing on this machine.
+The current DMG is locally signed for development with the generated `OmniVoice Local Development` identity. That is enough for local testing on this machine and for handoff to trusted testers who explicitly accept the local build.
 
 Public distribution still requires:
 
@@ -46,6 +46,8 @@ Public distribution still requires:
 - hardened runtime review
 - notarization with Apple
 - stapling the notarization ticket to the DMG
+
+Set `OMNIVOICE_CODESIGN_IDENTITY` to a Developer ID Application identity before building a public distribution candidate.
 
 ## Verification
 
@@ -58,4 +60,10 @@ engine/.venv/bin/python -m pytest engine/tests
 ./script/build_and_run.sh --verify
 /usr/bin/codesign --verify --deep --strict --verbose=2 dist/OmniVoice.app
 /usr/bin/hdiutil verify dist/OmniVoice.dmg
+```
+
+For V2 release candidates, also verify the app version in the bundle:
+
+```bash
+/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' dist/OmniVoice.app/Contents/Info.plist
 ```
