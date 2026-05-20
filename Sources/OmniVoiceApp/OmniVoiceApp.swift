@@ -13,6 +13,7 @@ struct OmniVoiceApp: App {
         WindowGroup("OmniVoice", id: "control-panel") {
             controlPanelContent
             .task {
+                configureAppDelegateActions()
                 appDelegate.attach(model: model)
                 await model.refreshEngineStatus()
             }
@@ -22,11 +23,36 @@ struct OmniVoiceApp: App {
             ConversationModeView(model: model)
                 .preferredColorScheme(model.preferences.appearanceMode.colorScheme)
                 .task {
+                    configureAppDelegateActions()
                     appDelegate.attach(model: model)
                     await model.loadConversations()
                 }
         }
         .defaultSize(width: 980, height: 680)
+
+        Window("Editor", id: "editor") {
+            EditorWindowView(model: model)
+                .preferredColorScheme(model.preferences.appearanceMode.colorScheme)
+                .task {
+                    configureAppDelegateActions()
+                    appDelegate.attach(model: model)
+                    model.loadWorkspace()
+                    await model.refreshTranscripts()
+                }
+        }
+        .defaultSize(width: 1080, height: 760)
+
+        Window("Ask AI", id: "ask-ai") {
+            AskAIWindowView(model: model)
+                .preferredColorScheme(model.preferences.appearanceMode.colorScheme)
+                .task {
+                    configureAppDelegateActions()
+                    appDelegate.attach(model: model)
+                    model.loadWorkspace()
+                    await model.loadConversations()
+                }
+        }
+        .defaultSize(width: 1080, height: 760)
 
         MenuBarExtra("OmniVoice", systemImage: "waveform") {
             MenuBarControlsView(
@@ -46,10 +72,18 @@ struct OmniVoiceApp: App {
                 },
                 openConversationMode: {
                     openWindow(id: "conversation-mode")
+                },
+                openEditor: {
+                    model.editorWorkspaceMode = .documents
+                    openWindow(id: "editor")
+                },
+                openAskAI: {
+                    openWindow(id: "ask-ai")
                 }
             )
             .preferredColorScheme(model.preferences.appearanceMode.colorScheme)
             .task {
+                configureAppDelegateActions()
                 appDelegate.attach(model: model)
                 await model.refreshEngineStatus()
             }
@@ -89,6 +123,23 @@ struct OmniVoiceApp: App {
         .preferredColorScheme(model.preferences.appearanceMode.colorScheme)
     }
 
+    private func configureAppDelegateActions() {
+        appDelegate.onOpenConversationMode = {
+            openWindow(id: "conversation-mode")
+        }
+        appDelegate.onOpenEditorNotes = {
+            model.editorWorkspaceMode = .notes
+            openWindow(id: "editor")
+        }
+        appDelegate.onOpenAskAI = {
+            openWindow(id: "ask-ai")
+        }
+        appDelegate.onOpenEditor = {
+            model.editorWorkspaceMode = .documents
+            openWindow(id: "editor")
+        }
+    }
+
     private var settingsContent: some View {
         SettingsView(
             model: model,
@@ -107,6 +158,13 @@ struct OmniVoiceApp: App {
             },
             openConversationMode: {
                 openWindow(id: "conversation-mode")
+            },
+            openEditor: {
+                model.editorWorkspaceMode = .documents
+                openWindow(id: "editor")
+            },
+            openAskAI: {
+                openWindow(id: "ask-ai")
             }
         )
         .preferredColorScheme(model.preferences.appearanceMode.colorScheme)

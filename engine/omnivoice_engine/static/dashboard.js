@@ -182,7 +182,13 @@ function renderModels(models) {
       await fetchJson(`/models/${encodeURIComponent(model.provider_id)}/download`, { method: "POST" });
       await refresh();
     });
-    actions.append(status, update, download);
+    const remove = button("Delete", async () => {
+      if (!confirm(`Delete local files for ${model.label}?`)) return;
+      await fetchJson(`/models/${encodeURIComponent(model.provider_id)}`, { method: "DELETE" });
+      await refresh();
+    });
+    remove.disabled = !model.installed || model.download_state === "queued" || model.download_state === "downloading";
+    actions.append(status, update, download, remove);
 
     row.append(body, actions);
     return row;

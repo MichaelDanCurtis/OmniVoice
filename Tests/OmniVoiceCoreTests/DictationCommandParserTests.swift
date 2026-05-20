@@ -66,6 +66,18 @@ final class DictationCommandParserTests: XCTestCase {
         )
     }
 
+    func testAskCopilotCommandRoutesPromptToAIHandoff() {
+        let command = DictationCommandParser.parse("Ask GitHub Copilot, write a terminal command for this")
+
+        XCTAssertEqual(
+            command,
+            DictationCommand(
+                action: .aiHandoff(target: .githubCopilot, prompt: "write a terminal command for this"),
+                displayText: "Asking GitHub Copilot"
+            )
+        )
+    }
+
     func testHaveOpenRouterTakeALookRoutesPromptToAIHandoff() {
         let command = DictationCommandParser.parse("Have OpenRouter take a look at this and respond in Spanish")
 

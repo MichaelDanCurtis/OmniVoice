@@ -14,8 +14,10 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
     private struct Presentation {
         let text: String
         let styleName: String
+        let translationStatus: String?
         let level: Float
         let theme: OmniVoiceTheme
+        let appearanceMode: AppAppearanceMode
         let anchorFrame: CGRect?
     }
 
@@ -25,20 +27,31 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
     func show(
         text: String,
         styleName: String,
+        translationStatus: String? = nil,
         level: Float = 0,
         theme: OmniVoiceTheme,
+        appearanceMode: AppAppearanceMode,
         anchorFrame: CGRect? = nil
     ) {
         let previousAnchorFrame = presentation?.anchorFrame
         presentation = Presentation(
             text: text,
             styleName: styleName,
+            translationStatus: translationStatus,
             level: level,
             theme: theme,
+            appearanceMode: appearanceMode,
             anchorFrame: anchorFrame
         )
         let content = DraggableCaptionHostingView(
-            rootView: CaptionOverlayView(text: text, styleName: styleName, level: level, theme: theme)
+            rootView: CaptionOverlayView(
+                text: text,
+                styleName: styleName,
+                translationStatus: translationStatus,
+                level: level,
+                theme: theme,
+                appearanceMode: appearanceMode
+            )
         )
         let targetSize = content.fittingSize
         let screenFrame = NSScreen.main?.visibleFrame ?? .zero
@@ -97,6 +110,26 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
         window?.frame
     }
 
+    func preferredHotMenuCenter() -> CGPoint {
+        if let window {
+            return window.frame.center
+        }
+
+        if let savedCenter {
+            return savedCenter
+        }
+
+        let screenFrame = NSScreen.main?.visibleFrame ?? .zero
+        let overlaySize = CGSize(
+            width: CaptionOverlayLayout.windowMaxWidth,
+            height: 160
+        )
+        return CaptionOverlayPlacement.defaultCenter(
+            screenFrame: screenFrame,
+            overlaySize: overlaySize
+        )
+    }
+
     func commitAndHide(mode: CommitAnimationMode) {
         guard let window else { return }
         guard mode != .none else {
@@ -118,8 +151,10 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
             rootView: CaptionOverlayView(
                 text: presentation.text,
                 styleName: presentation.styleName,
+                translationStatus: presentation.translationStatus,
                 level: presentation.level,
                 theme: presentation.theme,
+                appearanceMode: presentation.appearanceMode,
                 phase: .committing(mode)
             )
         )

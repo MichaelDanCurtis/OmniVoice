@@ -31,7 +31,9 @@ body {
     var(--ov-bg);
   background-size: 44px 44px;
   color: var(--ov-text);
-  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Helvetica Neue",
+    "PingFang SC", "Hiragino Sans", "Apple SD Gothic Neo", "Noto Sans", "Noto Sans CJK SC",
+    "Noto Sans Arabic", "Noto Sans Devanagari", sans-serif;
 }
 
 button,

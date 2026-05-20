@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from .schemas import (
     ConversationAssistCardRecord,
+    ConversationDetail,
     ConversationSegmentRecord,
     ConversationSessionRecord,
     EngineEvent,
@@ -35,6 +36,7 @@ class RuntimeStore:
         self.started_at = utc_now()
         self._lock = threading.RLock()
         self._streaming_stats: dict[str, object] = StreamingStats().model_dump()
+        self._conversation_preview_segments: dict[str, list[ConversationSegmentRecord]] = {}
 
     def record_event(
         self,
@@ -152,6 +154,126 @@ class RuntimeStore:
                 self._rewrite_jsonl(self.conversation_sessions_path, rewritten)
             return stopped
 
+    def update_conversation_session(
+        self,
+        session_id: str,
+        *,
+        title: str | None = None,
+    ) -> ConversationSessionRecord | None:
+        with self._lock:
+            sessions: list[ConversationSessionRecord] = []
+            for item in self._parse_lines(self._read_lines(self.conversation_sessions_path)):
+                try:
+                    sessions.append(ConversationSessionRecord.model_validate(item))
+                except ValidationError:
+                    continue
+
+            updated: ConversationSessionRecord | None = None
+            rewritten: list[dict[str, object]] = []
+            for session in sessions:
+                if session.id == session_id:
+                    updates: dict[str, object] = {}
+                    if title is not None:
+                        updates["title"] = title
+                    if updates:
+                        session = session.model_copy(update=updates)
+                    updated = session
+                rewritten.append(session.model_dump(mode="json"))
+            if updated is not None:
+                self._rewrite_jsonl(self.conversation_sessions_path, rewritten)
+            return updated
+
+    def delete_conversation_session(self, session_id: str) -> bool:
+        with self._lock:
+            sessions: list[ConversationSessionRecord] = []
+            for item in self._parse_lines(self._read_lines(self.conversation_sessions_path)):
+                try:
+                    sessions.append(ConversationSessionRecord.model_validate(item))
+                except ValidationError:
+                    continue
+
+            remaining_sessions: list[dict[str, object]] = []
+            deleted = False
+            for session in sessions:
+                if session.id == session_id:
+                    deleted = True
+                    continue
+                remaining_sessions.append(session.model_dump(mode="json"))
+
+            if not deleted:
+                return False
+
+            remaining_segments: list[dict[str, object]] = []
+            for item in self._parse_lines(self._read_lines(self.conversation_segments_path)):
+                try:
+                    segment = ConversationSegmentRecord.model_validate(item)
+                except ValidationError:
+                    continue
+                if segment.session_id != session_id:
+                    remaining_segments.append(segment.model_dump(mode="json"))
+
+            remaining_cards: list[dict[str, object]] = []
+            for item in self._parse_lines(self._read_lines(self.conversation_assist_cards_path)):
+                try:
+                    card = ConversationAssistCardRecord.model_validate(item)
+                except ValidationError:
+                    continue
+                if card.session_id != session_id:
+                    remaining_cards.append(card.model_dump(mode="json"))
+
+            self._rewrite_jsonl(self.conversation_sessions_path, remaining_sessions)
+            self._rewrite_jsonl(self.conversation_segments_path, remaining_segments)
+            self._rewrite_jsonl(self.conversation_assist_cards_path, remaining_cards)
+            self._conversation_preview_segments.pop(session_id, None)
+            return True
+
+    def import_conversation_detail(self, detail: ConversationDetail) -> str:
+        session_id = detail.session.id
+        with self._lock:
+            existing_sessions: list[ConversationSessionRecord] = []
+            existed = False
+            for item in self._parse_lines(self._read_lines(self.conversation_sessions_path)):
+                try:
+                    session = ConversationSessionRecord.model_validate(item)
+                except ValidationError:
+                    continue
+                if session.id == session_id:
+                    existed = True
+                    continue
+                existing_sessions.append(session)
+
+            sessions_payload = [
+                session.model_dump(mode="json")
+                for session in existing_sessions
+            ]
+            sessions_payload.append(detail.session.model_dump(mode="json"))
+
+            segments_payload: list[dict[str, object]] = []
+            for item in self._parse_lines(self._read_lines(self.conversation_segments_path)):
+                try:
+                    segment = ConversationSegmentRecord.model_validate(item)
+                except ValidationError:
+                    continue
+                if segment.session_id != session_id:
+                    segments_payload.append(segment.model_dump(mode="json"))
+            segments_payload.extend(segment.model_dump(mode="json") for segment in detail.segments)
+
+            cards_payload: list[dict[str, object]] = []
+            for item in self._parse_lines(self._read_lines(self.conversation_assist_cards_path)):
+                try:
+                    card = ConversationAssistCardRecord.model_validate(item)
+                except ValidationError:
+                    continue
+                if card.session_id != session_id:
+                    cards_payload.append(card.model_dump(mode="json"))
+            cards_payload.extend(card.model_dump(mode="json") for card in detail.assist_cards)
+
+            self._rewrite_jsonl(self.conversation_sessions_path, sessions_payload)
+            self._rewrite_jsonl(self.conversation_segments_path, segments_payload)
+            self._rewrite_jsonl(self.conversation_assist_cards_path, cards_payload)
+            self._conversation_preview_segments.pop(session_id, None)
+            return "updated" if existed else "created"
+
     def add_conversation_segment(
         self,
         *,
@@ -163,6 +285,8 @@ class RuntimeStore:
         text: str,
         state: str,
         confidence: float | None,
+        speaker_turns: list | None = None,
+        speaker_lines: list | None = None,
     ) -> ConversationSegmentRecord:
         segment = ConversationSegmentRecord(
             id=str(uuid.uuid4()),
@@ -174,6 +298,8 @@ class RuntimeStore:
             text=text,
             state=state,
             confidence=confidence,
+            speaker_turns=speaker_turns or [],
+            speaker_lines=speaker_lines or [],
         )
         self._append(self.conversation_segments_path, segment.model_dump(mode="json"))
         return segment
@@ -188,6 +314,61 @@ class RuntimeStore:
             except ValidationError:
                 continue
         return segments
+
+    def remember_conversation_preview_segment(
+        self,
+        session_id: str,
+        segment: ConversationSegmentRecord,
+        *,
+        limit: int = 80,
+    ) -> None:
+        with self._lock:
+            previews = self._conversation_preview_segments.setdefault(session_id, [])
+            previews.append(segment)
+            del previews[: max(0, len(previews) - limit)]
+
+    def conversation_preview_segments(self, session_id: str) -> list[ConversationSegmentRecord]:
+        with self._lock:
+            return list(self._conversation_preview_segments.get(session_id, []))
+
+    def update_conversation_segments(
+        self,
+        session_id: str,
+        *,
+        speaker_names: dict[str, str],
+        segment_texts: dict[str, str],
+    ) -> list[ConversationSegmentRecord] | None:
+        with self._lock:
+            requested_segment_ids = set(segment_texts)
+            seen_requested_ids: set[str] = set()
+            updated_segments: list[ConversationSegmentRecord] = []
+            rewritten: list[dict[str, object]] = []
+
+            for item in self._parse_lines(self._read_lines(self.conversation_segments_path)):
+                try:
+                    segment = ConversationSegmentRecord.model_validate(item)
+                except ValidationError:
+                    continue
+
+                if segment.session_id == session_id:
+                    updates: dict[str, object] = {}
+                    if segment.speaker_id in speaker_names:
+                        updates["speaker_display_name"] = speaker_names[segment.speaker_id]
+                    if segment.id in segment_texts:
+                        updates["text"] = segment_texts[segment.id]
+                        seen_requested_ids.add(segment.id)
+                    if updates:
+                        segment = segment.model_copy(update=updates)
+                    updated_segments.append(segment)
+
+                rewritten.append(segment.model_dump(mode="json"))
+
+            missing_ids = requested_segment_ids.difference(seen_requested_ids)
+            if missing_ids:
+                return None
+
+            self._rewrite_jsonl(self.conversation_segments_path, rewritten)
+            return updated_segments
 
     def add_conversation_assist_card(
         self,

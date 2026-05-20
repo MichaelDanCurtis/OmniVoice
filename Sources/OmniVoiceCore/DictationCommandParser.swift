@@ -3,6 +3,7 @@ import Foundation
 public enum AIHandoffTarget: String, Codable, CaseIterable, Equatable, Sendable {
     case claude
     case codex
+    case githubCopilot = "github_copilot"
     case openRouter = "openrouter"
     case openAI = "openai"
     case custom
@@ -13,6 +14,8 @@ public enum AIHandoffTarget: String, Codable, CaseIterable, Equatable, Sendable 
             "Claude"
         case .codex:
             "Codex"
+        case .githubCopilot:
+            "GitHub Copilot"
         case .openRouter:
             "OpenRouter"
         case .openAI:
@@ -133,6 +136,8 @@ public enum DictationCommandParser {
             ["ask claude", "hey claude", "have claude take a look"]
         case .codex:
             ["ask codex", "hey codex", "have codex take a look"]
+        case .githubCopilot:
+            ["ask copilot", "ask github copilot", "hey copilot", "hey github copilot", "have copilot take a look", "have github copilot take a look"]
         case .openRouter:
             ["ask openrouter", "ask open router", "hey openrouter", "hey open router", "have openrouter take a look", "have open router take a look"]
         case .openAI:

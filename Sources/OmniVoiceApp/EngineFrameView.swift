@@ -3,10 +3,10 @@ import SwiftUI
 import OmniVoiceCore
 
 struct EngineFrameView: View {
-    static let collapsedWidth: CGFloat = 44
+    static let collapsedWidth: CGFloat = 36
     static let drawerWidth: CGFloat = 410
-    private static let handleHeight: CGFloat = 112
-    private static let handleWidth: CGFloat = 34
+    private static let handleHeight: CGFloat = 86
+    private static let handleWidth: CGFloat = 28
     private static let handleCoordinateSpace = "engineFrameHandleArea"
 
     @Bindable var model: AppModel
@@ -60,7 +60,8 @@ struct EngineFrameView: View {
                                 transcript: transcript,
                                 theme: theme,
                                 copyTranscript: copyTranscript,
-                                insertTranscript: insertTranscript
+                                insertTranscript: insertTranscript,
+                                askAITranscript: model.addTranscriptToAskAI
                             )
                         }
                     }
@@ -138,14 +139,14 @@ struct EngineFrameView: View {
     }
 
     private var movableHandle: some View {
-        VStack(spacing: 9) {
+        VStack(spacing: 6) {
             RoundedRectangle(cornerRadius: 999, style: .continuous)
                 .fill(Color(themeColor: theme.accentColor))
-                .frame(width: 3, height: 50)
-                .shadow(color: Color(themeColor: theme.accentColor).opacity(0.55), radius: 12)
+                .frame(width: 2.5, height: 34)
+                .shadow(color: Color(themeColor: theme.accentColor).opacity(0.50), radius: 9)
 
             Image(systemName: "bubble.left.and.text.bubble.right")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Color(themeColor: theme.accentColor))
         }
         .frame(width: Self.handleWidth, height: Self.handleHeight)
@@ -206,6 +207,7 @@ private struct TranscriptHistoryCard: View {
     let theme: OmniVoiceTheme
     let copyTranscript: (EngineTranscriptRecord) -> Void
     let insertTranscript: (EngineTranscriptRecord) -> Void
+    let askAITranscript: (EngineTranscriptRecord) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -236,12 +238,21 @@ private struct TranscriptHistoryCard: View {
                 } label: {
                     Label("Copy", systemImage: "doc.on.doc")
                 }
+                .help("Copy this transcript")
 
                 Button {
                     insertTranscript(transcript)
                 } label: {
                     Label("Insert", systemImage: "text.insert")
                 }
+                .help("Insert this transcript at the current cursor")
+
+                Button {
+                    askAITranscript(transcript)
+                } label: {
+                    Label("Ask AI", systemImage: "sparkles")
+                }
+                .help("Attach this transcript to Ask AI")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -292,19 +303,29 @@ private struct TranscriptHistoryCard: View {
 private struct EngineFrameGlassPanel: View {
     let theme: OmniVoiceTheme
 
+    @ViewBuilder
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
 
-        shape
-            .fill(.ultraThinMaterial)
-            .overlay {
-                shape.fill(Color.black.opacity(0.22))
-            }
-            .overlay {
-                shape.stroke(Color(themeColor: theme.accentColor).opacity(0.30), lineWidth: 1)
-            }
-            .shadow(color: Color(themeColor: theme.accentColor).opacity(0.20), radius: 24, x: 0, y: 8)
-            .shadow(color: .black.opacity(0.28), radius: 30, x: 0, y: 14)
+        if #available(macOS 26.0, *) {
+            Color.clear
+                .glassEffect(
+                    .regular.tint(Color(themeColor: theme.surfaceTint).opacity(0.055)),
+                    in: shape
+                )
+                .shadow(color: Color(themeColor: theme.accentColor).opacity(0.12), radius: 22, x: 0, y: 10)
+        } else {
+            shape
+                .fill(.ultraThinMaterial)
+                .overlay {
+                    shape.fill(Color.black.opacity(0.22))
+                }
+                .overlay {
+                    shape.stroke(Color(themeColor: theme.accentColor).opacity(0.30), lineWidth: 1)
+                }
+                .shadow(color: Color(themeColor: theme.accentColor).opacity(0.20), radius: 24, x: 0, y: 8)
+                .shadow(color: .black.opacity(0.28), radius: 30, x: 0, y: 14)
+        }
     }
 }
 
@@ -312,6 +333,7 @@ private struct EngineFrameHandleGlass: View {
     let theme: OmniVoiceTheme
     let side: EngineFrameSide
 
+    @ViewBuilder
     var body: some View {
         let shape = UnevenRoundedRectangle(
             topLeadingRadius: side == .right ? 16 : 0,
@@ -321,14 +343,24 @@ private struct EngineFrameHandleGlass: View {
             style: .continuous
         )
 
-        shape
-            .fill(.ultraThinMaterial)
-            .overlay {
-                shape.fill(Color.black.opacity(0.14))
-            }
-            .overlay {
-                shape.stroke(Color(themeColor: theme.accentColor).opacity(0.22), lineWidth: 1)
-            }
+        if #available(macOS 26.0, *) {
+            Color.clear
+                .glassEffect(
+                    .regular
+                        .tint(Color(themeColor: theme.surfaceTint).opacity(0.045))
+                        .interactive(),
+                    in: shape
+                )
+        } else {
+            shape
+                .fill(.ultraThinMaterial)
+                .overlay {
+                    shape.fill(Color.black.opacity(0.14))
+                }
+                .overlay {
+                    shape.stroke(Color(themeColor: theme.accentColor).opacity(0.22), lineWidth: 1)
+                }
+        }
     }
 }
 

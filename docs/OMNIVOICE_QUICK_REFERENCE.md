@@ -54,7 +54,7 @@ Command mode opens supported applications and runs safe OmniVoice actions. It do
 
 ## AI Handoff
 
-Open Settings -> Integrations and configure an OpenAI-compatible Base URL, Model, and API Key. Then hold the dictation hotkey and use an explicit AI phrase.
+Open Settings -> AI and add the provider you want to use. Pick the provider/model for the current Ask AI or conversation session before sending.
 
 Examples:
 
@@ -63,27 +63,34 @@ Examples:
 - `Have OpenRouter take a look at this and respond in Spanish`
 - `Ask OpenAI, make this sound more professional`
 
-If text is selected when dictation starts, OmniVoice sends that selected text as context. Only the AI response is inserted at the cursor.
+If selected text, conversations, notes, files, images, or audio are attached to the session, OmniVoice sends that context with the request. Only the AI response is inserted or displayed in the AI flow.
 
 ## Conversation Mode
 
-Open Conversation Mode from the menu bar or Settings. Press Start to begin a microphone-only live meeting capture.
+Open Conversation Mode from the menu bar, Settings, or the hot menu. Press Start to begin a live meeting capture.
 
-The live view shows paragraph-style captions with speaker labels and timestamps. The MVP uses mock/pluggable speaker labels until a real local diarization provider is installed.
+The live view shows streaming speaker blocks with timestamps. When local diarization is enabled and the Sortformer model is available, OmniVoice separates detected speaker turns locally. When diarization is off or unavailable, recording still works with generic transcript text.
 
-The assist rail may show question, time zone, or follow-up cards. Cards never post into Teams, Zoom, Slack, or chat. Use Copy to place card text on the clipboard, Speak to read it locally, or Sources to copy any source references attached to the card.
+The conversation AI panel runs only when you ask. It sends the current transcript as context and can answer questions, summarize, or extract action items without continuously monitoring the conversation.
 
-## Selection Rewrite
+Saved conversations can be copied, deleted in bulk, archived to disk, opened in the Editor, or attached to Ask AI.
 
-Select text, hold the dictation hotkey, then say a rewrite instruction.
+## Translation
 
-Examples:
+Enable live translation in Settings -> Translate or through the hot menu. Pick a local translation model, choose a target language, and the caption overlay shows the active target above translated captions.
 
-- `make this shorter`
-- `turn this into bullets`
-- `make this more professional`
-- `make this warmer`
-- `reply politely that Tuesday works`
+TranslateGemma-style Hugging Face models may require accepting the model agreement before download. Add a Hugging Face token in Settings -> Models when a model is gated.
+
+## Hot Menu
+
+Hold the hot-menu hotkey to open the radial action menu. Use the mouse or arrow keys to choose actions. Tap the hot-menu hotkey twice quickly to latch it open.
+
+Typical V2 actions:
+
+- Up cycles Conversation, Transcription, and Ask AI modes.
+- Right turns translation on or off.
+- Left cycles quick target languages.
+- Down cycles dictation style.
 
 ## Literal Mode
 

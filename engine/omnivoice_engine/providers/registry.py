@@ -4,6 +4,7 @@ from omnivoice_engine.schemas import ProviderInfo
 
 from .base import ASRProvider, UnavailableASRProvider
 from .fake import FakeASRProvider
+from .parakeet_mlx import ParakeetMLXProvider
 from .parakeet_sherpa import ParakeetSherpaProvider
 
 
@@ -12,10 +13,11 @@ class ProviderRegistry:
         self._providers: dict[str, ASRProvider] = {
             "fake": FakeASRProvider(),
             "parakeet-tdt": ParakeetSherpaProvider(),
+            "parakeet-tdt-mlx": ParakeetMLXProvider(),
             "canary-qwen-2.5b": UnavailableASRProvider(
                 "canary-qwen-2.5b",
                 "Canary-Qwen-2.5B",
-                "Canary-Qwen-2.5B runtime is not installed in this MVP build",
+                "Canary-Qwen-2.5B runtime is not installed in this build",
             ),
         }
 

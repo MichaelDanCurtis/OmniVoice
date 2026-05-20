@@ -6,7 +6,7 @@ APP_NAME="OmniVoiceApp"
 APP_DISPLAY_NAME="OmniVoice"
 BUNDLE_ID="com.omnivoice.OmniVoiceApp"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${OMNIVOICE_APP_VERSION:-0.1.0}"
+APP_VERSION="${OMNIVOICE_APP_VERSION:-2.0.0}"
 APP_BUILD="${OMNIVOICE_APP_BUILD:-1}"
 DMG_VOLUME_NAME="${OMNIVOICE_DMG_VOLUME_NAME:-OmniVoice}"
 
@@ -99,6 +99,22 @@ engine_session_matches_runtime() {
   [[ "$(cat "$ENGINE_APP_PATH_FILE" 2>/dev/null || true)" == "$RUN_APP_BUNDLE" ]]
 }
 
+stop_engine() {
+  if command -v tmux >/dev/null 2>&1; then
+    tmux kill-session -t omnivoice-engine >/dev/null 2>&1 || true
+  fi
+
+  local engine_pid
+  engine_pid="$(cat "$ENGINE_PID_FILE" 2>/dev/null || true)"
+  if [[ "$engine_pid" =~ ^[0-9]+$ ]]; then
+    kill "$engine_pid" >/dev/null 2>&1 || true
+  fi
+
+  pkill -f "$ROOT_DIR/engine/.venv/bin/uvicorn omnivoice_engine.main:app --host 127.0.0.1 --port 8765" >/dev/null 2>&1 || true
+  pkill -f "$ROOT_DIR/scripts/run-engine.sh" >/dev/null 2>&1 || true
+  rm -f "$ENGINE_PID_FILE" "$ENGINE_APP_PATH_FILE"
+}
+
 ensure_local_codesign_identity() {
   mkdir -p "$LOCAL_CODESIGN_DIR"
 
@@ -164,10 +180,10 @@ ensure_engine() {
   mkdir -p "$DIST_DIR"
   if command -v tmux >/dev/null 2>&1; then
     tmux kill-session -t omnivoice-engine >/dev/null 2>&1 || true
-    tmux new-session -d -s omnivoice-engine "cd \"$ROOT_DIR\" && OMNIVOICE_DESKTOP_APP_PATH=\"$RUN_APP_BUNDLE\" OMNIVOICE_MODEL_ROOT=\"${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}\" OMNIVOICE_INSTALL_ASR=\"${OMNIVOICE_INSTALL_ASR:-1}\" scripts/run-engine.sh >>\"$DIST_DIR/engine.log\" 2>&1"
+    tmux new-session -d -s omnivoice-engine "cd \"$ROOT_DIR\" && OMNIVOICE_DESKTOP_APP_PATH=\"$RUN_APP_BUNDLE\" OMNIVOICE_MODEL_ROOT=\"${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}\" OMNIVOICE_INSTALL_ASR=\"${OMNIVOICE_INSTALL_ASR:-1}\" OMNIVOICE_INSTALL_MLX_DIARIZATION=\"${OMNIVOICE_INSTALL_MLX_DIARIZATION:-1}\" OMNIVOICE_INSTALL_MLX_ASR=\"${OMNIVOICE_INSTALL_MLX_ASR:-1}\" scripts/run-engine.sh >>\"$DIST_DIR/engine.log\" 2>&1"
     echo "tmux:omnivoice-engine" >"$ENGINE_PID_FILE"
   else
-    nohup env OMNIVOICE_DESKTOP_APP_PATH="$RUN_APP_BUNDLE" OMNIVOICE_MODEL_ROOT="${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}" OMNIVOICE_INSTALL_ASR="${OMNIVOICE_INSTALL_ASR:-1}" "$ROOT_DIR/scripts/run-engine.sh" >"$DIST_DIR/engine.log" 2>&1 &
+    nohup env OMNIVOICE_DESKTOP_APP_PATH="$RUN_APP_BUNDLE" OMNIVOICE_MODEL_ROOT="${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}" OMNIVOICE_INSTALL_ASR="${OMNIVOICE_INSTALL_ASR:-1}" OMNIVOICE_INSTALL_MLX_DIARIZATION="${OMNIVOICE_INSTALL_MLX_DIARIZATION:-1}" OMNIVOICE_INSTALL_MLX_ASR="${OMNIVOICE_INSTALL_MLX_ASR:-1}" "$ROOT_DIR/scripts/run-engine.sh" >"$DIST_DIR/engine.log" 2>&1 &
     echo "$!" >"$ENGINE_PID_FILE"
   fi
   echo "$RUN_APP_BUNDLE" >"$ENGINE_APP_PATH_FILE"
@@ -360,6 +376,9 @@ install_run_bundle() {
 
 open_app() {
   install_run_bundle
+  if [[ "${OMNIVOICE_RESTART_ENGINE:-1}" != "0" ]]; then
+    stop_engine
+  fi
   ensure_engine
   /usr/bin/open -n "$RUN_APP_BUNDLE"
 }

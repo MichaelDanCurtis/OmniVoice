@@ -87,6 +87,25 @@ public struct EngineStreamingDiagnostics: Codable, Equatable, Sendable {
     }
 }
 
+public struct TranslationStreamConfiguration: Codable, Equatable, Sendable {
+    public let provider: TranslationProviderKind
+    public let sourceLanguage: String
+    public let targetLanguage: String
+    public let modelPath: String
+
+    public init(
+        provider: TranslationProviderKind,
+        sourceLanguage: String,
+        targetLanguage: String,
+        modelPath: String = ""
+    ) {
+        self.provider = provider
+        self.sourceLanguage = sourceLanguage
+        self.targetLanguage = targetLanguage
+        self.modelPath = modelPath
+    }
+}
+
 public final class EngineStreamingClient: @unchecked Sendable {
     private let baseURL: URL
     private let session: URLSession
@@ -121,7 +140,11 @@ public final class EngineStreamingClient: @unchecked Sendable {
         }
     }
 
-    public func connect(provider: ASRProviderKind, sampleRate: Double) {
+    public func connect(
+        provider: ASRProviderKind,
+        sampleRate: Double,
+        translation: TranslationStreamConfiguration? = nil
+    ) {
         queue.async {
             self.task?.cancel(with: .normalClosure, reason: nil)
             let token = self.connectionGate.start()
@@ -143,17 +166,45 @@ public final class EngineStreamingClient: @unchecked Sendable {
                 )
             }
 
-            var components = URLComponents(url: self.baseURL.appending(path: "stream"), resolvingAgainstBaseURL: false)!
-            components.queryItems = [
-                URLQueryItem(name: "provider", value: provider.rawValue),
-                URLQueryItem(name: "sample_rate", value: String(Int(sampleRate.rounded()))),
-            ]
-            let task = self.session.webSocketTask(with: components.url!)
+            let task = self.session.webSocketTask(
+                with: Self.streamURL(
+                    baseURL: self.baseURL,
+                    provider: provider,
+                    sampleRate: sampleRate,
+                    translation: translation
+                )
+            )
             self.task = task
             task.resume()
             self.updateDiagnostics { $0.state = .open }
             self.receiveNext(task: task, token: token)
         }
+    }
+
+    public static func streamURL(
+        baseURL: URL,
+        provider: ASRProviderKind,
+        sampleRate: Double,
+        translation: TranslationStreamConfiguration? = nil
+    ) -> URL {
+        var components = URLComponents(url: baseURL.appending(path: "stream"), resolvingAgainstBaseURL: false)!
+        var queryItems = [
+            URLQueryItem(name: "provider", value: provider.rawValue),
+            URLQueryItem(name: "sample_rate", value: String(Int(sampleRate.rounded()))),
+        ]
+
+        if let translation {
+            queryItems.append(contentsOf: [
+                URLQueryItem(name: "translate", value: "true"),
+                URLQueryItem(name: "translation_provider", value: translation.provider.rawValue),
+                URLQueryItem(name: "source_language", value: translation.sourceLanguage),
+                URLQueryItem(name: "target_language", value: translation.targetLanguage),
+                URLQueryItem(name: "translation_model_path", value: translation.modelPath),
+            ])
+        }
+
+        components.queryItems = queryItems
+        return components.url!
     }
 
     public func sendPCMFloat32(_ data: Data) {

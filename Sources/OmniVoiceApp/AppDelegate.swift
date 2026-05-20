@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let permissionLogger = Logger(subsystem: "com.omnivoice.OmniVoiceApp", category: "Permissions")
     private weak var model: AppModel?
     private let overlay = CaptionOverlayWindow()
+    private let hotMenuOverlay = HotMenuOverlayWindow()
     private let hotkeys = HotkeyController()
     private let audioCapture = AudioCaptureService()
     private let engineClient = EngineClient()
@@ -22,6 +23,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var permissionRefreshTimer: Timer?
     private var lastLoggedMicStatus: AVAuthorizationStatus?
     private var lastLoggedAccessibilityEnabled: Bool?
+    private var hotMenuTriggerState = HotMenuTriggerState()
+    private var dictationTriggerState = DictationTriggerState()
+    private var pendingDictationFinishTask: Task<Void, Never>?
+    var onOpenConversationMode: (() -> Void)?
+    var onOpenEditor: (() -> Void)?
+    var onOpenEditorNotes: (() -> Void)?
+    var onOpenAskAI: (() -> Void)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -113,8 +121,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.show(
             text: text,
             styleName: styleName,
+            translationStatus: model?.preferences.captionTranslationStatus(
+                targetLanguageOptions: model?.translationTargetLanguageOptions ?? []
+            ),
             level: level,
             theme: theme ?? model?.activeTheme ?? .defaultTheme,
+            appearanceMode: model?.preferences.appearanceMode ?? .system,
             anchorFrame: anchorFrame
         )
     }
@@ -152,7 +164,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hotkeys.unregister()
             try hotkeys.register(
                 dictation: preferences.dictationHotkey,
-                style: preferences.styleHotkey
+                style: preferences.styleHotkey,
+                hotMenu: preferences.hotMenuHotkey
             )
         } catch {
             model.statusText = "Hotkey registration failed"
@@ -231,18 +244,245 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         switch event {
         case .dictationPressed:
-            startDictation(model: model)
+            handleDictationPressed(model: model)
         case .dictationReleased:
-            streamingClient.finish()
-            Task { [weak self] in
-                await self?.finishDictation()
-            }
+            handleDictationReleased(model: model)
         case .stylePressed:
             model.cycleStyle()
             showOverlay(text: model.statusText, styleName: model.preferences.style.displayName)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                 self?.hideOverlay()
             }
+        case .hotMenuPressed:
+            showHotMenu(model: model)
+        case .hotMenuReleased:
+            releaseHotMenu(model: model)
+        }
+    }
+
+    private func handleDictationPressed(model: AppModel) {
+        let decision = dictationTriggerState.press(at: Date.timeIntervalSinceReferenceDate)
+        switch decision {
+        case .startMomentary:
+            pendingDictationFinishTask?.cancel()
+            pendingDictationFinishTask = nil
+            startDictation(model: model)
+        case .startLatched:
+            pendingDictationFinishTask?.cancel()
+            pendingDictationFinishTask = nil
+            if model.session.state != .listening {
+                startDictation(model: model)
+            }
+            model.statusText = "Dictation latched"
+            showOverlay(
+                text: model.captionText,
+                styleName: "Dictation latched",
+                level: lastInputLevel,
+                theme: model.activeTheme,
+                anchorFrame: activeOverlayAnchor
+            )
+        case .finishLatched:
+            pendingDictationFinishTask?.cancel()
+            pendingDictationFinishTask = nil
+            finishDictationNow()
+        case .ignore:
+            break
+        }
+    }
+
+    private func handleDictationReleased(model: AppModel) {
+        guard dictationTriggerState.release(at: Date.timeIntervalSinceReferenceDate) else {
+            model.statusText = dictationTriggerState.mode == .latched ? "Dictation latched" : model.statusText
+            return
+        }
+
+        pendingDictationFinishTask?.cancel()
+        pendingDictationFinishTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(DictationTriggerState.doubleTapInterval * 1_000_000_000))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.finishDictationNow()
+            }
+        }
+    }
+
+    private func finishDictationNow() {
+        streamingClient.finish()
+        Task { [weak self] in
+            await self?.finishDictation()
+        }
+    }
+
+    private func showHotMenu(model: AppModel) {
+        guard model.session.state == .idle else { return }
+        guard hotMenuTriggerState.mode != .latched else { return }
+
+        let mode = hotMenuTriggerState.press(at: Date.timeIntervalSinceReferenceDate)
+        let actions = Dictionary(
+            uniqueKeysWithValues: HotMenuDirection.allCases.map { direction in
+                (direction, model.preferences.effectiveHotMenuActions(for: direction))
+            }
+        )
+        let actionLabels = actions.values.flatMap { $0 }.reduce(into: [HotMenuAction: String]()) { labels, action in
+            labels[action] = model.hotMenuActionLabel(action)
+        }
+        hotMenuOverlay.show(
+            center: overlay.preferredHotMenuCenter(),
+            theme: model.activeTheme,
+            actions: actions,
+            actionLabels: actionLabels,
+            mode: mode,
+            onConfirm: { [weak self, weak model] in
+                guard let self, let model else { return }
+                self.finishHotMenu(model: model, clearTriggerState: true)
+            },
+            onCancel: { [weak self, weak model] in
+                guard let self, let model else { return }
+                self.cancelHotMenu(model: model, clearTriggerState: true)
+            }
+        )
+        model.statusText = mode == .latched ? "Hot menu latched" : "Hot menu"
+    }
+
+    private func releaseHotMenu(model: AppModel) {
+        guard hotMenuTriggerState.release(at: Date.timeIntervalSinceReferenceDate) else {
+            if hotMenuTriggerState.mode == .latched {
+                model.statusText = "Hot menu latched"
+            }
+            return
+        }
+
+        finishHotMenu(model: model, clearTriggerState: false)
+    }
+
+    private func finishHotMenu(model: AppModel, clearTriggerState: Bool) {
+        guard let action = hotMenuOverlay.finish(), action != .none else {
+            model.statusText = "Hot menu cancelled"
+            if clearTriggerState {
+                hotMenuTriggerState.finish()
+            }
+            return
+        }
+
+        if clearTriggerState {
+            hotMenuTriggerState.finish()
+        }
+        executeHotMenu(action, model: model)
+    }
+
+    private func cancelHotMenu(model: AppModel, clearTriggerState: Bool) {
+        hotMenuOverlay.cancel()
+        if clearTriggerState {
+            hotMenuTriggerState.finish()
+        }
+        model.statusText = "Hot menu cancelled"
+    }
+
+    private func executeHotMenu(_ action: HotMenuAction, model: AppModel) {
+        switch action {
+        case .none, .selectionRewrite:
+            model.statusText = "Hot menu cancelled"
+        case .openConversation:
+            onOpenConversationMode?()
+            model.statusText = "Conversation mode"
+        case .transcriptionMode:
+            model.editorWorkspaceMode = .notes
+            onOpenEditorNotes?()
+            model.statusText = "Editor notes"
+            showOverlay(
+                text: "Editor Notes opened. Capture notes and draft documents from subject context.",
+                styleName: "Notes",
+                theme: model.activeTheme
+            )
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in
+                self?.hideOverlay()
+            }
+        case .askAI:
+            onOpenAskAI?()
+            model.statusText = "Ask AI mode"
+            showOverlay(
+                text: "Ask AI opened. Add files, subjects, or conversations as context.",
+                styleName: "Ask AI",
+                theme: model.activeTheme
+            )
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in
+                self?.hideOverlay()
+            }
+        case .dictation:
+            model.statusText = "Dictation mode"
+            showOverlay(
+                text: "Hold \(model.preferences.dictationHotkey.displayName) to dictate.",
+                styleName: "Dictation",
+                theme: model.activeTheme
+            )
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in
+                self?.hideOverlay()
+            }
+        case .toggleTranslation:
+            model.setLiveTranslationEnabled(!model.preferences.liveTranslationEnabled)
+            showTranslationStateOverlay(model: model)
+        case .translationOff:
+            model.setLiveTranslationEnabled(false)
+            showTranslationStateOverlay(model: model)
+        case .translationOn:
+            model.setLiveTranslationEnabled(true)
+            showTranslationStateOverlay(model: model)
+        case .cycleTranslationLanguage:
+            model.cycleQuickTranslationTargetLanguage()
+            showOverlay(text: model.statusText, styleName: "Language", theme: model.activeTheme)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+                self?.hideOverlay()
+            }
+        case .translationQuickTarget1, .translationQuickTarget2, .translationQuickTarget3, .translationQuickTarget4:
+            if let slot = action.quickTranslationTargetSlot {
+                model.selectQuickTranslationTargetLanguage(slot: slot)
+            }
+            showOverlay(text: model.statusText, styleName: "Language", theme: model.activeTheme)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+                self?.hideOverlay()
+            }
+        case .cycleStyle:
+            model.cycleStyle()
+            showOverlay(text: model.statusText, styleName: model.preferences.style.displayName, theme: model.activeTheme)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+                self?.hideOverlay()
+            }
+        case .styleNeutral, .styleProfessional, .styleConcise, .styleExpanded, .styleRaw:
+            if let style = action.styleProfile {
+                model.setStyle(style)
+            }
+            showOverlay(text: model.statusText, styleName: model.preferences.style.displayName, theme: model.activeTheme)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+                self?.hideOverlay()
+            }
+        case .cycleASRProvider:
+            model.cycleASRProvider()
+            showOverlay(text: model.statusText, styleName: "Model", theme: model.activeTheme)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+                self?.hideOverlay()
+            }
+        case .openDashboard:
+            NSWorkspace.shared.open(URL(string: "http://127.0.0.1:8765/")!)
+            model.statusText = "Dashboard opened"
+        }
+    }
+
+    private func showTranslationStateOverlay(model: AppModel) {
+        let target = model.translationLanguageLabel(
+            for: model.preferences.translationTargetLanguage,
+            in: model.translationTargetLanguageOptions
+        )
+        showOverlay(
+            text: model.preferences.liveTranslationEnabled ? "Translating to \(target)" : "Translation off",
+            styleName: "Translation",
+            theme: model.activeTheme
+        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+            self?.hideOverlay()
         }
     }
 
@@ -294,16 +534,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let sampleRate = audioCapture.inputSampleRate(deviceUID: model.preferences.microphoneID)
             streamingClient.connect(
                 provider: model.preferences.asrProvider,
-                sampleRate: sampleRate
+                sampleRate: sampleRate,
+                translation: streamingTranslationConfiguration(for: model)
             )
             _ = try audioCapture.start(deviceUID: model.preferences.microphoneID)
         } catch {
             model.session.fail("Microphone failed: \(error.localizedDescription)")
             model.statusText = "Microphone failed"
+            dictationTriggerState.cancel()
+            pendingDictationFinishTask?.cancel()
+            pendingDictationFinishTask = nil
             streamingClient.cancel()
             cancelLiveDraftIfNeeded()
             hideOverlay()
         }
+    }
+
+    private func streamingTranslationConfiguration(for model: AppModel) -> TranslationStreamConfiguration? {
+        guard model.preferences.liveTranslationEnabled else {
+            return nil
+        }
+        return TranslationStreamConfiguration(
+            provider: model.preferences.translationProvider,
+            sourceLanguage: model.preferences.translationSourceLanguage,
+            targetLanguage: model.preferences.translationTargetLanguage,
+            modelPath: model.effectiveTranslationModelPath()
+        )
     }
 
     private func finishDictation() async {
@@ -313,6 +569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         defer {
             insertionTarget = nil
+            pendingDictationFinishTask = nil
         }
 
         let audio: Data
@@ -388,22 +645,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        model.session.finishCleanup(finalText)
-
         if let command = DictationCommandParser.parse(finalText) {
             cancelLiveDraftIfNeeded()
             await handle(command: command, model: model)
             return
         }
 
-        if let selectedText = insertionTarget?.selectedText,
-           !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           let rewritten = SelectionRewrite.rewrite(selectedText: selectedText, instruction: finalText) {
-            await insertFinalText(rewritten, model: model, successStatus: "Selection rewritten")
-            return
+        let insertionText = await translatedTextIfNeeded(finalText, model: model)
+        model.session.finishCleanup(insertionText)
+        await insertFinalText(insertionText, model: model, successStatus: model.preferences.liveTranslationEnabled ? "Translated text inserted" : "Inserted")
+    }
+
+    private func translatedTextIfNeeded(_ text: String, model: AppModel) async -> String {
+        guard model.preferences.liveTranslationEnabled else {
+            return text
         }
 
-        await insertFinalText(finalText, model: model, successStatus: "Inserted")
+        model.statusText = "Translating"
+        showOverlay(text: "Translating...", styleName: "Translation", level: 0, anchorFrame: activeOverlayAnchor)
+
+        do {
+            let result = try await engineClient.translate(
+                TranslationRequest(
+                    text: text,
+                    provider: model.preferences.translationProvider,
+                    sourceLanguage: model.preferences.translationSourceLanguage,
+                    targetLanguage: model.preferences.translationTargetLanguage,
+                    context: [text],
+                    modelPath: model.effectiveTranslationModelPath()
+                )
+            )
+            let translated = TextInsertionEdit.sanitizedInsertionText(result.text)
+            guard !translated.isEmpty else {
+                model.statusText = "Translation returned empty text"
+                return text
+            }
+
+            model.captionText = translated
+            showOverlay(text: translated, styleName: "Translation", anchorFrame: activeOverlayAnchor)
+            model.statusText = "Translation ready"
+            return translated
+        } catch {
+            model.statusText = "Translation unavailable; inserting source"
+            showOverlay(text: text, styleName: "Translation unavailable", anchorFrame: activeOverlayAnchor)
+            return text
+        }
     }
 
     private func insertFinalText(_ finalText: String, model: AppModel, successStatus: String) async {
@@ -468,13 +754,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleAIHandoff(target: AIHandoffTarget, prompt: String, model: AppModel) async {
-        let baseURL = model.preferences.openAICompatibleBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let aiModel = model.preferences.openAICompatibleModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !baseURL.isEmpty, !aiModel.isEmpty else {
-            model.session.fail("AI endpoint and model are required")
-            model.statusText = "AI endpoint required"
+        let configuration = model.preferences.textLLMConfiguration(for: target)
+        guard configuration.isConfigured else {
+            let providerName = configuration.provider.displayName
+            model.session.fail("\(providerName) is not configured")
+            model.statusText = "\(providerName) not configured"
             showOverlay(
-                text: "Add an OpenAI-compatible endpoint and model in Integrations.",
+                text: "Configure \(providerName) in AI settings.",
                 styleName: "AI handoff",
                 anchorFrame: activeOverlayAnchor
             )
@@ -489,10 +775,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let result = try await engineClient.aiHandoff(
                 AIHandoffRequest(
                     prompt: prompt,
-                    provider: target.rawValue,
-                    baseURL: baseURL,
-                    model: aiModel,
-                    apiKey: model.preferences.openAICompatibleAPIKey,
+                    provider: configuration.provider.rawValue,
+                    baseURL: configuration.resolvedBaseURL,
+                    model: configuration.trimmedModel,
+                    apiKey: configuration.trimmedAPIKey,
+                    transport: configuration.transport,
+                    oauthAccessToken: configuration.trimmedOAuthAccessToken,
+                    headers: configuration.resolvedHeaders,
                     context: context
                 )
             )

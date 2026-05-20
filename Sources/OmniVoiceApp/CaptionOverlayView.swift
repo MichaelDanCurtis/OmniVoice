@@ -31,31 +31,39 @@ enum CaptionOverlayPhase: Equatable {
 struct CaptionOverlayView: View {
     let text: String
     let styleName: String
+    let translationStatus: String?
     let level: Float
     let theme: OmniVoiceTheme
+    let appearanceMode: AppAppearanceMode
     let phase: CaptionOverlayPhase
 
     @State private var commitStarted = false
+    @Environment(\.colorScheme) private var colorScheme
 
     init(
         text: String,
         styleName: String,
+        translationStatus: String? = nil,
         level: Float,
         theme: OmniVoiceTheme,
+        appearanceMode: AppAppearanceMode = .system,
         phase: CaptionOverlayPhase = .live
     ) {
         self.text = text
         self.styleName = styleName
+        self.translationStatus = translationStatus
         self.level = level
         self.theme = theme
+        self.appearanceMode = appearanceMode
         self.phase = phase
     }
 
     var body: some View {
         let accent = Color(themeColor: theme.accentColor)
         let secondary = Color(themeColor: theme.secondaryAccentColor)
-        let textColor = Color.white
-        let mutedTextColor = Color.white
+        let tint = Color(themeColor: theme.surfaceTint)
+        let textColor = captionTextColor
+        let mutedTextColor = captionTextColor
 
         ZStack {
             if let mode = phase.mode, mode != .none {
@@ -63,16 +71,35 @@ struct CaptionOverlayView: View {
             }
 
             VStack(spacing: 7) {
+                if let translationStatus {
+                    Text(translationStatus)
+                        .font(.system(size: 10.5, weight: .bold))
+                        .foregroundStyle(accent.opacity(0.96))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.76)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .overlay {
+                            Capsule()
+                                .stroke(accent.opacity(0.24), lineWidth: 1)
+                        }
+                        .shadow(color: captionTextShadowColor.opacity(0.42), radius: 6, x: 0, y: 2)
+                        .opacity(commitStarted ? 0 : 1)
+                }
+
                 Text(text.isEmpty ? "Listening..." : text)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(textColor.opacity(0.90))
+                    .foregroundStyle(textColor)
+                    .shadow(color: captionTextShadowColor, radius: 5, x: 0, y: 1)
+                    .shadow(color: captionTextShadowColor.opacity(0.55), radius: 12, x: 0, y: 3)
                     .lineLimit(CaptionOverlayLayout.captionLineLimit)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.center)
                     .frame(width: CaptionOverlayLayout.captionWidth)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .captionGlassSurface(accent: accent)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 14)
+                    .captionGlassSurface(accent: accent, secondary: secondary, tint: tint)
                     .scaleEffect(x: captionScale.width, y: captionScale.height)
                     .opacity(captionOpacity)
                     .blur(radius: commitStarted ? captionBlurRadius : 0)
@@ -90,11 +117,11 @@ struct CaptionOverlayView: View {
 
                 Text(styleName)
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(mutedTextColor.opacity(commitStarted ? 0 : 0.50))
+                    .foregroundStyle(mutedTextColor.opacity(commitStarted ? 0 : theme.mutedTextOpacity))
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
+        .padding(.horizontal, CaptionOverlayLayout.haloBleedPaddingHorizontal)
+        .padding(.vertical, CaptionOverlayLayout.haloBleedPaddingVertical)
         .frame(
             minWidth: CaptionOverlayLayout.windowMinWidth,
             maxWidth: CaptionOverlayLayout.windowMaxWidth
@@ -169,6 +196,36 @@ struct CaptionOverlayView: View {
             return 28
         case .none:
             return 0
+        }
+    }
+
+    private var effectiveColorScheme: ColorScheme {
+        appearanceMode.colorScheme ?? colorScheme
+    }
+
+    private var captionTextColor: Color {
+        if theme.contrastMode == .highContrast {
+            return Color(themeColor: theme.textColor).opacity(0.96)
+        }
+
+        switch effectiveColorScheme {
+        case .dark:
+            return Color.white.opacity(0.94)
+        case .light:
+            return Color.black.opacity(0.88)
+        @unknown default:
+            return Color(themeColor: theme.textColor).opacity(0.92)
+        }
+    }
+
+    private var captionTextShadowColor: Color {
+        switch effectiveColorScheme {
+        case .dark:
+            Color.black.opacity(0.45)
+        case .light:
+            Color.white.opacity(0.62)
+        @unknown default:
+            Color.black.opacity(0.34)
         }
     }
 }
@@ -255,24 +312,32 @@ private struct CommitTrail: View {
 
 private struct CaptionGlassSurface: ViewModifier {
     let accent: Color
+    let secondary: Color
+    let tint: Color
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
-
         content
-            .background(.ultraThinMaterial, in: shape)
-            .background(Color.black.opacity(0.10), in: shape)
-            .overlay {
-                shape.stroke(accent.opacity(0.20), lineWidth: 1)
-            }
-            .shadow(color: accent.opacity(0.12), radius: 12, x: 0, y: 5)
-            .shadow(color: .black.opacity(0.18), radius: 18, x: 0, y: 8)
+            .whisperBlobSurface(
+                accent: accent,
+                secondary: secondary,
+                tint: tint,
+                fillOpacity: 0.018,
+                materialOpacity: 0.78,
+                edgeOpacity: 0.13,
+                highlightOpacity: 0.24,
+                depthOpacity: 0.08,
+                innerRimOpacity: 0.24,
+                glowOpacity: 0.18,
+                shadowOpacity: 0.05,
+                edgeBlurRadius: 24,
+                edgeBleed: 30
+            )
     }
 }
 
 private extension View {
-    func captionGlassSurface(accent: Color) -> some View {
-        modifier(CaptionGlassSurface(accent: accent))
+    func captionGlassSurface(accent: Color, secondary: Color, tint: Color) -> some View {
+        modifier(CaptionGlassSurface(accent: accent, secondary: secondary, tint: tint))
     }
 }
 

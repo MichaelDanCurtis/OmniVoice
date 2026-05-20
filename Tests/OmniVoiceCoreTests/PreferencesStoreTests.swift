@@ -11,6 +11,15 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertNil(preferences.microphoneID)
         XCTAssertEqual(preferences.dictationHotkey, .defaultDictation)
         XCTAssertEqual(preferences.styleHotkey, .defaultStyle)
+        XCTAssertEqual(preferences.hotMenuHotkey, .defaultHotMenu)
+        XCTAssertEqual(preferences.hotMenuActions(for: .up), [.openConversation, .transcriptionMode, .askAI])
+        XCTAssertEqual(preferences.hotMenuActions(for: .left), [.cycleTranslationLanguage])
+        XCTAssertEqual(preferences.hotMenuActions(for: .right), [.toggleTranslation])
+        XCTAssertEqual(preferences.hotMenuActions(for: .down), [.cycleStyle])
+        XCTAssertEqual(preferences.hotMenuUpAction, .openConversation)
+        XCTAssertEqual(preferences.hotMenuLeftAction, .cycleTranslationLanguage)
+        XCTAssertEqual(preferences.hotMenuRightAction, .toggleTranslation)
+        XCTAssertEqual(preferences.hotMenuDownAction, .cycleStyle)
     }
 
     func testDefaultsIncludeV2ThemeSettings() {
@@ -30,13 +39,36 @@ final class PreferencesStoreTests: XCTestCase {
 
         XCTAssertEqual(preferences.customSpeechModelPath, "")
         XCTAssertEqual(preferences.customTranslationModelPath, "")
+        XCTAssertEqual(preferences.translationProvider, .translateGemmaMLX)
+        XCTAssertEqual(preferences.translationModelProviderID, TranslationModelRecommendation.defaultProviderID)
+        XCTAssertEqual(preferences.conversationDiarizationProvider, "none")
+        XCTAssertEqual(preferences.conversationDiarizationPrecision, .fp16)
+        XCTAssertFalse(preferences.liveConversationDiarizationEnabled)
         XCTAssertFalse(preferences.liveTranslationEnabled)
-        XCTAssertEqual(preferences.translationSourceLanguage, "auto")
-        XCTAssertEqual(preferences.translationTargetLanguage, "en")
+        XCTAssertEqual(preferences.translationSourceLanguage, "en")
+        XCTAssertEqual(preferences.translationTargetLanguage, "es")
+        XCTAssertEqual(preferences.translationQuickTargetLanguages, ["zh", "fr", "en"])
         XCTAssertEqual(preferences.openAICompatibleBaseURL, "")
         XCTAssertEqual(preferences.openAICompatibleModel, "")
         XCTAssertEqual(preferences.openAICompatibleAPIKey, "")
+        XCTAssertEqual(preferences.textLLMDefaultProvider, .custom)
+        XCTAssertEqual(preferences.textLLMProviders.map(\.provider), TextLLMProviderKind.allCases)
+        XCTAssertEqual(preferences.textLLMConfiguration(for: TextLLMProviderKind.claude).transport, .anthropic)
+        XCTAssertFalse(preferences.textLLMConfiguration(for: TextLLMProviderKind.claude).enabled)
+        XCTAssertFalse(preferences.textLLMConfiguration(for: TextLLMProviderKind.openAI).isConfigured)
+        XCTAssertEqual(preferences.mcpServers, [])
         XCTAssertFalse(preferences.liveDraftInsertionEnabled)
+        XCTAssertEqual(preferences.conversationArchiveFolderPath, ConversationArchive.defaultRootURL().path)
+        XCTAssertTrue(preferences.automaticallyArchiveConversations)
+        XCTAssertEqual(preferences.hotMenuHotkey, .defaultHotMenu)
+        XCTAssertEqual(preferences.hotMenuActions(for: .up), [.openConversation, .transcriptionMode, .askAI])
+        XCTAssertEqual(preferences.hotMenuActions(for: .left), [.cycleTranslationLanguage])
+        XCTAssertEqual(preferences.hotMenuActions(for: .right), [.toggleTranslation])
+        XCTAssertEqual(preferences.hotMenuActions(for: .down), [.cycleStyle])
+        XCTAssertEqual(preferences.hotMenuUpAction, .openConversation)
+        XCTAssertEqual(preferences.hotMenuLeftAction, .cycleTranslationLanguage)
+        XCTAssertEqual(preferences.hotMenuRightAction, .toggleTranslation)
+        XCTAssertEqual(preferences.hotMenuDownAction, .cycleStyle)
     }
 
     func testOldPreferencesDecodeWithThemeDefaults() throws {
@@ -60,11 +92,17 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.engineFrameHandlePosition, 0.5)
         XCTAssertEqual(preferences.customSpeechModelPath, "")
         XCTAssertEqual(preferences.customTranslationModelPath, "")
+        XCTAssertEqual(preferences.translationProvider, .translateGemmaMLX)
         XCTAssertFalse(preferences.liveTranslationEnabled)
-        XCTAssertEqual(preferences.translationSourceLanguage, "auto")
-        XCTAssertEqual(preferences.translationTargetLanguage, "en")
+        XCTAssertFalse(preferences.liveConversationDiarizationEnabled)
+        XCTAssertEqual(preferences.conversationDiarizationPrecision, .fp16)
+        XCTAssertEqual(preferences.translationSourceLanguage, "en")
+        XCTAssertEqual(preferences.translationTargetLanguage, "es")
+        XCTAssertEqual(preferences.translationQuickTargetLanguages, ["zh", "fr", "en"])
         XCTAssertEqual(preferences.openAICompatibleAPIKey, "")
         XCTAssertFalse(preferences.liveDraftInsertionEnabled)
+        XCTAssertEqual(preferences.conversationArchiveFolderPath, ConversationArchive.defaultRootURL().path)
+        XCTAssertTrue(preferences.automaticallyArchiveConversations)
     }
 
     func testPreferencesEncodingUsesExplicitSnakeCaseThemeKeys() throws {
@@ -80,13 +118,305 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertNotNil(object["engine_frame_handle_position"])
         XCTAssertNotNil(object["custom_speech_model_path"])
         XCTAssertNotNil(object["custom_translation_model_path"])
+        XCTAssertNotNil(object["translation_provider"])
+        XCTAssertNotNil(object["translation_model_provider_id"])
+        XCTAssertNotNil(object["conversation_diarization_provider"])
+        XCTAssertNotNil(object["conversation_diarization_precision"])
+        XCTAssertNotNil(object["live_conversation_diarization_enabled"])
         XCTAssertNotNil(object["live_translation_enabled"])
         XCTAssertNotNil(object["translation_source_language"])
         XCTAssertNotNil(object["translation_target_language"])
+        XCTAssertNotNil(object["translation_quick_target_languages"])
         XCTAssertNotNil(object["open_ai_compatible_base_url"])
         XCTAssertNotNil(object["open_ai_compatible_model"])
         XCTAssertNotNil(object["open_ai_compatible_api_key"])
+        XCTAssertNotNil(object["text_llm_default_provider"])
+        XCTAssertNotNil(object["text_llm_providers"])
+        XCTAssertNotNil(object["mcp_servers"])
         XCTAssertNotNil(object["live_draft_insertion_enabled"])
+        XCTAssertNotNil(object["conversation_archive_folder_path"])
+        XCTAssertNotNil(object["automatically_archive_conversations"])
+        XCTAssertNotNil(object["hot_menu_hotkey"])
+        XCTAssertNotNil(object["hot_menu_up_actions"])
+        XCTAssertNotNil(object["hot_menu_left_actions"])
+        XCTAssertNotNil(object["hot_menu_right_actions"])
+        XCTAssertNotNil(object["hot_menu_down_actions"])
+    }
+
+    func testLegacyDiarizationPrecisionFallsBackFromProvider() throws {
+        let json = """
+        {
+          "asr_provider": "parakeet-tdt",
+          "style": "neutral",
+          "dictionary_terms": [],
+          "microphone_id": null,
+          "dictation_hotkey": { "key_code": 49, "modifiers": 2304 },
+          "style_hotkey": { "key_code": 1, "modifiers": 2304 },
+          "conversation_diarization_provider": "mlx-sortformer-streaming-fp32"
+        }
+        """.data(using: .utf8)!
+
+        let preferences = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: json)
+
+        XCTAssertEqual(preferences.conversationDiarizationProvider, "mlx-sortformer-streaming-fp32")
+        XCTAssertEqual(preferences.conversationDiarizationPrecision, .fp32)
+    }
+
+    func testLegacyOpenAICompatibleSettingsHydrateCustomTextLLMProvider() throws {
+        let json = """
+        {
+          "asr_provider": "parakeet-tdt",
+          "style": "neutral",
+          "dictionary_terms": [],
+          "microphone_id": null,
+          "dictation_hotkey": { "key_code": 49, "modifiers": 2304 },
+          "style_hotkey": { "key_code": 1, "modifiers": 2304 },
+          "open_ai_compatible_base_url": "http://127.0.0.1:11434/v1",
+          "open_ai_compatible_model": "local-qwen",
+          "open_ai_compatible_api_key": "local-key"
+        }
+        """.data(using: .utf8)!
+
+        let preferences = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: json)
+        let custom = preferences.textLLMConfiguration(for: TextLLMProviderKind.custom)
+
+        XCTAssertEqual(custom.baseURL, "http://127.0.0.1:11434/v1")
+        XCTAssertEqual(custom.model, "local-qwen")
+        XCTAssertEqual(custom.apiKey, "local-key")
+        XCTAssertTrue(custom.enabled)
+        XCTAssertTrue(custom.isConfigured)
+    }
+
+    func testMCPServersRoundTripThroughPreferences() throws {
+        var preferences = OmniVoicePreferences.defaults
+        let serverID = UUID(uuidString: "00000000-0000-0000-0000-000000000123")!
+        let variableID = UUID(uuidString: "00000000-0000-0000-0000-000000000456")!
+
+        preferences.setMCPServer(
+            MCPServerConfiguration(
+                id: serverID,
+                name: "  Obsidian  ",
+                command: "  npx  ",
+                arguments: "-y obsidian-mcp",
+                environment: [
+                    MCPEnvironmentVariable(id: variableID, name: "  OBSIDIAN_PATH  ", value: "  ~/Documents/Vault  ")
+                ],
+                enabled: true
+            )
+        )
+
+        let data = try EngineCoding.encoder.encode(preferences)
+        let decoded = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: data)
+
+        XCTAssertEqual(decoded.mcpServers.count, 1)
+        XCTAssertEqual(decoded.mcpServers[0].id, serverID)
+        XCTAssertEqual(decoded.mcpServers[0].name, "Obsidian")
+        XCTAssertEqual(decoded.mcpServers[0].command, "npx")
+        XCTAssertEqual(decoded.mcpServers[0].environment[0].name, "OBSIDIAN_PATH")
+        XCTAssertEqual(decoded.mcpServers[0].environment[0].value, "~/Documents/Vault")
+    }
+
+    func testLegacySingleHotMenuActionsDecodeIntoActionCycles() throws {
+        let json = """
+        {
+          "asr_provider": "parakeet-tdt",
+          "style": "neutral",
+          "dictionary_terms": [],
+          "microphone_id": null,
+          "dictation_hotkey": { "key_code": 49, "modifiers": 2304 },
+          "style_hotkey": { "key_code": 1, "modifiers": 2304 },
+          "hot_menu_hotkey": { "key_code": 123, "modifiers": 2304 },
+          "hot_menu_up_action": "open_dashboard",
+          "hot_menu_left_action": "cycle_asr_provider",
+          "hot_menu_right_action": "dictation",
+          "hot_menu_down_action": "cycle_style"
+        }
+        """.data(using: .utf8)!
+
+        let preferences = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: json)
+
+        XCTAssertEqual(preferences.hotMenuActions(for: .up), [.openDashboard])
+        XCTAssertEqual(preferences.hotMenuActions(for: .left), [.cycleASRProvider])
+        XCTAssertEqual(preferences.hotMenuActions(for: .right), [.dictation])
+        XCTAssertEqual(preferences.hotMenuActions(for: .down), [.cycleStyle])
+    }
+
+    func testLegacyDefaultHotMenuActionDecodesIntoCurrentDefaultCycle() throws {
+        let json = """
+        {
+          "asr_provider": "parakeet-tdt",
+          "style": "neutral",
+          "dictionary_terms": [],
+          "microphone_id": null,
+          "dictation_hotkey": { "key_code": 49, "modifiers": 2304 },
+          "style_hotkey": { "key_code": 1, "modifiers": 2304 },
+          "hot_menu_up_action": "open_conversation"
+        }
+        """.data(using: .utf8)!
+
+        let preferences = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: json)
+
+        XCTAssertEqual(preferences.hotMenuActions(for: .up), HotMenuAction.defaultActions(for: .up))
+    }
+
+    func testSavedLegacyHotMenuDefaultLayoutMigratesToTranslationDefaults() throws {
+        let json = """
+        {
+          "asr_provider": "parakeet-tdt",
+          "style": "neutral",
+          "dictionary_terms": [],
+          "microphone_id": null,
+          "dictation_hotkey": { "key_code": 49, "modifiers": 2304 },
+          "style_hotkey": { "key_code": 1, "modifiers": 2304 },
+          "hot_menu_up_actions": ["open_conversation", "dictation", "selection_rewrite"],
+          "hot_menu_left_actions": ["selection_rewrite"],
+          "hot_menu_right_actions": ["dictation"],
+          "hot_menu_down_actions": ["cycle_style"]
+        }
+        """.data(using: .utf8)!
+
+        let preferences = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: json)
+
+        XCTAssertEqual(preferences.hotMenuActions(for: .up), [.openConversation, .transcriptionMode, .askAI])
+        XCTAssertEqual(preferences.hotMenuActions(for: .left), [.cycleTranslationLanguage])
+        XCTAssertEqual(preferences.hotMenuActions(for: .right), [.toggleTranslation])
+        XCTAssertEqual(preferences.hotMenuActions(for: .down), [.cycleStyle])
+    }
+
+    func testSavedPaddedLegacyHotMenuDefaultLayoutMigratesToTranslationDefaults() throws {
+        let json = """
+        {
+          "asr_provider": "parakeet-tdt",
+          "style": "neutral",
+          "dictionary_terms": [],
+          "microphone_id": null,
+          "dictation_hotkey": { "key_code": 49, "modifiers": 2304 },
+          "style_hotkey": { "key_code": 1, "modifiers": 2304 },
+          "hot_menu_up_actions": ["open_conversation", "dictation", "selection_rewrite", "none"],
+          "hot_menu_left_actions": ["selection_rewrite"],
+          "hot_menu_right_actions": ["dictation"],
+          "hot_menu_down_actions": ["cycle_style"]
+        }
+        """.data(using: .utf8)!
+
+        let preferences = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: json)
+
+        XCTAssertEqual(preferences.hotMenuActions(for: .up), [.openConversation, .transcriptionMode, .askAI])
+        XCTAssertEqual(preferences.hotMenuActions(for: .left), [.cycleTranslationLanguage])
+        XCTAssertEqual(preferences.hotMenuActions(for: .right), [.toggleTranslation])
+        XCTAssertEqual(preferences.hotMenuActions(for: .down), [.cycleStyle])
+    }
+
+    func testSavedTranslationHotMenuDefaultLayoutMigratesToAskAIDefaults() throws {
+        let json = """
+        {
+          "asr_provider": "parakeet-tdt",
+          "style": "neutral",
+          "dictionary_terms": [],
+          "microphone_id": null,
+          "dictation_hotkey": { "key_code": 49, "modifiers": 2304 },
+          "style_hotkey": { "key_code": 1, "modifiers": 2304 },
+          "hot_menu_up_actions": ["open_conversation", "transcription_mode"],
+          "hot_menu_left_actions": ["cycle_translation_language"],
+          "hot_menu_right_actions": ["toggle_translation"],
+          "hot_menu_down_actions": ["cycle_style"]
+        }
+        """.data(using: .utf8)!
+
+        let preferences = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: json)
+
+        XCTAssertEqual(preferences.hotMenuActions(for: .up), [.openConversation, .transcriptionMode, .askAI])
+        XCTAssertEqual(preferences.hotMenuActions(for: .left), [.cycleTranslationLanguage])
+        XCTAssertEqual(preferences.hotMenuActions(for: .right), [.toggleTranslation])
+        XCTAssertEqual(preferences.hotMenuActions(for: .down), [.cycleStyle])
+    }
+
+    func testEffectiveHotMenuLanguagePickerExpandsQuickLanguages() {
+        var preferences = OmniVoicePreferences.defaults
+        preferences.translationQuickTargetLanguages = ["fr", "zh", "es"]
+
+        XCTAssertEqual(
+            preferences.effectiveHotMenuActions(for: .left),
+            [.translationQuickTarget3, .translationQuickTarget1, .translationQuickTarget2]
+        )
+
+        preferences.translationTargetLanguage = "zh"
+
+        XCTAssertEqual(
+            preferences.effectiveHotMenuActions(for: .left),
+            [.translationQuickTarget2, .translationQuickTarget3, .translationQuickTarget1]
+        )
+    }
+
+    func testEffectiveHotMenuActionsExpandStatefulCategoriesFromCurrentState() {
+        var preferences = OmniVoicePreferences.defaults
+        preferences.liveTranslationEnabled = false
+        preferences.style = .professional
+
+        XCTAssertEqual(preferences.effectiveHotMenuActions(for: .right), [.translationOff, .translationOn])
+        XCTAssertEqual(
+            preferences.effectiveHotMenuActions(for: .down),
+            [.styleProfessional, .styleConcise, .styleExpanded, .styleRaw, .styleNeutral]
+        )
+
+        preferences.liveTranslationEnabled = true
+        preferences.style = .raw
+
+        XCTAssertEqual(preferences.effectiveHotMenuActions(for: .right), [.translationOn, .translationOff])
+        XCTAssertEqual(
+            preferences.effectiveHotMenuActions(for: .down),
+            [.styleRaw, .styleNeutral, .styleProfessional, .styleConcise, .styleExpanded]
+        )
+    }
+
+    func testEffectiveHotMenuActionsHideNoActionSlots() {
+        var preferences = OmniVoicePreferences.defaults
+        preferences.setHotMenuActions([.openConversation, .transcriptionMode, .none, .none], for: .up)
+
+        XCTAssertEqual(preferences.effectiveHotMenuActions(for: .up), [.openConversation, .transcriptionMode])
+    }
+
+    func testEffectiveHotMenuActionsHideLegacyEditAction() {
+        var preferences = OmniVoicePreferences.defaults
+        preferences.setHotMenuActions([.selectionRewrite, .cycleASRProvider], for: .left)
+        preferences.setHotMenuActions([.selectionRewrite], for: .right)
+
+        XCTAssertEqual(preferences.effectiveHotMenuActions(for: .left), [.cycleASRProvider])
+        XCTAssertEqual(preferences.effectiveHotMenuActions(for: .right), [])
+    }
+
+    func testHotMenuStatusLabelsUseCurrentPreferenceState() {
+        var preferences = OmniVoicePreferences.defaults
+        preferences.style = .professional
+        preferences.liveTranslationEnabled = true
+        preferences.translationQuickTargetLanguages = ["fr", "zh", "es"]
+
+        let languageOptions = [
+            TranslationLanguageOption(code: "fr", name: "French"),
+            TranslationLanguageOption(code: "zh", name: "Chinese"),
+            TranslationLanguageOption(code: "es", name: "Spanish"),
+        ]
+
+        XCTAssertEqual(preferences.hotMenuStatusLabel(for: .translationQuickTarget1, targetLanguageOptions: languageOptions), "French")
+        XCTAssertEqual(preferences.hotMenuStatusLabel(for: .translationQuickTarget2, targetLanguageOptions: languageOptions), "Chinese")
+        XCTAssertEqual(preferences.hotMenuStatusLabel(for: .translationOn, targetLanguageOptions: languageOptions), "Translation On")
+        XCTAssertEqual(preferences.hotMenuStatusLabel(for: .translationOff, targetLanguageOptions: languageOptions), "Translation Off")
+        XCTAssertEqual(preferences.hotMenuStatusLabel(for: .styleProfessional, targetLanguageOptions: languageOptions), "Professional")
+        XCTAssertEqual(preferences.hotMenuStatusLabel(for: .openConversation, targetLanguageOptions: languageOptions), "Conversation")
+    }
+
+    func testCaptionTranslationStatusOnlyAppearsWhenLiveTranslationIsEnabled() {
+        var preferences = OmniVoicePreferences.defaults
+        preferences.translationTargetLanguage = "es"
+        let languageOptions = [
+            TranslationLanguageOption(code: "es", name: "Spanish"),
+        ]
+
+        XCTAssertNil(preferences.captionTranslationStatus(targetLanguageOptions: languageOptions))
+
+        preferences.liveTranslationEnabled = true
+
+        XCTAssertEqual(preferences.captionTranslationStatus(targetLanguageOptions: languageOptions), "Translation On: Spanish")
     }
 
     func testStyleCycleUpdatesPreference() {
@@ -99,6 +429,10 @@ final class PreferencesStoreTests: XCTestCase {
 
     func testProviderCycleUpdatesPreference() {
         var preferences = OmniVoicePreferences.defaults
+
+        preferences.cycleASRProvider()
+
+        XCTAssertEqual(preferences.asrProvider, .parakeetTDTMLX)
 
         preferences.cycleASRProvider()
 
@@ -118,6 +452,11 @@ final class PreferencesStoreTests: XCTestCase {
             microphoneID: "BuiltInMicrophoneDevice",
             dictationHotkey: HotkeyBinding(keyCode: 12, modifiers: 2_304),
             styleHotkey: HotkeyBinding(keyCode: 13, modifiers: 2_304),
+            hotMenuHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(command: true, option: true, control: true)),
+            hotMenuUpActions: [.openDashboard, .dictation],
+            hotMenuLeftActions: [.toggleTranslation, .cycleASRProvider],
+            hotMenuRightActions: [.dictation, .openConversation],
+            hotMenuDownActions: [.cycleASRProvider, .cycleStyle],
             themeID: .neonLime,
             customAccentColor: ThemeColor(hex: "#00A3FF"),
             appearanceMode: .dark,
@@ -127,13 +466,19 @@ final class PreferencesStoreTests: XCTestCase {
             engineFrameHandlePosition: 0.72,
             customSpeechModelPath: "/models/custom-stt",
             customTranslationModelPath: "/models/custom-translation",
+            translationProvider: .nllbDistilled600M,
+            conversationDiarizationProvider: "mlx-sortformer-streaming-fp32",
+            conversationDiarizationPrecision: .fp32,
             liveTranslationEnabled: true,
             translationSourceLanguage: "es",
             translationTargetLanguage: "en",
+            translationQuickTargetLanguages: ["sv", "fr", "zh", "en"],
             openAICompatibleBaseURL: "http://127.0.0.1:11434/v1",
             openAICompatibleModel: "local-qwen",
             openAICompatibleAPIKey: "test-key",
-            liveDraftInsertionEnabled: true
+            liveDraftInsertionEnabled: true,
+            conversationArchiveFolderPath: "/Users/tester/Documents/OmniVoice",
+            automaticallyArchiveConversations: false
         )
 
         try store.save(preferences)
@@ -153,7 +498,8 @@ final class PreferencesStoreTests: XCTestCase {
             dictionaryTerms: [],
             microphoneID: "USBMicDevice",
             dictationHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(option: true, control: true)),
-            styleHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(control: true, shift: true))
+            styleHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(control: true, shift: true)),
+            hotMenuHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(command: true, option: true))
         )
 
         try store.save(preferences)

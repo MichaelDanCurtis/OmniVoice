@@ -6,6 +6,9 @@ struct HotkeyRecorderView: View {
     let title: String
     let binding: HotkeyBinding
     let theme: OmniVoiceTheme
+    let advancedTitle: String?
+    let advancedSystemImage: String?
+    let onAdvanced: (() -> Void)?
     let onChange: (HotkeyBinding) -> Void
 
     @State private var isRecording = false
@@ -13,6 +16,24 @@ struct HotkeyRecorderView: View {
     @State private var validationMessage: String?
     @State private var pendingModifiers: UInt32 = 0
     @State private var lastModifierChord: UInt32 = 0
+
+    init(
+        title: String,
+        binding: HotkeyBinding,
+        theme: OmniVoiceTheme,
+        advancedTitle: String? = nil,
+        advancedSystemImage: String? = nil,
+        onAdvanced: (() -> Void)? = nil,
+        onChange: @escaping (HotkeyBinding) -> Void
+    ) {
+        self.title = title
+        self.binding = binding
+        self.theme = theme
+        self.advancedTitle = advancedTitle
+        self.advancedSystemImage = advancedSystemImage
+        self.onAdvanced = onAdvanced
+        self.onChange = onChange
+    }
 
     var body: some View {
         HStack {
@@ -24,6 +45,15 @@ struct HotkeyRecorderView: View {
                         .font(.system(.body, design: .monospaced))
                         .foregroundStyle(isRecording ? .secondary : .primary)
                         .frame(minWidth: 112, alignment: .trailing)
+
+                    if let advancedTitle, let onAdvanced {
+                        Button {
+                            onAdvanced()
+                        } label: {
+                            Label(advancedTitle, systemImage: advancedSystemImage ?? "slider.horizontal.3")
+                        }
+                        .controlSize(.small)
+                    }
 
                     Button(isRecording ? "Cancel" : "Record") {
                         isRecording ? stopRecording() : startRecording()

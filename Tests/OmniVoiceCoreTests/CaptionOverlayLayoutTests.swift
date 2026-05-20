@@ -6,12 +6,14 @@ final class CaptionOverlayLayoutTests: XCTestCase {
         XCTAssertEqual(CaptionOverlayLayout.captionWidth, 620)
         XCTAssertEqual(CaptionOverlayLayout.captionLineLimit, 5)
         XCTAssertLessThan(CaptionOverlayLayout.captionWidth, CaptionOverlayLayout.windowMaxWidth)
+        XCTAssertGreaterThanOrEqual(CaptionOverlayLayout.haloBleedPaddingHorizontal, 40)
+        XCTAssertGreaterThanOrEqual(CaptionOverlayLayout.haloBleedPaddingVertical, 24)
     }
 
-    func testStyleLabelIsRenderedBelowWaveform() {
+    func testTranslationStatusIsRenderedAboveCaptionWhenPresent() {
         XCTAssertEqual(
             CaptionOverlayLayout.liveStackOrder,
-            [.captionText, .waveformMeter, .styleLabel]
+            [.translationStatus, .captionText, .waveformMeter, .styleLabel]
         )
     }
 }

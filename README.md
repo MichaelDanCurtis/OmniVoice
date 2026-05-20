@@ -4,27 +4,33 @@ OmniVoice is a local-first macOS dictation app inspired by the push-to-talk work
 
 Hold a configured hotkey, speak, see live captions while the app listens, then release the hotkey to insert cleaned text wherever the cursor was active.
 
-## v1 Scope
+## v2 Scope
 
 - Native macOS menu bar app
-- Configurable push-to-talk and style hotkeys
+- Configurable push-to-talk, style, and hot-menu hotkeys
 - Microphone picker
-- Draggable live caption overlay
+- Draggable liquid-glass caption overlay
 - Local FastAPI engine
-- Parakeet TDT provider support
-- Canary-Qwen-2.5B provider slot
+- Parakeet TDT MLX provider support
+- Canary-Qwen-2.5B provider slot for future multilingual ASR work
 - Hugging Face model download and update checks
+- Hugging Face token validation for gated model access
 - Grammar cleanup, correction handling, quote handling, and punctuation
 - Personal dictionary casing preservation
 - Command mode for safe app-opening commands
-- Selection rewrite MVP
+- Live translation with local translation model configuration
+- Conversation recording with local diarization support
+- Conversation library, archive sync, transcript export, and conversation-to-editor/AI handoff
+- Editor and Ask AI workspaces with provider/model session settings
+- Configurable text LLM providers, custom headers, web-search toggle, and MCP server configuration
+- Liquid-glass themes, custom accent color, waveform modes, and Help capability demos
 - Engine dashboard with health, logs, transcripts, model controls, and export links
 - Raycast script-command integration
 - Local development DMG build
 
 ## Planned Next
 
-The next major feature is live page streaming: while the user speaks, OmniVoice will insert a provisional transcript into the active text field, replace that provisional draft as ASR hypotheses improve, then swap it for the cleaned final text on hotkey release.
+The next major track is V3 multilingual ASR and deeper automation: non-English speech input, stronger local diarization options, richer MCP-backed Ask AI actions, memory, and production signing/notarization.
 
 ## Requirements
 
@@ -64,6 +70,6 @@ scripts/run-engine.sh
 
 ## Distribution Status
 
-The current DMG is locally signed for development. Public distribution still requires Developer ID signing and Apple notarization.
+The current DMG is locally signed for development. Public distribution still requires Developer ID signing, hardened-runtime review, Apple notarization, and stapling.
 
 See [docs/LOCAL_DISTRIBUTION.md](docs/LOCAL_DISTRIBUTION.md) for details.

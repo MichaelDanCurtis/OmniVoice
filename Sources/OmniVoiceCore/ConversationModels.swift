@@ -162,6 +162,8 @@ public struct ConversationSegment: Codable, Equatable, Identifiable, Sendable {
     public let text: String
     public let state: ConversationSegmentState
     public let confidence: Double?
+    public let speakerTurns: [SpeakerTurn]
+    public let speakerLines: [ConversationSpeakerLine]
 
     public var sessionID: String { sessionId }
     public var speakerID: String { speakerId }
@@ -180,7 +182,9 @@ public struct ConversationSegment: Codable, Equatable, Identifiable, Sendable {
         endMs: Int? = nil,
         text: String,
         state: ConversationSegmentState,
-        confidence: Double? = nil
+        confidence: Double? = nil,
+        speakerTurns: [SpeakerTurn] = [],
+        speakerLines: [ConversationSpeakerLine] = []
     ) {
         self.id = id
         self.sessionId = sessionID
@@ -191,6 +195,37 @@ public struct ConversationSegment: Codable, Equatable, Identifiable, Sendable {
         self.text = text
         self.state = state
         self.confidence = confidence
+        self.speakerTurns = speakerTurns
+        self.speakerLines = speakerLines
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case sessionId
+        case speakerId
+        case speakerDisplayName
+        case startMs
+        case endMs
+        case text
+        case state
+        case confidence
+        case speakerTurns
+        case speakerLines
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.sessionId = try container.decode(String.self, forKey: .sessionId)
+        self.speakerId = try container.decode(String.self, forKey: .speakerId)
+        self.speakerDisplayName = try container.decode(String.self, forKey: .speakerDisplayName)
+        self.startMs = try container.decode(Int.self, forKey: .startMs)
+        self.endMs = try container.decodeIfPresent(Int.self, forKey: .endMs)
+        self.text = try container.decode(String.self, forKey: .text)
+        self.state = try container.decode(ConversationSegmentState.self, forKey: .state)
+        self.confidence = try container.decodeIfPresent(Double.self, forKey: .confidence)
+        self.speakerTurns = try container.decodeIfPresent([SpeakerTurn].self, forKey: .speakerTurns) ?? []
+        self.speakerLines = try container.decodeIfPresent([ConversationSpeakerLine].self, forKey: .speakerLines) ?? []
     }
 }
 
@@ -254,32 +289,42 @@ public struct ConversationSessionCreateRequest: Codable, Equatable, Sendable {
 }
 
 public struct ConversationSegmentCreateRequest: Codable, Equatable, Sendable {
-    public let speakerId: String
-    public let speakerDisplayName: String
+    public let speakerId: String?
+    public let speakerDisplayName: String?
+    public let audioStartMs: Int?
     public let startMs: Int
     public let endMs: Int?
     public let text: String
     public let state: ConversationSegmentState
     public let confidence: Double?
+    public let audioPcmFloat32Base64: String?
+    public let audioSampleRate: Int?
 
-    public var speakerID: String { speakerId }
+    public var speakerID: String? { speakerId }
+    public var audioPCMFloat32Base64: String? { audioPcmFloat32Base64 }
 
     public init(
-        speakerID: String,
-        speakerDisplayName: String,
+        speakerID: String? = nil,
+        speakerDisplayName: String? = nil,
+        audioStartMs: Int? = nil,
         startMs: Int,
         endMs: Int? = nil,
         text: String,
         state: ConversationSegmentState,
-        confidence: Double? = nil
+        confidence: Double? = nil,
+        audioPCMFloat32: Data? = nil,
+        audioSampleRate: Int? = nil
     ) {
         self.speakerId = speakerID
         self.speakerDisplayName = speakerDisplayName
+        self.audioStartMs = audioPCMFloat32 == nil ? nil : audioStartMs ?? startMs
         self.startMs = startMs
         self.endMs = endMs
         self.text = text
         self.state = state
         self.confidence = confidence
+        self.audioPcmFloat32Base64 = audioPCMFloat32?.base64EncodedString()
+        self.audioSampleRate = audioPCMFloat32 == nil ? nil : audioSampleRate
     }
 }
 
@@ -305,6 +350,32 @@ public struct ConversationAssistCardCreateRequest: Codable, Equatable, Sendable 
     }
 }
 
+public struct ConversationSegmentUpdateRequest: Codable, Equatable, Sendable {
+    public let id: String
+    public let text: String
+
+    public init(id: String, text: String) {
+        self.id = id
+        self.text = text
+    }
+}
+
+public struct ConversationDetailUpdateRequest: Codable, Equatable, Sendable {
+    public let title: String?
+    public let speakerNames: [String: String]
+    public let segments: [ConversationSegmentUpdateRequest]
+
+    public init(
+        title: String? = nil,
+        speakerNames: [String: String] = [:],
+        segments: [ConversationSegmentUpdateRequest] = []
+    ) {
+        self.title = title
+        self.speakerNames = speakerNames
+        self.segments = segments
+    }
+}
+
 public struct ConversationDetail: Codable, Equatable, Sendable {
     public let session: ConversationSession
     public let segments: [ConversationSegment]
@@ -316,6 +387,22 @@ public struct ConversationDetail: Codable, Equatable, Sendable {
         assistCards: [ConversationAssistCard] = []
     ) {
         self.session = session
+        self.segments = segments
+        self.assistCards = assistCards
+    }
+}
+
+public struct ConversationImportResult: Codable, Equatable, Sendable {
+    public let status: String
+    public let sessionId: String
+    public let segments: Int
+    public let assistCards: Int
+
+    public var sessionID: String { sessionId }
+
+    public init(status: String, sessionID: String, segments: Int, assistCards: Int) {
+        self.status = status
+        self.sessionId = sessionID
         self.segments = segments
         self.assistCards = assistCards
     }
@@ -351,6 +438,40 @@ public struct SpeakerTurn: Codable, Equatable, Identifiable, Sendable {
         self.endMs = endMs
         self.confidence = confidence
         self.overlap = overlap
+        self.sourceProvider = sourceProvider
+    }
+}
+
+public struct ConversationSpeakerLine: Codable, Equatable, Identifiable, Sendable {
+    public let id: String
+    public let sessionId: String
+    public let speakerId: String
+    public let startMs: Int
+    public let endMs: Int?
+    public let text: String
+    public let confidence: Double?
+    public let sourceProvider: String
+
+    public var sessionID: String { sessionId }
+    public var speakerID: String { speakerId }
+
+    public init(
+        id: String,
+        sessionID: String,
+        speakerID: String,
+        startMs: Int,
+        endMs: Int? = nil,
+        text: String,
+        confidence: Double? = nil,
+        sourceProvider: String
+    ) {
+        self.id = id
+        self.sessionId = sessionID
+        self.speakerId = speakerID
+        self.startMs = startMs
+        self.endMs = endMs
+        self.text = text
+        self.confidence = confidence
         self.sourceProvider = sourceProvider
     }
 }

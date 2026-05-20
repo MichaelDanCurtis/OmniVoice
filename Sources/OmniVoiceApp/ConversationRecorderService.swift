@@ -3,6 +3,11 @@ import OmniVoiceCore
 
 @MainActor
 final class ConversationRecorderService {
+    private static let diarizationContextWindowMs = 12_000
+    private static let liveDiarizationContextWindowMs = 6_000
+    private static let liveDiarizationMinimumIntervalMs = 3_000
+    private static let liveDiarizationMinimumAudioMs = 1_500
+
     enum RecorderError: LocalizedError {
         case alreadyRecording
         case noActiveSession
@@ -23,7 +28,6 @@ final class ConversationRecorderService {
     private let audioCapture: AudioCaptureService
     private let streamingClient: EngineStreamingClient
     private var startedAt = Date()
-    private var segmentIndex = 0
     private var isRecording = false
     private var isStopping = false
     private var activeSessionID: String?
@@ -33,8 +37,14 @@ final class ConversationRecorderService {
     private var diagnostics: EngineStreamingDiagnostics = .idle
     private var stopContinuation: CheckedContinuation<Void, Never>?
     private var openContinuation: CheckedContinuation<Void, Never>?
-    private let speakerCycler = MockConversationDiarizer()
     private var transcriptAccumulator = ConversationTranscriptAccumulator()
+    private var audioBuffer = ConversationAudioBuffer()
+    private var segmentTiming = ConversationSegmentTiming()
+    private var activeSampleRate = 16_000
+    private var liveDiarizationEnabled = false
+    private var lastLiveDiarizationRequestMs: Int?
+    private var lastLiveSegmentRequest: ConversationSegmentCreateRequest?
+    private var settledSegmentEmitted = false
     private let pendingUpdates = ConversationUpdateTracker()
 
     var recordingActive: Bool { isRecording || isStopping }
@@ -51,6 +61,7 @@ final class ConversationRecorderService {
         sessionID: String,
         provider: ASRProviderKind,
         microphoneID: String?,
+        liveDiarizationEnabled: Bool,
         onSegment: @escaping (ConversationSegmentCreateRequest) async -> Void,
         onAssistCard: @escaping (ConversationAssistCardCreateRequest) async -> Void
     ) async throws {
@@ -63,8 +74,13 @@ final class ConversationRecorderService {
         self.onAssistCard = onAssistCard
         diagnostics = .idle
         transcriptAccumulator = ConversationTranscriptAccumulator()
+        audioBuffer.reset()
+        segmentTiming = ConversationSegmentTiming()
+        self.liveDiarizationEnabled = liveDiarizationEnabled
+        lastLiveDiarizationRequestMs = nil
+        lastLiveSegmentRequest = nil
+        settledSegmentEmitted = false
         startedAt = Date()
-        segmentIndex = 0
         isRecording = true
         isStopping = false
         pendingUpdates.start(generation: generation)
@@ -85,13 +101,16 @@ final class ConversationRecorderService {
                 self?.handle(diagnostics)
             }
         }, emitCurrent: false)
-        audioCapture.onPCMChunk = { [weak streamingClient] data in
-            streamingClient?.sendPCMFloat32(data)
-        }
-
         do {
-            let sampleRate = audioCapture.inputSampleRate(deviceUID: microphoneID)
-            streamingClient.connect(provider: provider, sampleRate: sampleRate)
+            let sampleRate = Int(audioCapture.inputSampleRate(deviceUID: microphoneID).rounded())
+            activeSampleRate = sampleRate
+            audioCapture.onPCMChunk = { [weak self, weak streamingClient] data in
+                streamingClient?.sendPCMFloat32(data)
+                Task { @MainActor in
+                    self?.audioBuffer.appendPCMFloat32(data, sampleRate: sampleRate)
+                }
+            }
+            streamingClient.connect(provider: provider, sampleRate: Double(sampleRate))
             await waitForStreamOpen()
             guard diagnostics.state == .open else { throw RecorderError.streamUnavailable }
             _ = try audioCapture.start(deviceUID: microphoneID)
@@ -119,6 +138,7 @@ final class ConversationRecorderService {
         if let generation {
             await waitForPendingUpdates(generation: generation)
         }
+        await emitFallbackFinalSegmentIfNeeded()
         clearRecordingState()
 
         if let stopError {
@@ -148,6 +168,11 @@ final class ConversationRecorderService {
         isStopping = false
         diagnostics = .idle
         transcriptAccumulator = ConversationTranscriptAccumulator()
+        segmentTiming = ConversationSegmentTiming()
+        liveDiarizationEnabled = false
+        lastLiveDiarizationRequestMs = nil
+        lastLiveSegmentRequest = nil
+        settledSegmentEmitted = false
         resumeOpenWaiterIfNeeded(force: true)
         resumeStopWaiterIfNeeded()
     }
@@ -156,30 +181,120 @@ final class ConversationRecorderService {
         guard activeSessionID == sessionID, activeGeneration == generation else { return }
         let decision = transcriptAccumulator.ingest(update)
         guard case let .segment(text, isFinal) = decision else { return }
+        guard !isFinal || !settledSegmentEmitted else { return }
 
         let nowMs = Int(Date().timeIntervalSince(startedAt) * 1000)
-        let speaker = speakerCycler.speaker(forSegmentIndex: segmentIndex, text: text)
+        let timing = segmentTiming.segment(
+            nowMs: nowMs,
+            isFinal: isFinal,
+            audioContextWindowMs: Self.diarizationContextWindowMs
+        )
+        let liveDiarizationAudioStartMs = max(0, nowMs - Self.liveDiarizationContextWindowMs)
+        let shouldIncludeLiveDiarizationAudio = !isFinal && shouldRequestLiveDiarizationPreview(nowMs: nowMs)
+        let audio = audioPayload(
+            isFinal: isFinal,
+            timing: timing,
+            nowMs: nowMs,
+            liveDiarizationAudioStartMs: liveDiarizationAudioStartMs,
+            shouldIncludeLiveDiarizationAudio: shouldIncludeLiveDiarizationAudio
+        )
         let request = ConversationSegmentCreateRequest(
-            speakerID: speaker.id,
-            speakerDisplayName: speaker.displayName,
-            startMs: max(0, nowMs - 2_500),
-            endMs: isFinal ? nowMs : nil,
+            audioStartMs: audioStartMs(
+                isFinal: isFinal,
+                timing: timing,
+                liveDiarizationAudioStartMs: liveDiarizationAudioStartMs,
+                audio: audio
+            ),
+            startMs: timing.startMs,
+            endMs: isFinal ? timing.endMs : (audio == nil ? timing.endMs : nowMs),
             text: text,
             state: isFinal ? .settled : .live,
-            confidence: nil
+            confidence: nil,
+            audioPCMFloat32: audio,
+            audioSampleRate: activeSampleRate
         )
+        if isFinal {
+            settledSegmentEmitted = true
+        } else {
+            lastLiveSegmentRequest = request
+        }
+
         if let onSegment {
             await onSegment(request)
         }
 
         if isFinal {
-            segmentIndex += 1
             if let card = ConversationAssistCardDetector.card(for: text) {
                 if let onAssistCard {
                     await onAssistCard(card)
                 }
             }
         }
+    }
+
+    private func emitFallbackFinalSegmentIfNeeded() async {
+        guard !settledSegmentEmitted, let onSegment else {
+            return
+        }
+
+        let nowMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+        let audioEndMs = max(audioBuffer.durationMs, lastLiveSegmentRequest?.endMs ?? 0)
+        let recordingEndMs = audioEndMs > 0 ? audioEndMs : nowMs
+        let audio = audioBuffer.audioPCMFloat32(from: 0, to: recordingEndMs)
+        guard let request = ConversationSegmentFinalization.fallbackSettledRequest(
+            from: lastLiveSegmentRequest,
+            recordingEndMs: recordingEndMs,
+            audioPCMFloat32: audio,
+            audioSampleRate: activeSampleRate
+        ) else {
+            return
+        }
+
+        settledSegmentEmitted = true
+        await onSegment(request)
+    }
+
+    private func shouldRequestLiveDiarizationPreview(nowMs: Int) -> Bool {
+        guard liveDiarizationEnabled, nowMs >= Self.liveDiarizationMinimumAudioMs else {
+            return false
+        }
+
+        if let lastLiveDiarizationRequestMs,
+           nowMs - lastLiveDiarizationRequestMs < Self.liveDiarizationMinimumIntervalMs {
+            return false
+        }
+
+        lastLiveDiarizationRequestMs = nowMs
+        return true
+    }
+
+    private func audioPayload(
+        isFinal: Bool,
+        timing: ConversationSegmentTiming.Segment,
+        nowMs: Int,
+        liveDiarizationAudioStartMs: Int,
+        shouldIncludeLiveDiarizationAudio: Bool
+    ) -> Data? {
+        if isFinal {
+            return audioBuffer.audioPCMFloat32(from: timing.audioStartMs ?? timing.startMs, to: timing.endMs ?? nowMs)
+        }
+
+        guard shouldIncludeLiveDiarizationAudio else {
+            return nil
+        }
+        return audioBuffer.audioPCMFloat32(from: liveDiarizationAudioStartMs, to: nowMs)
+    }
+
+    private func audioStartMs(
+        isFinal: Bool,
+        timing: ConversationSegmentTiming.Segment,
+        liveDiarizationAudioStartMs: Int,
+        audio: Data?
+    ) -> Int? {
+        guard audio != nil else {
+            return nil
+        }
+        return isFinal ? timing.audioStartMs : liveDiarizationAudioStartMs
     }
 
     private func handle(_ diagnostics: EngineStreamingDiagnostics) {
@@ -216,7 +331,7 @@ final class ConversationRecorderService {
             resumeStopWaiterIfNeeded()
 
             Task {
-                try? await Task.sleep(for: .seconds(5))
+                try? await Task.sleep(for: .seconds(15))
                 await MainActor.run {
                     resumeStopWaiterIfNeeded(force: true)
                 }
@@ -254,22 +369,6 @@ final class ConversationRecorderService {
         }
     }
 
-}
-
-private struct MockConversationDiarizer {
-    private let speakers = [
-        (id: "speaker-1", displayName: "Speaker 1"),
-        (id: "speaker-2", displayName: "Speaker 2"),
-        (id: "speaker-3", displayName: "Speaker 3"),
-    ]
-
-    func speaker(forSegmentIndex index: Int, text: String) -> (id: String, displayName: String) {
-        let normalized = text.lowercased()
-        if normalized.hasPrefix("i ") || normalized.hasPrefix("i'm ") {
-            return (id: "you", displayName: "You")
-        }
-        return speakers[index % speakers.count]
-    }
 }
 
 private enum ConversationAssistCardDetector {
