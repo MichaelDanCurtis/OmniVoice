@@ -6,7 +6,7 @@ APP_NAME="OmniVoiceApp"
 APP_DISPLAY_NAME="OmniVoice"
 BUNDLE_ID="com.omnivoice.OmniVoiceApp"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${OMNIVOICE_APP_VERSION:-2.0.2}"
+APP_VERSION="${OMNIVOICE_APP_VERSION:-2.0.3}"
 APP_BUILD="${OMNIVOICE_APP_BUILD:-1}"
 DMG_VOLUME_NAME="${OMNIVOICE_DMG_VOLUME_NAME:-OmniVoice}"
 
@@ -19,6 +19,8 @@ APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 ENGINE_BUNDLE_DIR="$APP_RESOURCES/Engine"
+PYTHON_RUNTIME_DIR="$APP_RESOURCES/Python"
+PYTHON_RUNTIME_VERSION="${OMNIVOICE_PYTHON_RUNTIME_VERSION:-3.12}"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 RUN_APP_BUNDLE="${OMNIVOICE_RUN_APP_BUNDLE:-$HOME/Applications/$APP_DISPLAY_NAME.app}"
 ICON_SOURCE="$ROOT_DIR/Assets/AppIcon/OmniVoiceIcon.svg"
@@ -85,6 +87,13 @@ run_with_timeout() {
 reset_app_signature_artifacts() {
   rm -rf "$APP_BUNDLE/Contents/_CodeSignature"
   find "$APP_BUNDLE" -name "*.cstemp" -type f -delete 2>/dev/null || true
+}
+
+make_bundle_writable_for_rebuild() {
+  local bundle="$1"
+  if [[ -d "$bundle" ]]; then
+    chmod -R u+w "$bundle" >/dev/null 2>&1 || true
+  fi
 }
 
 engine_session_matches_root() {
@@ -239,6 +248,130 @@ build_icon() {
   cp "$ICON_DIST_FILE" "$ICON_BUNDLE_FILE"
 }
 
+python_runtime_source_from_executable() {
+  "$1" <<'PY'
+import sys
+print(sys.base_prefix)
+PY
+}
+
+python_runtime_bin() {
+  local runtime_root="$1"
+  if [[ -x "$runtime_root/bin/python$PYTHON_RUNTIME_VERSION" ]]; then
+    echo "$runtime_root/bin/python$PYTHON_RUNTIME_VERSION"
+    return
+  fi
+  if [[ -x "$runtime_root/bin/python3" ]]; then
+    echo "$runtime_root/bin/python3"
+    return
+  fi
+  if [[ -x "$runtime_root/bin/python" ]]; then
+    echo "$runtime_root/bin/python"
+  fi
+}
+
+python_runtime_is_usable() {
+  local runtime_root="$1"
+  local python_bin
+  python_bin="$(python_runtime_bin "$runtime_root")"
+  [[ -n "$python_bin" ]] || return 1
+  "$python_bin" - "$PYTHON_RUNTIME_VERSION" <<'PY' >/dev/null 2>&1
+import pathlib
+import sys
+
+minimum = tuple(int(part) for part in sys.argv[1].split("."))
+raise SystemExit(0 if sys.version_info[:2] >= minimum and pathlib.Path(sys.executable).exists() else 1)
+PY
+}
+
+resolve_python_runtime_source() {
+  local source="${OMNIVOICE_PYTHON_RUNTIME_SOURCE:-}"
+  local python_bin
+
+  if [[ -n "$source" ]]; then
+    source="${source/#\~/$HOME}"
+    if python_runtime_is_usable "$source"; then
+      echo "$source"
+      return
+    fi
+    echo "OMNIVOICE_PYTHON_RUNTIME_SOURCE is not a usable Python $PYTHON_RUNTIME_VERSION runtime: $source" >&2
+    return 1
+  fi
+
+  if command -v uv >/dev/null 2>&1; then
+    uv python install "$PYTHON_RUNTIME_VERSION" >/dev/null
+    python_bin="$(uv python find "$PYTHON_RUNTIME_VERSION")"
+    source="$(python_runtime_source_from_executable "$python_bin")"
+    if python_runtime_is_usable "$source"; then
+      echo "$source"
+      return
+    fi
+  fi
+
+  for python_bin in \
+    "$ROOT_DIR/engine/.venv/bin/python" \
+    python3.12 \
+    /opt/homebrew/bin/python3.12 \
+    /opt/homebrew/opt/python@3.12/bin/python3.12 \
+    /usr/local/bin/python3.12 \
+    /usr/local/opt/python@3.12/bin/python3.12; do
+    if [[ "$python_bin" == */* ]]; then
+      [[ -x "$python_bin" ]] || continue
+    elif command -v "$python_bin" >/dev/null 2>&1; then
+      python_bin="$(command -v "$python_bin")"
+    else
+      continue
+    fi
+
+    source="$(python_runtime_source_from_executable "$python_bin")"
+    if python_runtime_is_usable "$source"; then
+      echo "$source"
+      return
+    fi
+  done
+
+  echo "Could not find a Python $PYTHON_RUNTIME_VERSION runtime to embed. Install uv or set OMNIVOICE_PYTHON_RUNTIME_SOURCE." >&2
+  return 1
+}
+
+bundle_python_runtime() {
+  local source
+  source="$(resolve_python_runtime_source)"
+
+  rm -rf "$PYTHON_RUNTIME_DIR"
+  mkdir -p "$PYTHON_RUNTIME_DIR"
+
+  /usr/bin/rsync -a --delete \
+    --exclude "__pycache__" \
+    --exclude "*.pyc" \
+    --exclude "*.pyo" \
+    --exclude "test" \
+    --exclude "tests" \
+    "$source/" "$PYTHON_RUNTIME_DIR/"
+
+  local bundled_python
+  bundled_python="$(python_runtime_bin "$PYTHON_RUNTIME_DIR")"
+  if [[ -z "$bundled_python" ]]; then
+    echo "Embedded Python runtime copy did not produce an executable in $PYTHON_RUNTIME_DIR/bin" >&2
+    return 1
+  fi
+
+  xattr -dr com.apple.quarantine "$PYTHON_RUNTIME_DIR" >/dev/null 2>&1 || true
+  local pycache_dir
+  pycache_dir="$(mktemp -d /tmp/omnivoice-python-cache.XXXXXX)"
+  PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX="$pycache_dir" "$bundled_python" - <<'PY'
+import sys
+raise SystemExit(0 if sys.version_info[:2] >= (3, 12) else 1)
+PY
+  rm -rf "$pycache_dir"
+  find "$PYTHON_RUNTIME_DIR" -name "__pycache__" -type d -prune -exec rm -rf {} +
+}
+
+protect_python_runtime() {
+  find "$PYTHON_RUNTIME_DIR" -name "__pycache__" -type d -prune -exec rm -rf {} +
+  chmod -R a-w "$PYTHON_RUNTIME_DIR"
+}
+
 bundle_engine() {
   rm -rf "$ENGINE_BUNDLE_DIR"
   mkdir -p "$ENGINE_BUNDLE_DIR"
@@ -296,8 +429,10 @@ sign_app_bundle() {
 swift build
 BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
 
+make_bundle_writable_for_rebuild "$APP_BUNDLE"
 rm -rf "$APP_BUNDLE"
 if [[ "$LEGACY_APP_BUNDLE" != "$APP_BUNDLE" ]]; then
+  make_bundle_writable_for_rebuild "$LEGACY_APP_BUNDLE"
   rm -rf "$LEGACY_APP_BUNDLE"
 fi
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
@@ -338,10 +473,13 @@ cat >"$INFO_PLIST" <<PLIST
 PLIST
 
 build_icon
+bundle_python_runtime
 bundle_engine
 
 xattr -dr com.apple.quarantine "$APP_BUNDLE" >/dev/null 2>&1 || true
 sign_app_bundle
+protect_python_runtime
+/usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
 
 unregister_stale_launch_services() {
   local stale_bundle
@@ -364,8 +502,10 @@ register_launch_services() {
 install_run_bundle() {
   if [[ "$RUN_APP_BUNDLE" != "$APP_BUNDLE" ]]; then
     mkdir -p "$(dirname "$RUN_APP_BUNDLE")"
+    make_bundle_writable_for_rebuild "$RUN_APP_BUNDLE"
     rm -rf "$RUN_APP_BUNDLE"
     cp -R "$APP_BUNDLE" "$RUN_APP_BUNDLE"
+    make_bundle_writable_for_rebuild "$APP_BUNDLE"
     rm -rf "$APP_BUNDLE"
   fi
 
@@ -395,13 +535,13 @@ OmniVoice local build
 
 Drag OmniVoice.app to Applications.
 
-This package contains the desktop app and the OmniVoice engine source bundle.
+This package contains the desktop app, the OmniVoice engine source bundle, and an embedded Python runtime.
 
 On first launch, the app checks http://127.0.0.1:8765. If the engine is not already running, it starts the bundled engine and creates its Python virtual environment under:
 
 ~/Library/Application Support/OmniVoice
 
-Python 3.12 or newer is required. ASR dependencies and Hugging Face models are installed/downloaded locally, not bundled into this DMG.
+OmniVoice includes its own Python runtime. ASR dependencies and Hugging Face models are installed/downloaded locally, not bundled into this DMG.
 
 This build is locally signed for development. Public distribution still needs Developer ID signing and notarization.
 README
