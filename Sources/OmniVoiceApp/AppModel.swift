@@ -1159,6 +1159,28 @@ final class AppModel {
         statusText = enabled ? "Recording sound cues enabled" : "Recording sound cues disabled"
     }
 
+    func setRecordingStartCueEnabled(_ enabled: Bool) {
+        guard preferences.recordingStartCueEnabled != enabled else { return }
+
+        preferences.recordingStartCueEnabled = enabled
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = enabled ? "Start tone enabled" : "Start tone disabled"
+    }
+
+    func setRecordingStopCueEnabled(_ enabled: Bool) {
+        guard preferences.recordingStopCueEnabled != enabled else { return }
+
+        preferences.recordingStopCueEnabled = enabled
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = enabled ? "Stop tone enabled" : "Stop tone disabled"
+    }
+
     func setRecordingCueSet(_ cueSet: RecordingCueSet) {
         guard preferences.recordingCueSet != cueSet else { return }
 

@@ -43,6 +43,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var conversationArchiveFolderPath: String
     public var automaticallyArchiveConversations: Bool
     public var recordingSoundCuesEnabled: Bool
+    public var recordingStartCueEnabled: Bool
+    public var recordingStopCueEnabled: Bool
     public var recordingCueSet: RecordingCueSet
     public var recordingCueVolume: Double
     public var firstRunSetupCompleted: Bool
@@ -112,6 +114,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         conversationArchiveFolderPath: ConversationArchive.defaultRootURL().path,
         automaticallyArchiveConversations: true,
         recordingSoundCuesEnabled: true,
+        recordingStartCueEnabled: true,
+        recordingStopCueEnabled: true,
         recordingCueSet: .glassTap,
         recordingCueVolume: 0.28,
         firstRunSetupCompleted: false
@@ -161,6 +165,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         conversationArchiveFolderPath: String = ConversationArchive.defaultRootURL().path,
         automaticallyArchiveConversations: Bool = true,
         recordingSoundCuesEnabled: Bool = true,
+        recordingStartCueEnabled: Bool = true,
+        recordingStopCueEnabled: Bool = true,
         recordingCueSet: RecordingCueSet = .glassTap,
         recordingCueVolume: Double = 0.28,
         firstRunSetupCompleted: Bool = false
@@ -227,6 +233,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         self.conversationArchiveFolderPath = conversationArchiveFolderPath
         self.automaticallyArchiveConversations = automaticallyArchiveConversations
         self.recordingSoundCuesEnabled = recordingSoundCuesEnabled
+        self.recordingStartCueEnabled = recordingStartCueEnabled
+        self.recordingStopCueEnabled = recordingStopCueEnabled
         self.recordingCueSet = recordingCueSet
         self.recordingCueVolume = Self.clampedRecordingCueVolume(recordingCueVolume)
         self.firstRunSetupCompleted = firstRunSetupCompleted
@@ -315,6 +323,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             automaticallyArchiveConversations: try container.decodeIfPresent(Bool.self, forKey: .automaticallyArchiveConversations)
                 ?? true,
             recordingSoundCuesEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingSoundCuesEnabled) ?? true,
+            recordingStartCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStartCueEnabled) ?? true,
+            recordingStopCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStopCueEnabled) ?? true,
             recordingCueSet: try container.decodeIfPresent(RecordingCueSet.self, forKey: .recordingCueSet) ?? .glassTap,
             recordingCueVolume: try container.decodeIfPresent(Double.self, forKey: .recordingCueVolume) ?? 0.28,
             firstRunSetupCompleted: try container.decodeIfPresent(Bool.self, forKey: .firstRunSetupCompleted) ?? false
@@ -379,6 +389,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             automaticallyArchiveConversations: try container.decodeIfPresent(Bool.self, forKey: .automaticallyArchiveConversations)
                 ?? true,
             recordingSoundCuesEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingSoundCuesEnabled) ?? true,
+            recordingStartCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStartCueEnabled) ?? true,
+            recordingStopCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStopCueEnabled) ?? true,
             recordingCueSet: try container.decodeIfPresent(RecordingCueSet.self, forKey: .recordingCueSet) ?? .glassTap,
             recordingCueVolume: try container.decodeIfPresent(Double.self, forKey: .recordingCueVolume) ?? 0.28,
             firstRunSetupCompleted: try container.decodeIfPresent(Bool.self, forKey: .firstRunSetupCompleted) ?? false
@@ -579,6 +591,19 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         min(max(value, 0), 1)
     }
 
+    public func isRecordingCueEnabled(for event: RecordingCueEvent) -> Bool {
+        guard recordingSoundCuesEnabled else {
+            return false
+        }
+
+        switch event {
+        case .start:
+            return recordingStartCueEnabled
+        case .stop:
+            return recordingStopCueEnabled
+        }
+    }
+
     private enum CodingKeys: String, CodingKey {
         case asrProvider = "asr_provider"
         case style = "style"
@@ -619,6 +644,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case conversationArchiveFolderPath = "conversation_archive_folder_path"
         case automaticallyArchiveConversations = "automatically_archive_conversations"
         case recordingSoundCuesEnabled = "recording_sound_cues_enabled"
+        case recordingStartCueEnabled = "recording_start_cue_enabled"
+        case recordingStopCueEnabled = "recording_stop_cue_enabled"
         case recordingCueSet = "recording_cue_set"
         case recordingCueVolume = "recording_cue_volume"
         case firstRunSetupCompleted = "first_run_setup_completed"
@@ -664,6 +691,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case conversationArchiveFolderPath
         case automaticallyArchiveConversations
         case recordingSoundCuesEnabled
+        case recordingStartCueEnabled
+        case recordingStopCueEnabled
         case recordingCueSet
         case recordingCueVolume
         case firstRunSetupCompleted

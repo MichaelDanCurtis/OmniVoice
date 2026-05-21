@@ -6,6 +6,11 @@ public enum RecordingCueWaveform: String, CaseIterable, Codable, Hashable, Senda
     case noise
 }
 
+public enum RecordingCueEvent: String, CaseIterable, Codable, Hashable, Sendable {
+    case start
+    case stop
+}
+
 public struct RecordingCueTone: Equatable, Sendable {
     public let frequency: Double
     public let endFrequency: Double?

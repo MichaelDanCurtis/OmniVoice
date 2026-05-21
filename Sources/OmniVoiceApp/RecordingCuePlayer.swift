@@ -35,7 +35,7 @@ final class RecordingCuePlayer {
         preferences: OmniVoicePreferences,
         respectEnabled: Bool = true
     ) -> TimeInterval {
-        guard !respectEnabled || preferences.recordingSoundCuesEnabled else { return 0 }
+        guard !respectEnabled || preferences.isRecordingCueEnabled(for: kind.recordingCueEvent) else { return 0 }
 
         let tones = kind == .start
             ? preferences.recordingCueSet.startTones
@@ -134,6 +134,17 @@ final class RecordingCuePlayer {
             data.appendLittleEndianInt16(sample)
         }
         return data
+    }
+}
+
+private extension RecordingCuePlayer.CueKind {
+    var recordingCueEvent: RecordingCueEvent {
+        switch self {
+        case .start:
+            return .start
+        case .stop:
+            return .stop
+        }
     }
 }
 

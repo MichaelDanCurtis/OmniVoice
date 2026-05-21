@@ -21,6 +21,10 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.hotMenuRightAction, .toggleTranslation)
         XCTAssertEqual(preferences.hotMenuDownAction, .cycleStyle)
         XCTAssertTrue(preferences.recordingSoundCuesEnabled)
+        XCTAssertTrue(preferences.recordingStartCueEnabled)
+        XCTAssertTrue(preferences.recordingStopCueEnabled)
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .stop))
         XCTAssertEqual(preferences.recordingCueSet, .glassTap)
         XCTAssertEqual(preferences.recordingCueVolume, 0.28)
         XCTAssertFalse(preferences.firstRunSetupCompleted)
@@ -110,6 +114,8 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.conversationArchiveFolderPath, ConversationArchive.defaultRootURL().path)
         XCTAssertTrue(preferences.automaticallyArchiveConversations)
         XCTAssertTrue(preferences.recordingSoundCuesEnabled)
+        XCTAssertTrue(preferences.recordingStartCueEnabled)
+        XCTAssertTrue(preferences.recordingStopCueEnabled)
         XCTAssertEqual(preferences.recordingCueSet, .glassTap)
         XCTAssertEqual(preferences.recordingCueVolume, 0.28)
         XCTAssertFalse(preferences.firstRunSetupCompleted)
@@ -147,6 +153,8 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertNotNil(object["conversation_archive_folder_path"])
         XCTAssertNotNil(object["automatically_archive_conversations"])
         XCTAssertNotNil(object["recording_sound_cues_enabled"])
+        XCTAssertNotNil(object["recording_start_cue_enabled"])
+        XCTAssertNotNil(object["recording_stop_cue_enabled"])
         XCTAssertNotNil(object["recording_cue_set"])
         XCTAssertNotNil(object["recording_cue_volume"])
         XCTAssertNotNil(object["hot_menu_hotkey"])
@@ -155,6 +163,23 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertNotNil(object["hot_menu_right_actions"])
         XCTAssertNotNil(object["hot_menu_down_actions"])
         XCTAssertNotNil(object["first_run_setup_completed"])
+    }
+
+    func testRecordingCueEventPreferencesCanBeControlledIndependently() {
+        var preferences = OmniVoicePreferences.defaults
+
+        preferences.recordingStartCueEnabled = false
+        XCTAssertFalse(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .stop))
+
+        preferences.recordingStartCueEnabled = true
+        preferences.recordingStopCueEnabled = false
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertFalse(preferences.isRecordingCueEnabled(for: .stop))
+
+        preferences.recordingSoundCuesEnabled = false
+        XCTAssertFalse(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertFalse(preferences.isRecordingCueEnabled(for: .stop))
     }
 
     func testLegacyDiarizationPrecisionFallsBackFromProvider() throws {
