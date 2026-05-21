@@ -235,6 +235,7 @@ private struct HotMenuOverlayView: View {
     var state: HotMenuOverlayState
 
     @Namespace private var glassNamespace
+    @Environment(\.colorScheme) private var colorScheme
 
     private let horizontalRadius: CGFloat = 132
     private let verticalRadius: CGFloat = 102
@@ -243,8 +244,10 @@ private struct HotMenuOverlayView: View {
     private var selectionState: HotMenuActionRingState { state.selectionState }
     private var presentationMode: HotMenuPresentationMode { state.presentationMode }
     private var theme: OmniVoiceTheme { state.theme }
-    private var accent: Color { Color(themeColor: theme.accentColor) }
-    private var secondary: Color { Color(themeColor: theme.secondaryAccentColor) }
+    private var palette: ResolvedThemePalette { theme.resolvedPalette(for: colorScheme) }
+    private var accent: Color { Color(themeColor: palette.accentGraphic) }
+    private var secondary: Color { Color(themeColor: palette.secondaryAccentGraphic) }
+    private var accentText: Color { Color(themeColor: palette.accentText) }
     private var tint: Color { Color(themeColor: theme.surfaceTint) }
 
     var body: some View {
@@ -290,6 +293,7 @@ private struct HotMenuOverlayView: View {
                         actionLabels: actionLabels,
                         isSelected: direction == selectionState.selectedDirection,
                         accent: accent,
+                        accentText: accentText,
                         secondary: secondary,
                         tint: tint,
                         isMenuActive: selectionState.selectedDirection != nil
@@ -307,6 +311,7 @@ private struct HotMenuOverlayView: View {
                 actionCount: selectedActionCount,
                 centerText: centerText,
                 accent: accent,
+                accentText: accentText,
                 secondary: secondary,
                 tint: tint
             )
@@ -391,6 +396,7 @@ private struct HotMenuFocusBlob: View {
     let actionCount: Int
     let centerText: String
     let accent: Color
+    let accentText: Color
     let secondary: Color
     let tint: Color
 
@@ -401,7 +407,7 @@ private struct HotMenuFocusBlob: View {
             Image(systemName: selectedAction?.systemImage ?? "circle.grid.cross")
                 .font(.system(size: selectedDirection == nil ? 24 : 28, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(isActive ? accent : Color.primary.opacity(0.82))
+                .foregroundStyle(isActive ? accentText : Color.primary.opacity(0.82))
 
             Text(selectedActionLabel ?? selectedAction?.displayName ?? centerText)
                 .font(.system(size: selectedDirection == nil ? 11 : 12.5, weight: .semibold))
@@ -412,7 +418,7 @@ private struct HotMenuFocusBlob: View {
             if let selectedDirection {
                 Text(actionDetail(for: selectedDirection))
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(accent.opacity(0.92))
+                    .foregroundStyle(accentText.opacity(0.92))
             }
         }
         .frame(width: 108, height: 108)
@@ -449,6 +455,7 @@ private struct HotMenuOptionHint: View {
     let actionLabels: [HotMenuAction: String]
     let isSelected: Bool
     let accent: Color
+    let accentText: Color
     let secondary: Color
     let tint: Color
     let isMenuActive: Bool

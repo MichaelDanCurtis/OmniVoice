@@ -97,28 +97,68 @@ final class ThemeTests: XCTestCase {
         XCTAssertEqual(highContrastTheme.cssVariables["--ov-muted"], ThemeColor.cssRGBA(red: 255, green: 255, blue: 255, alpha: highContrastTheme.mutedTextOpacity))
     }
 
+    func testResolvedAccentTextMeetsContrastInLightAndDarkModes() {
+        for theme in OmniVoiceTheme.builtIn {
+            for appearance in [ThemeResolvedAppearance.light, .dark] {
+                let palette = theme.resolvedPalette(for: appearance)
+
+                XCTAssertGreaterThanOrEqual(
+                    palette.accentText.contrastRatio(against: palette.windowBackground),
+                    4.5,
+                    "\(theme.name) \(appearance) accent text should be readable"
+                )
+                XCTAssertGreaterThanOrEqual(
+                    palette.secondaryAccentText.contrastRatio(against: palette.windowBackground),
+                    4.5,
+                    "\(theme.name) \(appearance) secondary accent text should be readable"
+                )
+                XCTAssertGreaterThanOrEqual(
+                    palette.onAccentText.contrastRatio(against: palette.accentGraphic),
+                    4.5,
+                    "\(theme.name) \(appearance) on-accent text should be readable"
+                )
+            }
+        }
+    }
+
+    func testDockIconSpectrumProfileUsesSubtleNormalizedVULevels() {
+        let profile = DockIconSpectrumProfile.subtleVU
+
+        XCTAssertEqual(profile.normalizedLevels.count, 9)
+        XCTAssertEqual(profile.normalizedLevels, profile.normalizedLevels.reversed())
+        XCTAssertEqual(profile.normalizedLevels.max(), 1.0)
+        XCTAssertGreaterThan(profile.normalizedLevels[4], profile.normalizedLevels[0])
+        XCTAssertLessThanOrEqual(profile.glowOpacity, 0.24)
+    }
+
     func testCSSVariablesUseOmniVoiceNames() throws {
         let theme = try XCTUnwrap(OmniVoiceTheme.builtInTheme(id: .auroraBlue))
 
         XCTAssertEqual(Set(theme.cssVariables.keys), [
             "--ov-accent",
+            "--ov-accent-text",
             "--ov-accent-secondary",
+            "--ov-accent-secondary-text",
             "--ov-bg",
             "--ov-surface",
             "--ov-surface-strong",
             "--ov-text",
             "--ov-muted",
+            "--ov-on-accent",
             "--ov-border",
             "--ov-glow",
             "--ov-caption-bg"
         ])
         XCTAssertEqual(theme.cssVariables["--ov-accent"], "#38BDF8")
+        XCTAssertEqual(theme.cssVariables["--ov-accent-text"], "#38BDF8")
         XCTAssertEqual(theme.cssVariables["--ov-accent-secondary"], "#818CF8")
+        XCTAssertEqual(theme.cssVariables["--ov-accent-secondary-text"], "#818CF8")
         XCTAssertEqual(theme.cssVariables["--ov-bg"], "#06121C")
         XCTAssertEqual(theme.cssVariables["--ov-surface"], "rgba(6, 18, 28, 0.36)")
         XCTAssertEqual(theme.cssVariables["--ov-surface-strong"], "rgba(6, 18, 28, 0.54)")
         XCTAssertEqual(theme.cssVariables["--ov-text"], "#F8FAFC")
         XCTAssertEqual(theme.cssVariables["--ov-muted"], "rgba(248, 250, 252, 0.64)")
+        XCTAssertEqual(theme.cssVariables["--ov-on-accent"], "#06121C")
         XCTAssertEqual(theme.cssVariables["--ov-border"], "rgba(56, 189, 248, 0.26)")
         XCTAssertEqual(theme.cssVariables["--ov-caption-bg"], "rgba(6, 18, 28, 0.14)")
         XCTAssertEqual(theme.cssVariables["--ov-glow"], "rgba(56, 189, 248, 0.34)")

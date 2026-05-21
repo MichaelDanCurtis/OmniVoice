@@ -207,7 +207,7 @@ struct ConversationModeView: View {
                 if !selectedConversationIDs.isEmpty {
                     Text("\(selectedConversationIDs.count)")
                         .font(.caption.weight(.bold).monospacedDigit())
-                        .foregroundStyle(Color(themeColor: theme.accentColor))
+                        .themeAccentForeground(theme)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
                         .themePillSurface(theme)
@@ -250,7 +250,7 @@ struct ConversationModeView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Image(systemName: "text.bubble")
                         .font(.title2)
-                        .foregroundStyle(Color(themeColor: theme.accentColor))
+                        .themeAccentForeground(theme)
                     Text(model.conversationSessions.isEmpty ? "No saved conversations" : "No matches")
                         .font(.callout.weight(.semibold))
                     Text("Saved recordings will appear here after you stop a conversation.")
@@ -354,7 +354,7 @@ struct ConversationModeView: View {
             HStack(alignment: .center, spacing: 10) {
                 Image(systemName: "text.bubble")
                     .font(.headline)
-                    .foregroundStyle(Color(themeColor: theme.accentColor))
+                    .themeAccentForeground(theme)
                     .frame(width: 22)
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -497,7 +497,7 @@ struct ConversationModeView: View {
         VStack(alignment: .leading, spacing: 10) {
             Image(systemName: "person.wave.2")
                 .font(.system(size: 30, weight: .semibold))
-                .foregroundStyle(Color(themeColor: theme.accentColor))
+                .themeAccentForeground(theme)
 
             Text("Listening for speaker turns")
                 .font(.headline)
@@ -515,7 +515,7 @@ struct ConversationModeView: View {
         VStack(alignment: .leading, spacing: 10) {
             Image(systemName: "waveform.and.person.filled")
                 .font(.system(size: 30, weight: .semibold))
-                .foregroundStyle(Color(themeColor: theme.accentColor))
+                .themeAccentForeground(theme)
 
             Text(model.selectedConversationDetail == nil ? "No live conversation yet" : "No transcript lines")
                 .font(.headline)
@@ -630,7 +630,7 @@ struct ConversationModeView: View {
             } label: {
                 Image(systemName: "eraser")
                     .font(.title3)
-                    .foregroundStyle(Color(themeColor: theme.accentColor))
+                    .themeAccentForeground(theme)
                     .frame(width: 22, height: 22)
             }
             .buttonStyle(.plain)
@@ -722,7 +722,7 @@ struct ConversationModeView: View {
         VStack(alignment: .leading, spacing: 10) {
             Image(systemName: "sparkles")
                 .font(.title2)
-                .foregroundStyle(Color(themeColor: theme.accentColor))
+                .themeAccentForeground(theme)
 
             Text(displayedSegments.isEmpty ? "No transcript context yet" : "Ask about this transcript")
                 .font(.headline)
@@ -1098,7 +1098,7 @@ private struct ConversationEditorSheet: View {
                         ForEach(draft.speakers.indices, id: \.self) { index in
                             HStack(spacing: 10) {
                                 Image(systemName: "person.wave.2")
-                                    .foregroundStyle(Color(themeColor: theme.accentColor))
+                                    .themeAccentForeground(theme)
                                     .frame(width: 22)
 
                                 TextField("Speaker name", text: $draft.speakers[index].displayName)
@@ -1128,7 +1128,7 @@ private struct ConversationEditorSheet: View {
 
                                     Text(speakerDisplayName(for: draft.segments[index]))
                                         .font(.caption.weight(.semibold))
-                                        .foregroundStyle(Color(themeColor: theme.accentColor))
+                                        .themeAccentForeground(theme)
 
                                     Spacer()
                                 }
@@ -1179,7 +1179,7 @@ private struct ConversationMetricPill: View {
         HStack(spacing: 8) {
             Image(systemName: systemImage)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(Color(themeColor: theme.accentColor))
+                .themeAccentForeground(theme)
 
             VStack(alignment: .leading, spacing: 0) {
                 Text(title)
@@ -1206,9 +1206,14 @@ private struct ConversationLibraryCard: View {
     let edit: () -> Void
     let delete: () -> Void
     let askAI: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     private var startedAtLabel: String {
         compactConversationDate(session.startedAt)
+    }
+
+    private var accentText: Color {
+        Color(themeColor: theme.resolvedPalette(for: colorScheme).accentText)
     }
 
     var body: some View {
@@ -1218,7 +1223,7 @@ private struct ConversationLibraryCard: View {
                     Button(action: toggleSelection) {
                         Image(systemName: isMarkedForDelete ? "checkmark.circle.fill" : "circle")
                             .font(.callout.weight(.semibold))
-                            .foregroundStyle(isMarkedForDelete ? Color(themeColor: theme.accentColor) : .secondary)
+                            .foregroundStyle(isMarkedForDelete ? accentText : .secondary)
                             .frame(width: 18, height: 18)
                     }
                     .buttonStyle(.plain)
@@ -1227,7 +1232,7 @@ private struct ConversationLibraryCard: View {
 
                     Image(systemName: session.isActive ? "record.circle" : "text.bubble")
                         .font(.callout.weight(.semibold))
-                        .foregroundStyle(session.isActive ? .red : Color(themeColor: theme.accentColor))
+                        .foregroundStyle(session.isActive ? .red : accentText)
 
                     Text(session.title)
                         .font(.callout.weight(.semibold))
@@ -1401,7 +1406,7 @@ private struct ConversationAIProviderControls: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles")
-                    .foregroundStyle(Color(themeColor: theme.accentColor))
+                    .themeAccentForeground(theme)
                     .frame(width: 18)
                 Text("Conversation AI")
                     .font(.caption.weight(.semibold))
@@ -1518,7 +1523,7 @@ private struct ConversationSegmentRow: View {
                 if segment.state == .live {
                     Label("Live", systemImage: "waveform")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Color(themeColor: theme.accentColor))
+                        .themeAccentForeground(theme)
                 }
             }
             .frame(width: 54, alignment: .leading)
@@ -1666,7 +1671,7 @@ private struct ConversationSegmentRow: View {
         VStack(alignment: .leading, spacing: 7) {
             Label("Diarization turns", systemImage: "person.wave.2")
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(Color(themeColor: theme.accentColor))
+                .themeAccentForeground(theme)
 
             ForEach(Array(segment.speakerTurns.prefix(6))) { turn in
                 HStack(spacing: 8) {
@@ -1742,7 +1747,7 @@ private struct AssistCardView: View {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: card.kind.systemImage)
                     .font(.headline)
-                    .foregroundStyle(Color(themeColor: theme.accentColor))
+                    .themeAccentForeground(theme)
                     .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 3) {

@@ -25,6 +25,12 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(ASRProviderKind.canaryQwen25B.rawValue, "canary-qwen-2.5b")
     }
 
+    func testASRProviderUserSelectableCasesUseProductionLocalModels() {
+        XCTAssertEqual(ASRProviderKind.userSelectableCases, [.parakeetTDTMLX, .canaryQwen25B])
+        XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.fake))
+        XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.parakeetTDT))
+    }
+
     func testDiarizationPrecisionMapsToMLXProviderIDs() {
         XCTAssertEqual(DiarizationPrecision.fp16.providerID, "mlx-sortformer-streaming-fp16")
         XCTAssertEqual(DiarizationPrecision.fp32.providerID, "mlx-sortformer-streaming-fp32")

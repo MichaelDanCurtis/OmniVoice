@@ -191,6 +191,7 @@ final class AppModel {
     @ObservationIgnored private var liveDiarizationPreviewGeneration = 0
     @ObservationIgnored private var conversationAIContextSessionID: String?
     @ObservationIgnored var onHotkeysChanged: ((OmniVoicePreferences) -> Void)?
+    @ObservationIgnored var onThemeChanged: ((OmniVoiceTheme, AppAppearanceMode) -> Void)?
 
     init(
         preferences: OmniVoicePreferences? = nil,
@@ -248,7 +249,9 @@ final class AppModel {
         self.preferencesStore = preferencesStore
         self.engineClient = engineClient
         self.workspaceStore = workspaceStore
-        self.preferences = preferences ?? (try? preferencesStore.load()) ?? .defaults
+        var resolvedPreferences = preferences ?? (try? preferencesStore.load()) ?? .defaults
+        resolvedPreferences.asrProvider = resolvedPreferences.asrProvider.normalizedForUserSelection
+        self.preferences = resolvedPreferences
         self.session = session
         self.captionText = captionText
         self.statusText = statusText
@@ -1145,11 +1148,18 @@ final class AppModel {
     }
 
     func setASRProvider(_ provider: ASRProviderKind) {
-        preferences.asrProvider = provider
+        let normalizedProvider = provider.normalizedForUserSelection
+        preferences.asrProvider = normalizedProvider
         persistPreferences()
         modelUpdateInfo = nil
         modelDownloadStatus = nil
-        statusText = "ASR: \(provider.rawValue)"
+        statusText = "ASR: \(normalizedProvider.rawValue)"
+    }
+
+    func completeFirstRunSetup() {
+        preferences.firstRunSetupCompleted = true
+        persistPreferences()
+        statusText = "Setup guide completed"
     }
 
     func setMicrophoneID(_ microphoneID: String?) {
@@ -1180,6 +1190,7 @@ final class AppModel {
         }
 
         statusText = "Theme: \(activeTheme.name)"
+        notifyThemeChanged()
     }
 
     func setCustomAccentColor(_ color: ThemeColor) {
@@ -1194,6 +1205,7 @@ final class AppModel {
         }
 
         statusText = "Custom accent: \(color.hex)"
+        notifyThemeChanged()
     }
 
     func setAppearanceMode(_ mode: AppAppearanceMode) {
@@ -1207,6 +1219,7 @@ final class AppModel {
         }
 
         statusText = "Appearance: \(mode.displayName)"
+        notifyThemeChanged()
     }
 
     func setWaveformMode(_ mode: WaveformMode) {
@@ -3451,6 +3464,10 @@ final class AppModel {
             statusText = "Preferences save failed"
             return false
         }
+    }
+
+    private func notifyThemeChanged() {
+        onThemeChanged?(activeTheme, preferences.appearanceMode)
     }
 
     private func normalizedLanguageCode(_ language: String, fallback: String) -> String {

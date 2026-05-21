@@ -21,8 +21,9 @@ struct SettingsView: View {
     @State private var confirmClearConversations = false
     @State private var confirmClearAIThreads = false
     @Namespace private var settingsTabNamespace
+    @Environment(\.colorScheme) private var colorScheme
 
-    private let providerOrder: [ASRProviderKind] = [.parakeetTDT, .parakeetTDTMLX, .canaryQwen25B, .fake]
+    private let providerOrder = ASRProviderKind.userSelectableCases
 
     var body: some View {
         VStack(spacing: 0) {
@@ -98,11 +99,15 @@ struct SettingsView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(selectedTab == tab ? Color(themeColor: model.activeTheme.accentColor) : .secondary)
+                .foregroundStyle(selectedTab == tab ? Color(themeColor: activePalette.accentText) : .secondary)
                 .liquidGlassMotion(model.activeTheme, strong: selectedTab == tab)
                 .help(tab.title)
             }
         }
+    }
+
+    private var activePalette: ResolvedThemePalette {
+        model.activeTheme.resolvedPalette(for: colorScheme)
     }
 
     @ViewBuilder
@@ -126,6 +131,7 @@ struct SettingsView: View {
         switch selectedTab {
         case .overview:
             tabPage {
+                firstRunSetupSection
                 statusSection
                 startupPreflightSection
                 storageSection
@@ -172,6 +178,86 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .padding(.horizontal, 12)
         .padding(.bottom, 12)
+    }
+
+    @ViewBuilder
+    private var firstRunSetupSection: some View {
+        if !model.preferences.firstRunSetupCompleted {
+            Section("First Run Setup") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("OmniVoice needs permissions and the local MLX speech model before dictation feels instant.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    setupChecklistRow(
+                        title: "Microphone",
+                        detail: model.microphoneAuthorized
+                            ? "Allowed"
+                            : "Allow microphone capture so OmniVoice can hear dictation.",
+                        state: model.microphoneAuthorized ? .passed : .failed
+                    )
+
+                    setupChecklistRow(
+                        title: "Accessibility",
+                        detail: model.accessibilityTrusted
+                            ? "Allowed"
+                            : "Allow Accessibility so OmniVoice can insert text at the cursor.",
+                        state: model.accessibilityTrusted ? .passed : .failed
+                    )
+
+                    setupChecklistRow(
+                        title: "Speech Model",
+                        detail: firstRunSpeechModelDetail,
+                        state: firstRunSpeechModelState
+                    )
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Button("Refresh Checks") {
+                                refreshPermissions()
+                                Task {
+                                    await model.refreshEngineStatus()
+                                    await model.refreshStartupChecks()
+                                }
+                            }
+
+                            if !model.microphoneAuthorized {
+                                Button("Fix Microphone") {
+                                    openMicrophoneSettings()
+                                }
+                            }
+
+                            if !model.accessibilityTrusted {
+                                Button("Fix Accessibility") {
+                                    requestAccessibilityPermission()
+                                }
+                            }
+                        }
+
+                        HStack {
+                            Button(modelDownloadButtonTitle) {
+                                selectedTab = .models
+                                Task {
+                                    await model.downloadSelectedModel()
+                                    await model.refreshStartupChecks()
+                                }
+                            }
+                            .disabled(isModelActionRunning || selectedModelStatus == nil)
+
+                            Button("Show Caption") {
+                                showTestCaption()
+                            }
+
+                            Button("Finish Setup") {
+                                model.completeFirstRunSetup()
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
     }
 
     @ViewBuilder
@@ -379,16 +465,24 @@ struct SettingsView: View {
     }
 
     private func startupCheckRow(_ check: StartupCheckItem) -> some View {
+        setupChecklistRow(title: check.title, detail: check.detail, state: check.state)
+    }
+
+    private func setupChecklistRow(
+        title: String,
+        detail: String,
+        state: StartupCheckState
+    ) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: startupCheckIcon(for: check.state))
+            Image(systemName: startupCheckIcon(for: state))
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(startupCheckColor(for: check.state))
+                .foregroundStyle(startupCheckColor(for: state))
                 .frame(width: 18)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(check.title)
+                Text(title)
                     .font(.callout.weight(.semibold))
-                Text(check.detail)
+                Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -396,9 +490,9 @@ struct SettingsView: View {
 
             Spacer(minLength: 10)
 
-            Text(check.state.label)
+            Text(state.label)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(startupCheckColor(for: check.state))
+                .foregroundStyle(startupCheckColor(for: state))
         }
         .padding(.vertical, 4)
     }
@@ -501,12 +595,7 @@ struct SettingsView: View {
                     await model.downloadSelectedModel()
                 }
             }
-            .disabled(model.preferences.asrProvider == .fake || isModelActionRunning)
-
-            Button("Use Fake For Testing") {
-                model.setASRProvider(.fake)
-            }
-            .disabled(model.preferences.asrProvider == .fake)
+            .disabled(isModelActionRunning || selectedModelStatus == nil)
         }
     }
 
@@ -1468,7 +1557,7 @@ struct SettingsView: View {
 
     private var providerBinding: Binding<ASRProviderKind> {
         Binding(
-            get: { model.preferences.asrProvider },
+            get: { model.preferences.asrProvider.normalizedForUserSelection },
             set: { model.setASRProvider($0) }
         )
     }
@@ -1939,6 +2028,36 @@ struct SettingsView: View {
         return "\(label) unavailable"
     }
 
+    private var firstRunSpeechModelState: StartupCheckState {
+        if let provider = model.providerInfo(for: model.preferences.asrProvider), !provider.available {
+            return .failed
+        }
+
+        guard let status = selectedModelStatus else {
+            return .warning
+        }
+
+        return status.installed ? .passed : .failed
+    }
+
+    private var firstRunSpeechModelDetail: String {
+        let label = model.label(for: model.preferences.asrProvider)
+
+        if let provider = model.providerInfo(for: model.preferences.asrProvider), !provider.available {
+            return provider.reason ?? "\(label) is unavailable."
+        }
+
+        guard let status = selectedModelStatus else {
+            return "\(label) model status has not loaded yet."
+        }
+
+        if status.installed {
+            return "\(status.label) is installed and ready."
+        }
+
+        return "\(status.label) needs to be downloaded before local dictation."
+    }
+
     private var selectedModelStatus: EngineModelStatus? {
         model.modelStatus(for: model.preferences.asrProvider)
     }
@@ -2272,40 +2391,36 @@ private struct OmniVoiceHelpGuide: View {
             HelpHeroCard(theme: theme)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Use It Like This")
+                Text("Capability Reference")
                     .font(.headline)
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 10)], spacing: 10) {
-                    ForEach(HelpWorkflow.allCases) { workflow in
-                        HelpWorkflowCard(workflow: workflow, theme: theme)
-                    }
-                }
+                CapabilityCatalogView(theme: theme, onSelect: onSelect)
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Things You Can Say")
                     .font(.headline)
 
-                VStack(spacing: 8) {
-                    HelpPhraseRow(
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 10)], spacing: 10) {
+                    HelpPhraseCard(
                         icon: "text.quote",
                         phrase: "No wait, I mean...",
                         detail: "Replaces the previous thought instead of appending the correction.",
                         theme: theme
                     )
-                    HelpPhraseRow(
+                    HelpPhraseCard(
                         icon: "globe",
                         phrase: "Translation on. Translate to Spanish.",
                         detail: "Turns live translation on and shows the active target above captions.",
                         theme: theme
                     )
-                    HelpPhraseRow(
+                    HelpPhraseCard(
                         icon: "sparkle.magnifyingglass",
                         phrase: "Ask Claude, write a quick reply...",
                         detail: "Sends the spoken request to the configured AI provider and inserts the answer.",
                         theme: theme
                     )
-                    HelpPhraseRow(
+                    HelpPhraseCard(
                         icon: "person.2.wave.2",
                         phrase: "Start conversation mode.",
                         detail: "Records speaker turns, keeps a transcript, and lets Ask AI answer questions about it.",
@@ -2315,10 +2430,14 @@ private struct OmniVoiceHelpGuide: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Capability Reference")
+                Text("Use It Like This")
                     .font(.headline)
 
-                CapabilityCatalogView(theme: theme, onSelect: onSelect)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 10)], spacing: 10) {
+                    ForEach(HelpWorkflow.allCases) { workflow in
+                        HelpWorkflowCard(workflow: workflow, theme: theme)
+                    }
+                }
             }
         }
         .padding(.vertical, 4)
@@ -2348,7 +2467,7 @@ private struct HelpHeroCard: View {
 
                 Image(systemName: "waveform.and.mic")
                     .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(Color(themeColor: theme.accentColor))
+                    .themeAccentForeground(theme)
                     .frame(width: 70, height: 70)
                     .whisperBlobSurface(
                         accent: Color(themeColor: theme.accentColor),
@@ -2431,7 +2550,7 @@ private struct HelpWorkflowCard: View {
             HStack(spacing: 9) {
                 Image(systemName: workflow.systemImage)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Color(themeColor: theme.accentColor))
+                    .themeAccentForeground(theme)
                     .frame(width: 30, height: 30)
                     .themePillSurface(theme, interactive: false)
 
@@ -2440,7 +2559,7 @@ private struct HelpWorkflowCard: View {
                         .font(.callout.weight(.semibold))
                     Text(workflow.kicker)
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Color(themeColor: theme.accentColor))
+                        .themeAccentForeground(theme)
                         .textCase(.uppercase)
                 }
 
@@ -2467,32 +2586,46 @@ private struct HelpWorkflowCard: View {
     }
 }
 
-private struct HelpPhraseRow: View {
+private struct HelpPhraseCard: View {
     let icon: String
     let phrase: String
     let detail: String
     let theme: OmniVoiceTheme
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color(themeColor: theme.accentColor))
-                .frame(width: 24, height: 24)
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 9) {
+                Image(systemName: icon)
+                    .font(.system(size: 17, weight: .semibold))
+                    .themeAccentForeground(theme)
+                    .frame(width: 30, height: 30)
+                    .themePillSurface(theme, interactive: false)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(phrase)
-                    .font(.callout.weight(.semibold))
-                    .textSelection(.enabled)
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text("Say This")
+                    .font(.caption2.weight(.semibold))
+                    .themeAccentForeground(theme)
+                    .textCase(.uppercase)
+
+                Spacer(minLength: 0)
             }
+
+            Text(phrase)
+                .font(.caption.monospaced())
+                .textSelection(.enabled)
+                .lineLimit(2)
+                .minimumScaleFactor(0.82)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(themeColor: theme.surfaceTint).opacity(0.10), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .themeSurface(theme, cornerRadius: 9, strong: false, interactive: false)
+        .frame(maxWidth: .infinity, minHeight: 136, alignment: .topLeading)
+        .themeSurface(theme, cornerRadius: 10, strong: false)
     }
 }
 
@@ -2709,10 +2842,10 @@ private struct CapabilityDemoVisual: View {
             }
             HStack(spacing: 7) {
                 Image(systemName: "arrow.turn.down.right")
-                    .foregroundStyle(Color(themeColor: theme.accentColor))
+                    .themeAccentForeground(theme)
                 Text("house")
                     .font(.system(size: compact ? 15 : 28, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(themeColor: theme.accentColor))
+                    .themeAccentForeground(theme)
                     .scaleEffect(active ? 1 : 0.92)
                     .animation(.spring(response: 0.42, dampingFraction: 0.72), value: animate)
             }
@@ -2725,11 +2858,11 @@ private struct CapabilityDemoVisual: View {
         HStack(spacing: compact ? 7 : 14) {
             Text(active ? "“" : "quote")
                 .font(.system(size: compact ? 18 : 40, weight: .bold, design: .serif))
-                .foregroundStyle(Color(themeColor: theme.accentColor))
+                .themeAccentForeground(theme)
             demoTextPill("hello Jane")
             Text(active ? "”" : "close")
                 .font(.system(size: compact ? 18 : 40, weight: .bold, design: .serif))
-                .foregroundStyle(Color(themeColor: theme.secondaryAccentColor))
+                .themeSecondaryAccentForeground(theme)
         }
         .padding(.horizontal, compact ? 8 : 18)
         .animation(.snappy(duration: 0.42), value: animate)
@@ -2772,7 +2905,7 @@ private struct CapabilityDemoVisual: View {
         VStack(alignment: .leading, spacing: compact ? 6 : 10) {
             HStack(spacing: 7) {
                 Image(systemName: "lock.fill")
-                    .foregroundStyle(Color(themeColor: theme.accentColor))
+                    .themeAccentForeground(theme)
                 Text("literal")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
@@ -2781,7 +2914,7 @@ private struct CapabilityDemoVisual: View {
                 .font(.caption.monospaced())
                 .overlay(alignment: .trailing) {
                     Image(systemName: "checkmark.seal.fill")
-                        .foregroundStyle(Color(themeColor: theme.accentColor))
+                        .themeAccentForeground(theme)
                         .offset(x: compact ? 8 : 10)
                         .opacity(active ? 1 : 0.35)
                 }
@@ -2796,10 +2929,10 @@ private struct CapabilityDemoVisual: View {
                 .foregroundStyle(.secondary)
             HStack(spacing: 6) {
                 Image(systemName: "text.book.closed.fill")
-                    .foregroundStyle(Color(themeColor: theme.accentColor))
+                    .themeAccentForeground(theme)
                 Text("Parakeet TDT")
                     .font(.system(size: compact ? 13 : 22, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color(themeColor: theme.accentColor))
+                    .themeAccentForeground(theme)
                     .padding(.horizontal, compact ? 8 : 12)
                     .padding(.vertical, compact ? 4 : 7)
                     .background(Color(themeColor: theme.accentColor).opacity(0.15), in: Capsule())
@@ -2825,11 +2958,11 @@ private struct CapabilityDemoVisual: View {
             demoTextPill("Hello")
             Image(systemName: "globe")
                 .font(.system(size: compact ? 17 : 34, weight: .semibold))
-                .foregroundStyle(Color(themeColor: theme.accentColor))
+                .themeAccentForeground(theme)
                 .rotationEffect(.degrees(active ? 8 : -8))
                 .animation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true), value: animate)
             demoTextPill(active ? "Hola" : "...")
-                .foregroundStyle(Color(themeColor: theme.accentColor))
+                .themeAccentForeground(theme)
         }
         .padding(.horizontal, compact ? 8 : 18)
     }
@@ -2876,7 +3009,7 @@ private struct CapabilityDemoVisual: View {
     private func demoIcon(_ systemName: String) -> some View {
         Image(systemName: systemName)
             .font(.system(size: compact ? 17 : 30, weight: .semibold))
-            .foregroundStyle(Color(themeColor: theme.accentColor))
+            .themeAccentForeground(theme)
             .frame(width: compact ? 34 : 58, height: compact ? 34 : 58)
             .background(Color(themeColor: theme.surfaceTint).opacity(0.16), in: Circle())
             .overlay {
@@ -2913,7 +3046,7 @@ private struct CapabilityDemoVisual: View {
                 .font(compact ? .caption2.weight(.semibold) : .caption.weight(.semibold))
                 .lineLimit(1)
         }
-        .foregroundStyle(Color(themeColor: theme.accentColor))
+        .themeAccentForeground(theme)
         .frame(width: compact ? 48 : 78, height: compact ? 48 : 78)
         .background(Color(themeColor: theme.surfaceTint).opacity(0.14), in: RoundedRectangle(cornerRadius: compact ? 8 : 14, style: .continuous))
         .overlay {
@@ -2943,7 +3076,7 @@ private struct CapabilityCard: View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 8) {
                 Image(systemName: capability.systemImage)
-                    .foregroundStyle(Color(themeColor: theme.accentColor))
+                    .themeAccentForeground(theme)
                     .frame(width: 18)
                 Text(capability.title)
                     .font(.callout.weight(.semibold))
@@ -2978,7 +3111,7 @@ private struct CapabilityDetailSheet: View {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: capability.systemImage)
                             .font(.title2)
-                            .foregroundStyle(Color(themeColor: theme.accentColor))
+                            .themeAccentForeground(theme)
                             .frame(width: 34, height: 34)
                             .themePillSurface(theme, interactive: false)
 
@@ -3066,7 +3199,7 @@ private struct CapabilityDetailBlock: View {
         VStack(alignment: .leading, spacing: 8) {
             Label(title, systemImage: systemImage)
                 .font(.callout.weight(.semibold))
-                .foregroundStyle(Color(themeColor: theme.accentColor))
+                .themeAccentForeground(theme)
 
             if let text {
                 Text(text)

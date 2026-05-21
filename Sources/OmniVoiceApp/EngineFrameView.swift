@@ -81,7 +81,7 @@ struct EngineFrameView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Conversation")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color(themeColor: theme.accentColor))
+                    .themeAccentForeground(theme)
                     .textCase(.uppercase)
                 Text("Transcript History")
                     .font(.title3.weight(.bold))
@@ -109,7 +109,7 @@ struct EngineFrameView: View {
         VStack(alignment: .leading, spacing: 8) {
             Image(systemName: "text.bubble")
                 .font(.title2)
-                .foregroundStyle(Color(themeColor: theme.accentColor))
+                .themeAccentForeground(theme)
             Text("No transcripts yet")
                 .font(.headline)
             Text("Dictated text from the engine will appear here with copy and insert controls.")
@@ -147,7 +147,7 @@ struct EngineFrameView: View {
 
             Image(systemName: "bubble.left.and.text.bubble.right")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(themeColor: theme.accentColor))
+                .themeAccentForeground(theme)
         }
         .frame(width: Self.handleWidth, height: Self.handleHeight)
         .background {

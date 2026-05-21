@@ -42,6 +42,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var liveDraftInsertionEnabled: Bool
     public var conversationArchiveFolderPath: String
     public var automaticallyArchiveConversations: Bool
+    public var firstRunSetupCompleted: Bool
 
     public var microphoneID: String? {
         get { microphoneId }
@@ -69,7 +70,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     }
 
     public static let defaults = OmniVoicePreferences(
-        asrProvider: .parakeetTDT,
+        asrProvider: .parakeetTDTMLX,
         style: .neutral,
         dictionaryTerms: [],
         microphoneID: nil,
@@ -106,7 +107,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         mcpServers: [],
         liveDraftInsertionEnabled: false,
         conversationArchiveFolderPath: ConversationArchive.defaultRootURL().path,
-        automaticallyArchiveConversations: true
+        automaticallyArchiveConversations: true,
+        firstRunSetupCompleted: false
     )
 
     public init(
@@ -151,9 +153,10 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         mcpServers: [MCPServerConfiguration] = [],
         liveDraftInsertionEnabled: Bool = false,
         conversationArchiveFolderPath: String = ConversationArchive.defaultRootURL().path,
-        automaticallyArchiveConversations: Bool = true
+        automaticallyArchiveConversations: Bool = true,
+        firstRunSetupCompleted: Bool = false
     ) {
-        self.asrProvider = asrProvider
+        self.asrProvider = asrProvider.normalizedForUserSelection
         self.style = style
         self.dictionaryTerms = dictionaryTerms
         self.microphoneId = microphoneID
@@ -214,6 +217,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         self.liveDraftInsertionEnabled = liveDraftInsertionEnabled
         self.conversationArchiveFolderPath = conversationArchiveFolderPath
         self.automaticallyArchiveConversations = automaticallyArchiveConversations
+        self.firstRunSetupCompleted = firstRunSetupCompleted
         self.migrateLegacyHotMenuDefaultsIfNeeded()
     }
 
@@ -297,7 +301,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             conversationArchiveFolderPath: try container.decodeIfPresent(String.self, forKey: .conversationArchiveFolderPath)
                 ?? ConversationArchive.defaultRootURL().path,
             automaticallyArchiveConversations: try container.decodeIfPresent(Bool.self, forKey: .automaticallyArchiveConversations)
-                ?? true
+                ?? true,
+            firstRunSetupCompleted: try container.decodeIfPresent(Bool.self, forKey: .firstRunSetupCompleted) ?? false
         )
     }
 
@@ -357,7 +362,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             conversationArchiveFolderPath: try container.decodeIfPresent(String.self, forKey: .conversationArchiveFolderPath)
                 ?? ConversationArchive.defaultRootURL().path,
             automaticallyArchiveConversations: try container.decodeIfPresent(Bool.self, forKey: .automaticallyArchiveConversations)
-                ?? true
+                ?? true,
+            firstRunSetupCompleted: try container.decodeIfPresent(Bool.self, forKey: .firstRunSetupCompleted) ?? false
         )
     }
 
@@ -367,14 +373,12 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
 
     public mutating func cycleASRProvider() {
         switch asrProvider {
-        case .parakeetTDT:
-            asrProvider = .parakeetTDTMLX
         case .parakeetTDTMLX:
             asrProvider = .canaryQwen25B
         case .canaryQwen25B:
-            asrProvider = .fake
-        case .fake:
-            asrProvider = .parakeetTDT
+            asrProvider = .parakeetTDTMLX
+        case .fake, .parakeetTDT:
+            asrProvider = .parakeetTDTMLX
         }
     }
 
@@ -592,6 +596,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case liveDraftInsertionEnabled = "live_draft_insertion_enabled"
         case conversationArchiveFolderPath = "conversation_archive_folder_path"
         case automaticallyArchiveConversations = "automatically_archive_conversations"
+        case firstRunSetupCompleted = "first_run_setup_completed"
     }
 
     private enum ConvertedCodingKeys: String, CodingKey {
@@ -633,6 +638,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case liveDraftInsertionEnabled
         case conversationArchiveFolderPath
         case automaticallyArchiveConversations
+        case firstRunSetupCompleted
     }
 
     private enum AcronymCodingKeys: String, CodingKey {

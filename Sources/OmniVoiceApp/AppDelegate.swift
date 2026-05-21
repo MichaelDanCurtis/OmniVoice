@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let engineClient = EngineClient()
     private let streamingClient = EngineStreamingClient()
     private let insertionService = TextInsertionService()
+    private let dockIconController = DynamicDockIconController()
     private let commandExecutor = DictationCommandExecutor()
     private var lastInputLevel: Float = 0
     private var lastLevelOverlayUpdate = Date.distantPast
@@ -60,6 +61,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.onHotkeysChanged = { [weak self] preferences in
             self?.applyHotkeys(preferences: preferences)
         }
+        model.onThemeChanged = { [weak self] theme, appearanceMode in
+            self?.dockIconController.apply(theme: theme, appearanceMode: appearanceMode)
+        }
         streamingClient.setOnDiagnostics { [weak self] diagnostics in
             Task { @MainActor [weak self] in
                 self?.model?.streamingDiagnostics = diagnostics
@@ -68,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         startPermissionRefreshTimer()
         applyHotkeys(preferences: model.preferences)
+        dockIconController.apply(theme: model.activeTheme, appearanceMode: model.preferences.appearanceMode)
     }
 
     func refreshPermissionStatus() {

@@ -44,6 +44,12 @@ extension AppAppearanceMode {
     }
 }
 
+extension OmniVoiceTheme {
+    func resolvedPalette(for colorScheme: ColorScheme) -> ResolvedThemePalette {
+        resolvedPalette(for: colorScheme == .dark ? ThemeResolvedAppearance.dark : ThemeResolvedAppearance.light)
+    }
+}
+
 struct ThemeSurface: ViewModifier {
     let theme: OmniVoiceTheme
     let cornerRadius: CGFloat
@@ -188,17 +194,29 @@ struct ThemePillSurface: ViewModifier {
     }
 }
 
+struct ThemeAccentForeground: ViewModifier {
+    let theme: OmniVoiceTheme
+    let secondary: Bool
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let palette = theme.resolvedPalette(for: colorScheme)
+        content.foregroundStyle(Color(themeColor: secondary ? palette.secondaryAccentText : palette.accentText))
+    }
+}
+
 struct ThemedWindowBackground: ViewModifier {
     let theme: OmniVoiceTheme
     @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
+        let palette = theme.resolvedPalette(for: colorScheme)
         content
             .background {
                 OmniVoiceWindowBackground(theme: theme, colorScheme: colorScheme)
                     .ignoresSafeArea()
             }
-            .tint(Color(themeColor: theme.accentColor))
+            .tint(Color(themeColor: palette.accentText))
     }
 }
 
@@ -259,6 +277,14 @@ extension View {
         interactive: Bool = false
     ) -> some View {
         modifier(ThemePillSurface(theme: theme, interactive: interactive))
+    }
+
+    func themeAccentForeground(_ theme: OmniVoiceTheme) -> some View {
+        modifier(ThemeAccentForeground(theme: theme, secondary: false))
+    }
+
+    func themeSecondaryAccentForeground(_ theme: OmniVoiceTheme) -> some View {
+        modifier(ThemeAccentForeground(theme: theme, secondary: true))
     }
 
     func liquidGlassMotion(

@@ -98,6 +98,27 @@ public enum AppAppearanceMode: String, CaseIterable, Codable, Equatable, Hashabl
     }
 }
 
+public struct DockIconSpectrumProfile: Equatable, Sendable {
+    public let normalizedLevels: [Double]
+    public let glowOpacity: Double
+
+    public static let subtleVU = DockIconSpectrumProfile(
+        levels: [0.28, 0.48, 0.70, 0.88, 1.0, 0.88, 0.70, 0.48, 0.28],
+        glowOpacity: 0.18
+    )
+
+    public init(levels: [Double], glowOpacity: Double) {
+        let clampedLevels = levels.map { min(max($0, 0), 1) }
+        let peak = clampedLevels.max() ?? 1
+        if peak > 0 {
+            normalizedLevels = clampedLevels.map { $0 / peak }
+        } else {
+            normalizedLevels = clampedLevels
+        }
+        self.glowOpacity = min(max(glowOpacity, 0), 1)
+    }
+}
+
 public enum ThemeContrastMode: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
     case standard
     case elevated
@@ -155,6 +176,28 @@ public struct ThemeColor: Codable, Equatable, Hashable, Sendable {
         "rgba(\(red), \(green), \(blue), \(opacityString(alpha)))"
     }
 
+    public var relativeLuminance: Double {
+        guard let rgb else { return 0 }
+
+        func channel(_ value: Int) -> Double {
+            let normalized = Double(value) / 255.0
+            if normalized <= 0.03928 {
+                return normalized / 12.92
+            }
+            return pow((normalized + 0.055) / 1.055, 2.4)
+        }
+
+        return (0.2126 * channel(rgb.red)) + (0.7152 * channel(rgb.green)) + (0.0722 * channel(rgb.blue))
+    }
+
+    public func contrastRatio(against background: ThemeColor) -> Double {
+        let foregroundLuminance = relativeLuminance
+        let backgroundLuminance = background.relativeLuminance
+        let lighter = max(foregroundLuminance, backgroundLuminance)
+        let darker = min(foregroundLuminance, backgroundLuminance)
+        return (lighter + 0.05) / (darker + 0.05)
+    }
+
     fileprivate static func cssRGBA(_ color: ThemeColor, alpha: Double) -> String {
         guard let rgb = color.rgb else {
             return cssRGBA(red: 0, green: 0, blue: 0, alpha: alpha)
@@ -166,6 +209,77 @@ public struct ThemeColor: Codable, Equatable, Hashable, Sendable {
     private static func opacityString(_ value: Double) -> String {
         String(format: "%.2f", min(max(value, 0.0), 1.0))
     }
+
+    fileprivate static func readableText(on background: ThemeColor, minimumContrast: Double = 4.5) -> ThemeColor {
+        let dark = ThemeColor(hex: "#06121C")
+        let light = ThemeColor(hex: "#F8FAFC")
+        let darkContrast = dark.contrastRatio(against: background)
+        let lightContrast = light.contrastRatio(against: background)
+
+        if darkContrast >= minimumContrast {
+            return dark
+        }
+        if lightContrast >= minimumContrast {
+            return light
+        }
+
+        let black = ThemeColor(hex: "#000000")
+        let white = ThemeColor(hex: "#FFFFFF")
+        return black.contrastRatio(against: background) >= white.contrastRatio(against: background) ? black : white
+    }
+
+    fileprivate func adjustedForText(on background: ThemeColor, minimumContrast: Double = 4.5) -> ThemeColor {
+        if contrastRatio(against: background) >= minimumContrast {
+            return self
+        }
+
+        let target = background.relativeLuminance > 0.50 ? ThemeColor(hex: "#06121C") : ThemeColor(hex: "#F8FAFC")
+        for step in 1...40 {
+            let mixed = mixed(with: target, amount: Double(step) / 40.0)
+            if mixed.contrastRatio(against: background) >= minimumContrast {
+                return mixed
+            }
+        }
+
+        return ThemeColor.readableText(on: background, minimumContrast: minimumContrast)
+    }
+
+    private func mixed(with target: ThemeColor, amount: Double) -> ThemeColor {
+        guard let sourceRGB = rgb, let targetRGB = target.rgb else {
+            return self
+        }
+
+        let clampedAmount = min(max(amount, 0), 1)
+        func mix(_ source: Int, _ target: Int) -> Int {
+            Int((Double(source) + ((Double(target) - Double(source)) * clampedAmount)).rounded())
+        }
+
+        return ThemeColor(
+            hex: String(
+                format: "#%02X%02X%02X",
+                mix(sourceRGB.red, targetRGB.red),
+                mix(sourceRGB.green, targetRGB.green),
+                mix(sourceRGB.blue, targetRGB.blue)
+            )
+        )
+    }
+}
+
+public enum ThemeResolvedAppearance: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
+    case light
+    case dark
+}
+
+public struct ResolvedThemePalette: Equatable, Sendable {
+    public let windowBackground: ThemeColor
+    public let primaryText: ThemeColor
+    public let mutedText: ThemeColor
+    public let accentGraphic: ThemeColor
+    public let secondaryAccentGraphic: ThemeColor
+    public let accentText: ThemeColor
+    public let secondaryAccentText: ThemeColor
+    public let onAccentText: ThemeColor
+    public let captionText: ThemeColor
 }
 
 public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
@@ -307,15 +421,41 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
         0.64
     }
 
+    public func resolvedPalette(for appearance: ThemeResolvedAppearance) -> ResolvedThemePalette {
+        let background = switch appearance {
+        case .light:
+            ThemeColor(hex: "#F8FAFC")
+        case .dark:
+            ThemeColor(hex: "#06121C")
+        }
+        let primaryText = ThemeColor.readableText(on: background)
+
+        return ResolvedThemePalette(
+            windowBackground: background,
+            primaryText: primaryText,
+            mutedText: primaryText,
+            accentGraphic: accentColor,
+            secondaryAccentGraphic: secondaryAccentColor,
+            accentText: accentColor.adjustedForText(on: background),
+            secondaryAccentText: secondaryAccentColor.adjustedForText(on: background),
+            onAccentText: ThemeColor.readableText(on: accentColor),
+            captionText: primaryText
+        )
+    }
+
     public var cssVariables: [String: String] {
-        [
+        let palette = resolvedPalette(for: .dark)
+        return [
             "--ov-accent": accentColor.hex,
+            "--ov-accent-text": palette.accentText.hex,
             "--ov-accent-secondary": secondaryAccentColor.hex,
+            "--ov-accent-secondary-text": palette.secondaryAccentText.hex,
             "--ov-bg": surfaceTint.hex,
             "--ov-surface": rgba(surfaceTint, glassOpacity),
             "--ov-surface-strong": rgba(surfaceTint, min(glassOpacity + 0.18, 1.0)),
             "--ov-text": textColor.hex,
             "--ov-muted": rgba(mutedTextColor, mutedTextOpacity),
+            "--ov-on-accent": palette.onAccentText.hex,
             "--ov-border": rgba(accentColor, borderOpacity),
             "--ov-glow": rgba(accentColor, glowStrength),
             "--ov-caption-bg": rgba(surfaceTint, captionOpacity)

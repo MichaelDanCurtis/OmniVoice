@@ -34,6 +34,15 @@ public enum ASRProviderKind: String, CaseIterable, Codable, Equatable, Sendable 
     case parakeetTDT = "parakeet-tdt"
     case parakeetTDTMLX = "parakeet-tdt-mlx"
     case canaryQwen25B = "canary-qwen-2.5b"
+
+    public static let userSelectableCases: [ASRProviderKind] = [
+        .parakeetTDTMLX,
+        .canaryQwen25B,
+    ]
+
+    public var normalizedForUserSelection: ASRProviderKind {
+        Self.userSelectableCases.contains(self) ? self : .parakeetTDTMLX
+    }
 }
 
 public enum TranslationProviderKind: String, CaseIterable, Codable, Equatable, Identifiable, Sendable {

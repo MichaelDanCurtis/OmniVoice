@@ -1,12 +1,15 @@
 :root {
   color-scheme: dark;
   --ov-accent: #38BDF8;
+  --ov-accent-text: #38BDF8;
   --ov-accent-secondary: #818CF8;
+  --ov-accent-secondary-text: #818CF8;
   --ov-bg: #06121C;
   --ov-surface: rgba(6, 18, 28, 0.36);
   --ov-surface-strong: rgba(6, 18, 28, 0.54);
   --ov-text: #F8FAFC;
   --ov-muted: rgba(248, 250, 252, 0.64);
+  --ov-on-accent: #06121C;
   --ov-border: rgba(56, 189, 248, 0.26);
   --ov-glow: rgba(56, 189, 248, 0.34);
   --ov-caption-bg: rgba(6, 18, 28, 0.14);
@@ -58,7 +61,7 @@ button,
 button:hover,
 .button:hover {
   border-color: var(--ov-accent);
-  color: var(--ov-accent);
+  color: var(--ov-accent-text);
   background: var(--ov-surface-strong);
   box-shadow: 0 0 0 1px var(--ov-border), 0 0 22px var(--ov-glow);
 }
@@ -111,7 +114,7 @@ button:disabled {
 
 .eyebrow {
   margin: 0 0 2px;
-  color: var(--ov-accent);
+  color: var(--ov-accent-text);
   text-transform: uppercase;
   font-size: 11px;
   font-weight: 700;
@@ -280,7 +283,7 @@ button:disabled {
 }
 
 .panel h2 {
-  color: var(--ov-accent);
+  color: var(--ov-accent-text);
   font-size: 16px;
   text-shadow: 0 0 18px var(--ov-glow);
 }

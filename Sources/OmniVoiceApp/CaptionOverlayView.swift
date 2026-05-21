@@ -59,8 +59,10 @@ struct CaptionOverlayView: View {
     }
 
     var body: some View {
-        let accent = Color(themeColor: theme.accentColor)
-        let secondary = Color(themeColor: theme.secondaryAccentColor)
+        let palette = theme.resolvedPalette(for: effectiveResolvedAppearance)
+        let accent = Color(themeColor: palette.accentGraphic)
+        let secondary = Color(themeColor: palette.secondaryAccentGraphic)
+        let accentText = Color(themeColor: palette.accentText)
         let tint = Color(themeColor: theme.surfaceTint)
         let textColor = captionTextColor
         let mutedTextColor = captionTextColor
@@ -74,7 +76,7 @@ struct CaptionOverlayView: View {
                 if let translationStatus {
                     Text(translationStatus)
                         .font(.system(size: 10.5, weight: .bold))
-                        .foregroundStyle(accent.opacity(0.96))
+                        .foregroundStyle(accentText.opacity(0.96))
                         .lineLimit(1)
                         .minimumScaleFactor(0.76)
                         .padding(.horizontal, 10)
@@ -203,19 +205,12 @@ struct CaptionOverlayView: View {
         appearanceMode.colorScheme ?? colorScheme
     }
 
-    private var captionTextColor: Color {
-        if theme.contrastMode == .highContrast {
-            return Color(themeColor: theme.textColor).opacity(0.96)
-        }
+    private var effectiveResolvedAppearance: ThemeResolvedAppearance {
+        effectiveColorScheme == .dark ? .dark : .light
+    }
 
-        switch effectiveColorScheme {
-        case .dark:
-            return Color.white.opacity(0.94)
-        case .light:
-            return Color.black.opacity(0.88)
-        @unknown default:
-            return Color(themeColor: theme.textColor).opacity(0.92)
-        }
+    private var captionTextColor: Color {
+        Color(themeColor: theme.resolvedPalette(for: effectiveResolvedAppearance).captionText).opacity(0.94)
     }
 
     private var captionTextShadowColor: Color {
