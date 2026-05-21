@@ -360,6 +360,26 @@ private struct WaveformPreview: View {
                 orbMeter
             case .glyphStream:
                 glyphStream
+            case .signalDots:
+                signalDots
+            case .mirrorBars:
+                mirrorBars
+            case .haloStack:
+                haloStack
+            case .prismSweep:
+                prismSweep
+            case .needleMeter:
+                needleMeter
+            case .ribbonWave:
+                ribbonWave
+            case .equalizerBlocks:
+                equalizerBlocks
+            case .orbitDots:
+                orbitDots
+            case .sparkline:
+                sparkline
+            case .constellation:
+                constellation
             }
         }
         .frame(width: 156, height: 28)
@@ -447,6 +467,188 @@ private struct WaveformPreview: View {
         }
     }
 
+    private var signalDots: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<12, id: \.self) { index in
+                let threshold = Double(index + 1) / 12
+                Circle()
+                    .fill(index.isMultiple(of: 2) ? accent : secondary)
+                    .opacity(normalizedLevel >= threshold ? 0.88 : 0.16)
+                    .frame(width: CGFloat(4 + (index % 3)), height: CGFloat(4 + (index % 3)))
+            }
+        }
+    }
+
+    private var mirrorBars: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<13, id: \.self) { index in
+                let distance = abs(index - 6)
+                let threshold = 1.0 - (Double(distance) / 7.0)
+                Capsule()
+                    .fill(normalizedLevel >= threshold ? accent.opacity(0.86) : muted.opacity(0.16))
+                    .frame(width: 4, height: CGFloat(8 + (6 - distance) * 3))
+            }
+        }
+    }
+
+    private var haloStack: some View {
+        ZStack {
+            ForEach(0..<4, id: \.self) { index in
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(index.isMultiple(of: 2) ? accent : secondary, lineWidth: 1.4)
+                    .opacity(0.14 + normalizedLevel * Double(4 - index) * 0.12)
+                    .frame(width: CGFloat(48 + index * 22), height: CGFloat(8 + index * 4))
+            }
+        }
+    }
+
+    private var prismSweep: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(muted.opacity(0.12))
+
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [secondary.opacity(0.38), accent.opacity(0.92), secondary.opacity(0.66)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: max(8, proxy.size.width * normalizedLevel))
+            }
+        }
+        .frame(height: 7)
+        .padding(.horizontal, 16)
+    }
+
+    private var needleMeter: some View {
+        GeometryReader { proxy in
+            let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height + 2)
+            let length = min(proxy.size.width, proxy.size.height * 3) * 0.42
+            let angle = Angle.degrees(-58 + normalizedLevel * 116)
+
+            ZStack {
+                Capsule()
+                    .fill(muted.opacity(0.14))
+                    .frame(width: proxy.size.width * 0.56, height: 5)
+                    .position(x: proxy.size.width / 2, y: proxy.size.height - 4)
+
+                Path { path in
+                    path.move(to: center)
+                    path.addLine(
+                        to: CGPoint(
+                            x: center.x + cos(angle.radians) * length,
+                            y: center.y + sin(angle.radians) * length
+                        )
+                    )
+                }
+                .stroke(accent.opacity(0.88), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+
+                Circle()
+                    .fill(secondary.opacity(0.82))
+                    .frame(width: 6, height: 6)
+                    .position(center)
+            }
+        }
+        .padding(.horizontal, 24)
+    }
+
+    private var ribbonWave: some View {
+        GeometryReader { proxy in
+            Path { path in
+                let width = proxy.size.width
+                let height = proxy.size.height
+                let midY = height / 2
+                let amplitude = CGFloat(2 + normalizedLevel * 8)
+
+                path.move(to: CGPoint(x: 0, y: midY))
+                for index in 0...24 {
+                    let progress = CGFloat(index) / 24
+                    let wave = sin(progress * .pi * 4)
+                    path.addLine(to: CGPoint(x: width * progress, y: midY - wave * amplitude))
+                }
+            }
+            .stroke(
+                LinearGradient(colors: [accent.opacity(0.35), secondary.opacity(0.9)], startPoint: .leading, endPoint: .trailing),
+                style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
+            )
+            .blur(radius: 0.25)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+    }
+
+    private var equalizerBlocks: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<10, id: \.self) { column in
+                VStack(spacing: 2) {
+                    ForEach((0..<4).reversed(), id: \.self) { row in
+                        let threshold = Double(row + column % 3) / 6.0
+                        RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                            .fill(normalizedLevel >= threshold ? accent.opacity(0.84) : muted.opacity(0.14))
+                            .frame(width: 8, height: 4)
+                    }
+                }
+            }
+        }
+    }
+
+    private var orbitDots: some View {
+        ZStack {
+            Circle()
+                .stroke(muted.opacity(0.18), lineWidth: 1)
+                .frame(width: 58, height: 22)
+
+            ForEach(0..<6, id: \.self) { index in
+                let angle = Double(index) / 6 * Double.pi * 2 + normalizedLevel * Double.pi
+                Circle()
+                    .fill(index.isMultiple(of: 2) ? accent.opacity(0.88) : secondary.opacity(0.78))
+                    .frame(width: 5 + normalizedLevel * 3, height: 5 + normalizedLevel * 3)
+                    .offset(x: cos(angle) * 29, y: sin(angle) * 10)
+            }
+        }
+    }
+
+    private var sparkline: some View {
+        GeometryReader { proxy in
+            Path { path in
+                let points = sparklinePoints(in: proxy.size)
+                guard let first = points.first else { return }
+                path.move(to: first)
+                points.dropFirst().forEach { path.addLine(to: $0) }
+            }
+            .stroke(accent.opacity(0.88), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
+
+    private var constellation: some View {
+        GeometryReader { proxy in
+            let points = constellationPoints(in: proxy.size)
+
+            ZStack {
+                Path { path in
+                    guard let first = points.first else { return }
+                    path.move(to: first)
+                    points.dropFirst().forEach { path.addLine(to: $0) }
+                }
+                .stroke(secondary.opacity(0.34 + normalizedLevel * 0.32), lineWidth: 1)
+
+                ForEach(points.indices, id: \.self) { index in
+                    Circle()
+                        .fill(index < activeConstellationPoints ? accent.opacity(0.88) : muted.opacity(0.20))
+                        .frame(width: 4, height: 4)
+                        .position(points[index])
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 3)
+    }
+
     private var activeBars: Int {
         Int((normalizedLevel * 14).rounded(.up))
     }
@@ -457,5 +659,31 @@ private struct WaveformPreview: View {
 
     private var glyphs: [String] {
         ["ov", "01", "A", "7", "tx", ">", "9", "V", "3"]
+    }
+
+    private var activeConstellationPoints: Int {
+        Int((normalizedLevel * 6).rounded(.up))
+    }
+
+    private func sparklinePoints(in size: CGSize) -> [CGPoint] {
+        (0..<9).map { index in
+            let progress = CGFloat(index) / 8
+            let base = sin((progress * .pi * 2.5) + CGFloat(normalizedLevel * 1.4))
+            return CGPoint(
+                x: size.width * progress,
+                y: size.height / 2 - base * CGFloat(3 + normalizedLevel * 7)
+            )
+        }
+    }
+
+    private func constellationPoints(in size: CGSize) -> [CGPoint] {
+        [
+            CGPoint(x: size.width * 0.08, y: size.height * 0.66),
+            CGPoint(x: size.width * 0.26, y: size.height * 0.28),
+            CGPoint(x: size.width * 0.43, y: size.height * 0.52),
+            CGPoint(x: size.width * 0.61, y: size.height * 0.22),
+            CGPoint(x: size.width * 0.78, y: size.height * 0.58),
+            CGPoint(x: size.width * 0.92, y: size.height * 0.34),
+        ]
     }
 }

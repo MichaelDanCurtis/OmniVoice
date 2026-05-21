@@ -2,9 +2,30 @@ import XCTest
 @testable import OmniVoiceCore
 
 final class ThemeTests: XCTestCase {
-    func testBuiltInThemesContainTwentyPresets() {
-        XCTAssertEqual(OmniVoiceTheme.builtIn.count, 20)
-        XCTAssertEqual(Set(OmniVoiceTheme.builtIn.map(\.id)).count, 20)
+    func testBuiltInThemesContainThirtyPresets() {
+        XCTAssertEqual(OmniVoiceTheme.builtIn.count, 30)
+        XCTAssertEqual(Set(OmniVoiceTheme.builtIn.map(\.id)).count, 30)
+    }
+
+    func testWaveformModesExposeFifteenDisplayNames() {
+        XCTAssertEqual(WaveformMode.allCases.count, 15)
+        XCTAssertEqual(WaveformMode.allCases.map(\.displayName), [
+            "Bars",
+            "Pulse Ring",
+            "Spectrum Line",
+            "Orb Meter",
+            "Glyph Stream",
+            "Signal Dots",
+            "Mirror Bars",
+            "Halo Stack",
+            "Prism Sweep",
+            "Needle Meter",
+            "Ribbon Wave",
+            "Equalizer Blocks",
+            "Orbit Dots",
+            "Sparkline",
+            "Constellation",
+        ])
     }
 
     func testDefaultThemeIsAuroraBlue() throws {
