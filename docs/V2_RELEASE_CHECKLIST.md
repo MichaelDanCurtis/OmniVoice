@@ -10,7 +10,7 @@
 
 ## Required For Local DMG
 
-- `OMNIVOICE_APP_VERSION=2.0.0 ./script/build_and_run.sh --dmg`
+- `OMNIVOICE_APP_VERSION=2.0.1 ./script/build_and_run.sh --dmg`
 - `/usr/bin/codesign --verify --deep --strict --verbose=2 dist/OmniVoice.app`
 - `/usr/bin/hdiutil verify dist/OmniVoice.dmg`
 - `/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' dist/OmniVoice.app/Contents/Info.plist`
