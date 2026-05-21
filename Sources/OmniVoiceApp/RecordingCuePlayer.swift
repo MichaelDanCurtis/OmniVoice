@@ -69,9 +69,14 @@ final class RecordingCuePlayer {
         let count = max(1, Int(Double(sampleRate) * tone.duration))
         let fadeSamples = max(1, min(count / 2, Int(Double(sampleRate) * 0.008)))
         let amplitude = min(max(tone.amplitude, 0), 1) * 0.55
+        let endFrequency = tone.endFrequency ?? tone.frequency
+        var phase = 0.0
+        var noiseState = UInt32(max(1, Int(tone.frequency.rounded()) + Int(tone.duration * 100_000)))
 
         return (0..<count).map { index in
-            let phase = (Double(index) / Double(sampleRate)) * tone.frequency * 2 * Double.pi
+            let progress = count <= 1 ? 1 : Double(index) / Double(count - 1)
+            let frequency = tone.frequency + ((endFrequency - tone.frequency) * progress)
+            phase += frequency * 2 * Double.pi / Double(sampleRate)
             let envelope: Double
             if index < fadeSamples {
                 envelope = Double(index) / Double(fadeSamples)
@@ -80,8 +85,29 @@ final class RecordingCuePlayer {
             } else {
                 envelope = 1
             }
-            let value = sin(phase) * amplitude * envelope
+            let value = sampleValue(for: tone.waveform, phase: phase, noiseState: &noiseState) * amplitude * envelope
             return Int16(max(Double(Int16.min), min(Double(Int16.max), value * Double(Int16.max))))
+        }
+    }
+
+    private func sampleValue(
+        for waveform: RecordingCueWaveform,
+        phase: Double,
+        noiseState: inout UInt32
+    ) -> Double {
+        switch waveform {
+        case .sine:
+            return sin(phase)
+        case .triangle:
+            return (2 / Double.pi) * asin(sin(phase))
+        case .square:
+            return sin(phase) >= 0 ? 1 : -1
+        case .sawtooth:
+            let cycle = phase / (2 * Double.pi)
+            return 2 * (cycle - floor(cycle + 0.5))
+        case .noise:
+            noiseState = 1_664_525 &* noiseState &+ 1_013_904_223
+            return (Double(noiseState & 0xFFFF) / 32_767.5) - 1
         }
     }
 

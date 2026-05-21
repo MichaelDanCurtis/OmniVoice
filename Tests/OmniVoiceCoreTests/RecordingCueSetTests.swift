@@ -32,6 +32,17 @@ final class RecordingCueSetTests: XCTestCase {
         }
     }
 
+    func testCueCatalogUsesDiverseTimbresAndPitchMotion() {
+        let tones = RecordingCueSet.allCases.flatMap { $0.startTones + $0.stopTones }
+
+        XCTAssertGreaterThanOrEqual(Set(tones.map(\.waveform)).count, 5)
+        XCTAssertGreaterThanOrEqual(tones.filter { $0.hasPitchMotion }.count, 12)
+        XCTAssertTrue(RecordingCueSet.softClick.startTones.contains { $0.waveform == .noise })
+        XCTAssertTrue(RecordingCueSet.glassTap.startTones.contains { $0.waveform == .triangle })
+        XCTAssertTrue(RecordingCueSet.cassettePunch.startTones.contains { $0.waveform == .square })
+        XCTAssertTrue(RecordingCueSet.warmPop.startTones.contains { $0.waveform == .sawtooth })
+    }
+
     func testRecordingCueVolumeClampsToUsefulRange() {
         XCTAssertEqual(OmniVoicePreferences.clampedRecordingCueVolume(-1), 0)
         XCTAssertEqual(OmniVoicePreferences.clampedRecordingCueVolume(2), 1)
