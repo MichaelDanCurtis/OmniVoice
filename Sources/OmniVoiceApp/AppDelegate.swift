@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let engineClient = EngineClient()
     private let streamingClient = EngineStreamingClient()
     private let insertionService = TextInsertionService()
+    private let recordingCuePlayer = RecordingCuePlayer.shared
     private let dockIconController = DynamicDockIconController()
     private let commandExecutor = DictationCommandExecutor()
     private var lastInputLevel: Float = 0
@@ -542,6 +543,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 sampleRate: sampleRate,
                 translation: streamingTranslationConfiguration(for: model)
             )
+            let cueDuration = recordingCuePlayer.playStartCue(preferences: model.preferences)
+            if cueDuration > 0 {
+                Thread.sleep(forTimeInterval: min(cueDuration + 0.03, 0.30))
+            }
             _ = try audioCapture.start(deviceUID: model.preferences.microphoneID)
         } catch {
             model.session.fail("Microphone failed: \(error.localizedDescription)")
@@ -580,6 +585,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let audio: Data
         do {
             audio = try audioCapture.stopWAVData()
+            recordingCuePlayer.playStopCue(preferences: model.preferences)
             model.statusText = "Transcribing"
             showOverlay(
                 text: "Transcribing...",
@@ -588,6 +594,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 anchorFrame: activeOverlayAnchor
             )
         } catch {
+            recordingCuePlayer.playStopCue(preferences: model.preferences)
             model.session.fail("Audio capture failed: \(error.localizedDescription)")
             model.statusText = "Audio capture failed"
             streamingClient.cancel()

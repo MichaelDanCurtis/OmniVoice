@@ -20,6 +20,9 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.hotMenuLeftAction, .cycleTranslationLanguage)
         XCTAssertEqual(preferences.hotMenuRightAction, .toggleTranslation)
         XCTAssertEqual(preferences.hotMenuDownAction, .cycleStyle)
+        XCTAssertTrue(preferences.recordingSoundCuesEnabled)
+        XCTAssertEqual(preferences.recordingCueSet, .glassTap)
+        XCTAssertEqual(preferences.recordingCueVolume, 0.28)
         XCTAssertFalse(preferences.firstRunSetupCompleted)
     }
 
@@ -106,6 +109,9 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.asrProvider, .parakeetTDTMLX)
         XCTAssertEqual(preferences.conversationArchiveFolderPath, ConversationArchive.defaultRootURL().path)
         XCTAssertTrue(preferences.automaticallyArchiveConversations)
+        XCTAssertTrue(preferences.recordingSoundCuesEnabled)
+        XCTAssertEqual(preferences.recordingCueSet, .glassTap)
+        XCTAssertEqual(preferences.recordingCueVolume, 0.28)
         XCTAssertFalse(preferences.firstRunSetupCompleted)
     }
 
@@ -140,6 +146,9 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertNotNil(object["live_draft_insertion_enabled"])
         XCTAssertNotNil(object["conversation_archive_folder_path"])
         XCTAssertNotNil(object["automatically_archive_conversations"])
+        XCTAssertNotNil(object["recording_sound_cues_enabled"])
+        XCTAssertNotNil(object["recording_cue_set"])
+        XCTAssertNotNil(object["recording_cue_volume"])
         XCTAssertNotNil(object["hot_menu_hotkey"])
         XCTAssertNotNil(object["hot_menu_up_actions"])
         XCTAssertNotNil(object["hot_menu_left_actions"])

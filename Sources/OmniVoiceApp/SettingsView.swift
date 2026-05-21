@@ -145,6 +145,7 @@ struct SettingsView: View {
         case .appearance:
             tabPage {
                 appearanceSection
+                recordingCueSection
                 hotkeySection
                 waveformSection
                 engineFrameSection
@@ -705,6 +706,48 @@ struct SettingsView: View {
             )
 
             ThemePreview(theme: model.activeTheme)
+        }
+    }
+
+    @ViewBuilder
+    private var recordingCueSection: some View {
+        Section("Recording Cues") {
+            Toggle("Sound cues", isOn: recordingSoundCuesEnabledBinding)
+                .help("Play a short sound when recording starts and stops.")
+
+            Picker("Cue set", selection: recordingCueSetBinding) {
+                ForEach(RecordingCueSet.allCases, id: \.self) { cueSet in
+                    Text(cueSet.displayName).tag(cueSet)
+                }
+            }
+            .disabled(!model.preferences.recordingSoundCuesEnabled)
+
+            LabeledContent("Volume") {
+                HStack(spacing: 10) {
+                    Slider(value: recordingCueVolumeBinding, in: 0...1)
+                        .frame(maxWidth: 220)
+                    Text("\(Int((model.preferences.recordingCueVolume * 100).rounded()))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 42, alignment: .trailing)
+                }
+            }
+            .disabled(!model.preferences.recordingSoundCuesEnabled)
+
+            HStack {
+                Button {
+                    model.previewRecordingCue(.start)
+                } label: {
+                    Label("Preview Start", systemImage: "record.circle")
+                }
+
+                Button {
+                    model.previewRecordingCue(.stop)
+                } label: {
+                    Label("Preview Stop", systemImage: "stop.circle")
+                }
+            }
+            .disabled(!model.preferences.recordingSoundCuesEnabled)
         }
     }
 
@@ -1608,6 +1651,27 @@ struct SettingsView: View {
         Binding(
             get: { model.preferences.engineFrameSide },
             set: { model.setEngineFrameSide($0) }
+        )
+    }
+
+    private var recordingSoundCuesEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { model.preferences.recordingSoundCuesEnabled },
+            set: { model.setRecordingSoundCuesEnabled($0) }
+        )
+    }
+
+    private var recordingCueSetBinding: Binding<RecordingCueSet> {
+        Binding(
+            get: { model.preferences.recordingCueSet },
+            set: { model.setRecordingCueSet($0) }
+        )
+    }
+
+    private var recordingCueVolumeBinding: Binding<Double> {
+        Binding(
+            get: { model.preferences.recordingCueVolume },
+            set: { model.setRecordingCueVolume($0) }
         )
     }
 

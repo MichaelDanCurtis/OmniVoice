@@ -185,6 +185,7 @@ final class AppModel {
     @ObservationIgnored private let workspaceStore: OmniWorkspaceStore
     @ObservationIgnored private let huggingFaceTokenStore = HuggingFaceTokenStore()
     @ObservationIgnored private let conversationRecorder = ConversationRecorderService()
+    @ObservationIgnored private let recordingCuePlayer = RecordingCuePlayer.shared
     @ObservationIgnored private var isConversationStartInFlight = false
     @ObservationIgnored private var isConversationStopInFlight = false
     @ObservationIgnored private var deferredConversationAction: DeferredConversationAction?
@@ -1145,6 +1146,51 @@ final class AppModel {
         preferences.style = style
         persistPreferences()
         statusText = "Style: \(style.displayName)"
+    }
+
+    func setRecordingSoundCuesEnabled(_ enabled: Bool) {
+        guard preferences.recordingSoundCuesEnabled != enabled else { return }
+
+        preferences.recordingSoundCuesEnabled = enabled
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = enabled ? "Recording sound cues enabled" : "Recording sound cues disabled"
+    }
+
+    func setRecordingCueSet(_ cueSet: RecordingCueSet) {
+        guard preferences.recordingCueSet != cueSet else { return }
+
+        preferences.recordingCueSet = cueSet
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = "Recording cue: \(cueSet.displayName)"
+    }
+
+    func setRecordingCueVolume(_ volume: Double) {
+        let clampedVolume = OmniVoicePreferences.clampedRecordingCueVolume(volume)
+        guard preferences.recordingCueVolume != clampedVolume else { return }
+
+        preferences.recordingCueVolume = clampedVolume
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = "Recording cue volume: \(Int((clampedVolume * 100).rounded()))%"
+    }
+
+    func previewRecordingCue(_ kind: RecordingCuePlayer.CueKind) {
+        switch kind {
+        case .start:
+            recordingCuePlayer.preview(.start, preferences: preferences)
+            statusText = "Previewing start cue"
+        case .stop:
+            recordingCuePlayer.preview(.stop, preferences: preferences)
+            statusText = "Previewing stop cue"
+        }
     }
 
     func setASRProvider(_ provider: ASRProviderKind) {
@@ -2709,6 +2755,9 @@ final class AppModel {
                 provider: preferences.asrProvider,
                 microphoneID: preferences.microphoneID,
                 liveDiarizationEnabled: usesLiveConversationDiarizationStream,
+                onBeforeAudioStart: { [recordingCuePlayer, preferences] in
+                    recordingCuePlayer.playStartCue(preferences: preferences)
+                },
                 onSegment: { [weak self] request in
                     await self?.appendConversationSegment(request)
                 },
@@ -2755,6 +2804,7 @@ final class AppModel {
         } catch {
             recorderError = error
         }
+        recordingCuePlayer.playStopCue(preferences: preferences)
 
         await stopConversationSession()
         if let recorderError {
@@ -2773,6 +2823,7 @@ final class AppModel {
         let sessionID = activeConversation?.id
         liveDiarizationPreviewGeneration += 1
         conversationRecorder.cancel()
+        recordingCuePlayer.playStopCue(preferences: preferences)
         activeConversation = nil
         isConversationRecording = false
         isConversationFinalizing = false
@@ -2807,6 +2858,7 @@ final class AppModel {
                 } catch {
                     recorderError = error
                 }
+                recordingCuePlayer.playStopCue(preferences: preferences)
             }
             await stopConversationSession()
             if let recorderError {
@@ -2815,6 +2867,7 @@ final class AppModel {
         case .cancel:
             if recorderStarted {
                 conversationRecorder.cancel()
+                recordingCuePlayer.playStopCue(preferences: preferences)
             }
             _ = try? await engineClient.stopConversation(sessionID: sessionID)
             activeConversation = nil

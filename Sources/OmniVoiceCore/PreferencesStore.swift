@@ -42,6 +42,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var liveDraftInsertionEnabled: Bool
     public var conversationArchiveFolderPath: String
     public var automaticallyArchiveConversations: Bool
+    public var recordingSoundCuesEnabled: Bool
+    public var recordingCueSet: RecordingCueSet
+    public var recordingCueVolume: Double
     public var firstRunSetupCompleted: Bool
 
     public var microphoneID: String? {
@@ -108,6 +111,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         liveDraftInsertionEnabled: false,
         conversationArchiveFolderPath: ConversationArchive.defaultRootURL().path,
         automaticallyArchiveConversations: true,
+        recordingSoundCuesEnabled: true,
+        recordingCueSet: .glassTap,
+        recordingCueVolume: 0.28,
         firstRunSetupCompleted: false
     )
 
@@ -154,6 +160,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         liveDraftInsertionEnabled: Bool = false,
         conversationArchiveFolderPath: String = ConversationArchive.defaultRootURL().path,
         automaticallyArchiveConversations: Bool = true,
+        recordingSoundCuesEnabled: Bool = true,
+        recordingCueSet: RecordingCueSet = .glassTap,
+        recordingCueVolume: Double = 0.28,
         firstRunSetupCompleted: Bool = false
     ) {
         self.asrProvider = asrProvider.normalizedForUserSelection
@@ -217,6 +226,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         self.liveDraftInsertionEnabled = liveDraftInsertionEnabled
         self.conversationArchiveFolderPath = conversationArchiveFolderPath
         self.automaticallyArchiveConversations = automaticallyArchiveConversations
+        self.recordingSoundCuesEnabled = recordingSoundCuesEnabled
+        self.recordingCueSet = recordingCueSet
+        self.recordingCueVolume = Self.clampedRecordingCueVolume(recordingCueVolume)
         self.firstRunSetupCompleted = firstRunSetupCompleted
         self.migrateLegacyHotMenuDefaultsIfNeeded()
     }
@@ -302,6 +314,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
                 ?? ConversationArchive.defaultRootURL().path,
             automaticallyArchiveConversations: try container.decodeIfPresent(Bool.self, forKey: .automaticallyArchiveConversations)
                 ?? true,
+            recordingSoundCuesEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingSoundCuesEnabled) ?? true,
+            recordingCueSet: try container.decodeIfPresent(RecordingCueSet.self, forKey: .recordingCueSet) ?? .glassTap,
+            recordingCueVolume: try container.decodeIfPresent(Double.self, forKey: .recordingCueVolume) ?? 0.28,
             firstRunSetupCompleted: try container.decodeIfPresent(Bool.self, forKey: .firstRunSetupCompleted) ?? false
         )
     }
@@ -363,6 +378,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
                 ?? ConversationArchive.defaultRootURL().path,
             automaticallyArchiveConversations: try container.decodeIfPresent(Bool.self, forKey: .automaticallyArchiveConversations)
                 ?? true,
+            recordingSoundCuesEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingSoundCuesEnabled) ?? true,
+            recordingCueSet: try container.decodeIfPresent(RecordingCueSet.self, forKey: .recordingCueSet) ?? .glassTap,
+            recordingCueVolume: try container.decodeIfPresent(Double.self, forKey: .recordingCueVolume) ?? 0.28,
             firstRunSetupCompleted: try container.decodeIfPresent(Bool.self, forKey: .firstRunSetupCompleted) ?? false
         )
     }
@@ -557,6 +575,10 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         min(max(value, 0.08), 0.92)
     }
 
+    public static func clampedRecordingCueVolume(_ value: Double) -> Double {
+        min(max(value, 0), 1)
+    }
+
     private enum CodingKeys: String, CodingKey {
         case asrProvider = "asr_provider"
         case style = "style"
@@ -596,6 +618,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case liveDraftInsertionEnabled = "live_draft_insertion_enabled"
         case conversationArchiveFolderPath = "conversation_archive_folder_path"
         case automaticallyArchiveConversations = "automatically_archive_conversations"
+        case recordingSoundCuesEnabled = "recording_sound_cues_enabled"
+        case recordingCueSet = "recording_cue_set"
+        case recordingCueVolume = "recording_cue_volume"
         case firstRunSetupCompleted = "first_run_setup_completed"
     }
 
@@ -638,6 +663,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case liveDraftInsertionEnabled
         case conversationArchiveFolderPath
         case automaticallyArchiveConversations
+        case recordingSoundCuesEnabled
+        case recordingCueSet
+        case recordingCueVolume
         case firstRunSetupCompleted
     }
 
