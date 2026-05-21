@@ -23,6 +23,7 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertTrue(preferences.recordingSoundCuesEnabled)
         XCTAssertTrue(preferences.recordingStartCueEnabled)
         XCTAssertTrue(preferences.recordingStopCueEnabled)
+        XCTAssertEqual(preferences.recordingCueTiming, .both)
         XCTAssertTrue(preferences.isRecordingCueEnabled(for: .start))
         XCTAssertTrue(preferences.isRecordingCueEnabled(for: .stop))
         XCTAssertEqual(preferences.recordingCueSet, .glassTap)
@@ -168,18 +169,43 @@ final class PreferencesStoreTests: XCTestCase {
     func testRecordingCueEventPreferencesCanBeControlledIndependently() {
         var preferences = OmniVoicePreferences.defaults
 
-        preferences.recordingStartCueEnabled = false
+        preferences.recordingCueTiming = .stop
         XCTAssertFalse(preferences.isRecordingCueEnabled(for: .start))
         XCTAssertTrue(preferences.isRecordingCueEnabled(for: .stop))
+        XCTAssertEqual(preferences.recordingCueTiming, .stop)
 
-        preferences.recordingStartCueEnabled = true
-        preferences.recordingStopCueEnabled = false
+        preferences.recordingCueTiming = .start
         XCTAssertTrue(preferences.isRecordingCueEnabled(for: .start))
         XCTAssertFalse(preferences.isRecordingCueEnabled(for: .stop))
+        XCTAssertEqual(preferences.recordingCueTiming, .start)
+
+        preferences.recordingCueTiming = .both
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .stop))
 
         preferences.recordingSoundCuesEnabled = false
         XCTAssertFalse(preferences.isRecordingCueEnabled(for: .start))
         XCTAssertFalse(preferences.isRecordingCueEnabled(for: .stop))
+    }
+
+    func testRecordingCueTimingExposesThreeWayDisplayNames() {
+        XCTAssertEqual(RecordingCueTiming.allCases.map(\.displayName), ["Start", "Stop", "Both"])
+    }
+
+    func testRecordingCueTimingNormalizesLegacyBothOffState() {
+        let preferences = OmniVoicePreferences(
+            asrProvider: .parakeetTDTMLX,
+            style: .neutral,
+            dictionaryTerms: [],
+            recordingStartCueEnabled: false,
+            recordingStopCueEnabled: false
+        )
+
+        XCTAssertEqual(preferences.recordingCueTiming, .both)
+        XCTAssertTrue(preferences.recordingStartCueEnabled)
+        XCTAssertTrue(preferences.recordingStopCueEnabled)
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .stop))
     }
 
     func testLegacyDiarizationPrecisionFallsBackFromProvider() throws {

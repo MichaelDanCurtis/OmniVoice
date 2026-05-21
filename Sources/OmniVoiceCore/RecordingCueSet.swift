@@ -11,6 +11,20 @@ public enum RecordingCueEvent: String, CaseIterable, Codable, Hashable, Sendable
     case stop
 }
 
+public enum RecordingCueTiming: String, CaseIterable, Codable, Hashable, Sendable {
+    case start
+    case stop
+    case both
+
+    public var displayName: String {
+        switch self {
+        case .start: "Start"
+        case .stop: "Stop"
+        case .both: "Both"
+        }
+    }
+}
+
 public struct RecordingCueTone: Equatable, Sendable {
     public let frequency: Double
     public let endFrequency: Double?

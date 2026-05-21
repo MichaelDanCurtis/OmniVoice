@@ -715,12 +715,13 @@ struct SettingsView: View {
             Toggle("Sound cues", isOn: recordingSoundCuesEnabledBinding)
                 .help("Play a short sound when recording starts and stops.")
 
-            Toggle("Start tone", isOn: recordingStartCueEnabledBinding)
-                .help("Play a sound when recording starts.")
-                .disabled(!model.preferences.recordingSoundCuesEnabled)
-
-            Toggle("Stop tone", isOn: recordingStopCueEnabledBinding)
-                .help("Play a sound when recording stops.")
+            Picker("Timing", selection: recordingCueTimingBinding) {
+                ForEach(RecordingCueTiming.allCases, id: \.self) { timing in
+                    Text(timing.displayName).tag(timing)
+                }
+            }
+            .pickerStyle(.segmented)
+            .help("Choose whether recording cues play at start, stop, or both.")
                 .disabled(!model.preferences.recordingSoundCuesEnabled)
 
             Picker("Cue set", selection: recordingCueSetBinding) {
@@ -1669,17 +1670,10 @@ struct SettingsView: View {
         )
     }
 
-    private var recordingStartCueEnabledBinding: Binding<Bool> {
+    private var recordingCueTimingBinding: Binding<RecordingCueTiming> {
         Binding(
-            get: { model.preferences.recordingStartCueEnabled },
-            set: { model.setRecordingStartCueEnabled($0) }
-        )
-    }
-
-    private var recordingStopCueEnabledBinding: Binding<Bool> {
-        Binding(
-            get: { model.preferences.recordingStopCueEnabled },
-            set: { model.setRecordingStopCueEnabled($0) }
+            get: { model.preferences.recordingCueTiming },
+            set: { model.setRecordingCueTiming($0) }
         )
     }
 

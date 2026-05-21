@@ -74,6 +74,32 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         set { setHotMenuActions([newValue], for: .down) }
     }
 
+    public var recordingCueTiming: RecordingCueTiming {
+        get {
+            switch (recordingStartCueEnabled, recordingStopCueEnabled) {
+            case (true, false):
+                return .start
+            case (false, true):
+                return .stop
+            default:
+                return .both
+            }
+        }
+        set {
+            switch newValue {
+            case .start:
+                recordingStartCueEnabled = true
+                recordingStopCueEnabled = false
+            case .stop:
+                recordingStartCueEnabled = false
+                recordingStopCueEnabled = true
+            case .both:
+                recordingStartCueEnabled = true
+                recordingStopCueEnabled = true
+            }
+        }
+    }
+
     public static let defaults = OmniVoicePreferences(
         asrProvider: .parakeetTDTMLX,
         style: .neutral,
@@ -238,6 +264,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         self.recordingCueSet = recordingCueSet
         self.recordingCueVolume = Self.clampedRecordingCueVolume(recordingCueVolume)
         self.firstRunSetupCompleted = firstRunSetupCompleted
+        self.normalizeRecordingCueTiming()
         self.migrateLegacyHotMenuDefaultsIfNeeded()
     }
 
@@ -589,6 +616,12 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
 
     public static func clampedRecordingCueVolume(_ value: Double) -> Double {
         min(max(value, 0), 1)
+    }
+
+    private mutating func normalizeRecordingCueTiming() {
+        if !recordingStartCueEnabled && !recordingStopCueEnabled {
+            recordingCueTiming = .both
+        }
     }
 
     public func isRecordingCueEnabled(for event: RecordingCueEvent) -> Bool {
