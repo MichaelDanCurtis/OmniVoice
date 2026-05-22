@@ -3201,15 +3201,20 @@ final class AppModel {
     }
 
     func checkSelectedModelUpdate() async {
-        guard preferences.asrProvider != .fake else {
+        await checkModelUpdate(providerID: preferences.asrProvider.rawValue)
+    }
+
+    func checkModelUpdate(providerID: String) async {
+        guard providerID != ASRProviderKind.fake.rawValue else {
             statusText = "Fake ASR has no model download"
             return
         }
 
         do {
-            let update = try await engineClient.checkModelUpdate(provider: preferences.asrProvider)
+            let update = try await engineClient.checkModelUpdate(providerID: providerID)
             modelUpdateInfo = update
-            statusText = update.updateAvailable ? "Model update available" : "Model is current"
+            let label = modelLabel(forProviderID: providerID)
+            statusText = update.updateAvailable ? "\(label) update available" : "\(label) is current"
         } catch {
             statusText = "Model update check failed"
         }
@@ -3244,18 +3249,35 @@ final class AppModel {
     }
 
     func downloadSelectedModel() async {
-        guard preferences.asrProvider != .fake else {
+        await downloadModel(providerID: preferences.asrProvider.rawValue)
+    }
+
+    func downloadModel(providerID: String) async {
+        guard providerID != ASRProviderKind.fake.rawValue else {
             statusText = "Fake ASR has no model download"
             return
         }
 
         do {
-            let download = try await engineClient.downloadModel(provider: preferences.asrProvider)
+            let download = try await engineClient.downloadModel(providerID: providerID)
             modelDownloadStatus = download
             statusText = download.message ?? "Model download queued"
-            await pollModelDownload(provider: preferences.asrProvider)
+            await pollModelDownload(providerID: providerID)
         } catch {
             statusText = "Model download failed"
+        }
+    }
+
+    func deleteModel(providerID: String) async {
+        do {
+            let status = try await engineClient.deleteModel(providerID: providerID)
+            upsertModelStatus(status)
+            modelDownloadStatus = nil
+            modelUpdateInfo = nil
+            statusText = "\(status.label) deleted"
+            await refreshProviderAndModelStatus()
+        } catch {
+            statusText = "Model delete failed"
         }
     }
 
@@ -3390,6 +3412,20 @@ final class AppModel {
 
     func modelStatus(forProviderID providerID: String) -> EngineModelStatus? {
         modelStatuses.first { $0.providerID == providerID }
+    }
+
+    func modelLabel(forProviderID providerID: String) -> String {
+        modelStatus(forProviderID: providerID)?.label
+            ?? ASRProviderKind(rawValue: providerID)?.displayName
+            ?? SpeechModelRecommendation(providerID: providerID).displayName
+    }
+
+    private func upsertModelStatus(_ status: EngineModelStatus) {
+        if let index = modelStatuses.firstIndex(where: { $0.providerID == status.providerID }) {
+            modelStatuses[index] = status
+        } else {
+            modelStatuses.append(status)
+        }
     }
 
     func diarizationLabel(for providerID: String) -> String {

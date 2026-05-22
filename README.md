@@ -13,8 +13,8 @@ Hold a configured hotkey, speak, see live captions while the app listens, then r
 - Local FastAPI engine
 - Parakeet TDT MLX provider support
 - Whisper Large v3 Turbo MLX 6-bit multilingual ASR support
-- Canary-Qwen-2.5B provider slot for future accuracy work
-- Hugging Face model download and update checks
+- Canary-Qwen-2.5B advanced English ASR provider support when the optional NeMo runtime is installed
+- Hugging Face model download, update, and delete controls
 - Hugging Face token validation for gated model access
 - Grammar cleanup, correction handling, quote handling, and punctuation
 - Personal dictionary casing preservation

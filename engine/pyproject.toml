@@ -26,6 +26,9 @@ mlx-asr = [
   "parakeet-mlx>=0.5.1",
   "mlx-audio>=0.4.3",
 ]
+canary-asr = [
+  "nemo_toolkit[asr,tts] @ git+https://github.com/NVIDIA/NeMo.git",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -32,6 +32,22 @@ final class ModelsTests: XCTestCase {
         XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.parakeetTDT))
     }
 
+    func testSpeechModelRecommendationsExposeCuratedASRChoices() {
+        XCTAssertEqual(SpeechModelRecommendation.defaultProviderID, "parakeet-tdt-mlx")
+        XCTAssertEqual(SpeechModelRecommendation.allCases.map(\.providerID), [
+            "parakeet-tdt-mlx",
+            "whisper-large-v3-turbo-mlx-6bit",
+            "canary-qwen-2.5b",
+        ])
+        XCTAssertEqual(SpeechModelRecommendation.parakeetTDTMLX.displayName, "Parakeet TDT MLX")
+        XCTAssertEqual(SpeechModelRecommendation.parakeetTDTMLX.badge, "Fast / Default")
+        XCTAssertEqual(SpeechModelRecommendation.whisperLargeV3TurboMLX6Bit.displayName, "Whisper Large v3 Turbo MLX 6-bit")
+        XCTAssertEqual(SpeechModelRecommendation.whisperLargeV3TurboMLX6Bit.badge, "Multilingual")
+        XCTAssertEqual(SpeechModelRecommendation.canaryQwen25B.displayName, "Canary-Qwen-2.5B")
+        XCTAssertEqual(SpeechModelRecommendation.canaryQwen25B.badge, "English Accuracy")
+        XCTAssertEqual(SpeechModelRecommendation.canaryQwen25B.providerKind, .canaryQwen25B)
+    }
+
     func testASRProviderDisplayNamesAreReadableBeforeEngineRefresh() {
         XCTAssertEqual(ASRProviderKind.fake.displayName, "Fake ASR")
         XCTAssertEqual(ASRProviderKind.parakeetTDT.displayName, "Parakeet TDT")

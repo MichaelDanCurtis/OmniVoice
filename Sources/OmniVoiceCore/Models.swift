@@ -62,6 +62,51 @@ public enum ASRProviderKind: String, CaseIterable, Codable, Equatable, Sendable 
     }
 }
 
+public enum SpeechModelRecommendation: String, CaseIterable, Codable, Equatable, Identifiable, Sendable {
+    case parakeetTDTMLX = "parakeet-tdt-mlx"
+    case whisperLargeV3TurboMLX6Bit = "whisper-large-v3-turbo-mlx-6bit"
+    case canaryQwen25B = "canary-qwen-2.5b"
+
+    public static let defaultProviderID = Self.parakeetTDTMLX.providerID
+
+    public init(providerID: String) {
+        self = Self(rawValue: providerID) ?? .parakeetTDTMLX
+    }
+
+    public var id: String { rawValue }
+    public var providerID: String { rawValue }
+
+    public var providerKind: ASRProviderKind {
+        ASRProviderKind(rawValue: providerID) ?? .parakeetTDTMLX
+    }
+
+    public var displayName: String {
+        providerKind.displayName
+    }
+
+    public var badge: String {
+        switch self {
+        case .parakeetTDTMLX:
+            "Fast / Default"
+        case .whisperLargeV3TurboMLX6Bit:
+            "Multilingual"
+        case .canaryQwen25B:
+            "English Accuracy"
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .parakeetTDTMLX:
+            "Best daily driver for low-latency English dictation on Apple Silicon."
+        case .whisperLargeV3TurboMLX6Bit:
+            "Local MLX Whisper path for multilingual speech input and Chinese/Japanese/Korean captions."
+        case .canaryQwen25B:
+            "NVIDIA NeMo-backed English ASR accuracy mode. Heavier than the MLX models and requires the Canary runtime."
+        }
+    }
+}
+
 public enum TranslationProviderKind: String, CaseIterable, Codable, Equatable, Identifiable, Sendable {
     case fake = "fake"
     case translateGemmaMLX = "translategemma-mlx"

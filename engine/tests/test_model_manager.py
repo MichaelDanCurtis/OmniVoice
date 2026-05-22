@@ -84,6 +84,23 @@ def test_model_manager_reports_whisper_large_v3_turbo_mlx_6bit_source(tmp_path: 
     assert status.precision == "6-bit"
 
 
+def test_model_manager_reports_canary_qwen_source_as_advanced_asr(tmp_path: Path) -> None:
+    manager = ModelManager(model_root=tmp_path, hub_api=FakeHubApi(), snapshot_downloader=FakeSnapshotDownloader())
+
+    status = manager.status("canary-qwen-2.5b")
+
+    assert status.provider_id == "canary-qwen-2.5b"
+    assert status.label == "Canary-Qwen-2.5B"
+    assert status.repo_id == "nvidia/canary-qwen-2.5b"
+    assert status.local_path == str(tmp_path / "canary-qwen-2.5b")
+    assert status.installed is False
+    assert status.missing_files == ["config.json", "model.safetensors"]
+    assert status.recommendation == "English Accuracy"
+    assert status.detail == "Advanced English ASR through NVIDIA NeMo when the Canary runtime is installed."
+    assert status.size == "5.1 GB"
+    assert status.precision == "BF16"
+
+
 def test_model_manager_reports_translategemma_mlx_hugging_face_source(tmp_path: Path) -> None:
     manager = ModelManager(model_root=tmp_path, hub_api=FakeHubApi(), snapshot_downloader=FakeSnapshotDownloader())
 
@@ -237,6 +254,26 @@ def test_model_manager_downloads_whisper_large_v3_turbo_mlx_6bit_model(tmp_path:
         "README.md",
     ]
     assert manager.status("whisper-large-v3-turbo-mlx-6bit").installed is True
+
+
+def test_model_manager_downloads_canary_qwen_model(tmp_path: Path) -> None:
+    hub_api = FakeHubApi(sha="canary-sha")
+    downloader = FakeSnapshotDownloader()
+    manager = ModelManager(model_root=tmp_path, hub_api=hub_api, snapshot_downloader=downloader)
+
+    status = manager.download("canary-qwen-2.5b")
+
+    assert status.state == "completed"
+    assert status.revision == "canary-sha"
+    assert status.local_path == str(tmp_path / "canary-qwen-2.5b")
+    assert downloader.calls[0]["repo_id"] == "nvidia/canary-qwen-2.5b"
+    assert downloader.calls[0]["allow_patterns"] == [
+        "config.json",
+        "model.safetensors",
+        "README.md",
+        "LICENSES",
+    ]
+    assert manager.status("canary-qwen-2.5b").installed is True
 
 
 def test_model_manager_downloads_translategemma_mlx_model(tmp_path: Path) -> None:

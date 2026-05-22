@@ -27,6 +27,10 @@ if [ "${OMNIVOICE_INSTALL_MLX_ASR:-0}" = "1" ]; then
   python -m pip install -e ".[mlx-asr]" || echo "MLX ASR runtime install failed; continuing without it." >&2
 fi
 
+if [ "${OMNIVOICE_INSTALL_CANARY_ASR:-0}" = "1" ]; then
+  python -m pip install -e ".[canary-asr]" || echo "Canary-Qwen runtime install failed; continuing without it." >&2
+fi
+
 export OMNIVOICE_MODEL_ROOT="${OMNIVOICE_MODEL_ROOT:-${ROOT_DIR}/models}"
 export OMNIVOICE_PARAKEET_MODEL_DIR="${OMNIVOICE_PARAKEET_MODEL_DIR:-${OMNIVOICE_MODEL_ROOT}/parakeet-tdt}"
 export OMNIVOICE_PARAKEET_MLX_MODEL_DIR="${OMNIVOICE_PARAKEET_MLX_MODEL_DIR:-${OMNIVOICE_MODEL_ROOT}/parakeet-tdt-mlx}"

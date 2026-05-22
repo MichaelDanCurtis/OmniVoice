@@ -9,6 +9,7 @@ Goal: support speech-to-text input beyond the current English-first Parakeet pat
 Planned work:
 
 - Add Whisper Large v3 Turbo MLX 6-bit as the first selectable local Apple Silicon multilingual ASR backend.
+- Keep Canary-Qwen-2.5B as an optional NeMo-backed English accuracy provider rather than a dead placeholder.
 - Add richer multilingual ASR capability metadata that reports language coverage by model.
 - Add model capability flags for English ASR, multilingual ASR, Chinese ASR, translation, timestamps, streaming partials, diarization, and word confidence.
 - Update the UI so unsupported language/model combinations are obvious before the user records.

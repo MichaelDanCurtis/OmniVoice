@@ -48,6 +48,17 @@ class FakeModelManager:
                 precision="6-bit",
             ),
             ModelStatus(
+                provider_id="canary-qwen-2.5b",
+                label="Canary-Qwen-2.5B",
+                repo_id="nvidia/canary-qwen-2.5b",
+                local_path="/models/canary-qwen-2.5b",
+                installed=False,
+                missing_files=["config.json", "model.safetensors"],
+                recommendation="English Accuracy",
+                size="5.1 GB",
+                precision="BF16",
+            ),
+            ModelStatus(
                 provider_id="translategemma-mlx",
                 label="TranslateGemma MLX",
                 repo_id="mlx-community/translategemma-4b-it-4bit",
@@ -1039,6 +1050,19 @@ def test_models_endpoint_lists_whisper_mlx_download_target(monkeypatch):
         "tokenizer.json",
         "preprocessor_config.json",
     ]
+
+
+def test_models_endpoint_lists_canary_qwen_download_target(monkeypatch):
+    monkeypatch.setattr("omnivoice_engine.main.model_manager", FakeModelManager(), raising=False)
+
+    response = client.get("/models")
+
+    assert response.status_code == 200
+    payload = response.json()
+    canary = next(model for model in payload if model["provider_id"] == "canary-qwen-2.5b")
+    assert canary["repo_id"] == "nvidia/canary-qwen-2.5b"
+    assert canary["recommendation"] == "English Accuracy"
+    assert canary["missing_files"] == ["config.json", "model.safetensors"]
 
 
 def test_models_endpoint_lists_translategemma_download_target(monkeypatch):

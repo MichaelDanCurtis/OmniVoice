@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from omnivoice_engine.schemas import ProviderInfo
 
-from .base import ASRProvider, UnavailableASRProvider
+from .base import ASRProvider
+from .canary_qwen import CanaryQwenProvider
 from .fake import FakeASRProvider
 from .parakeet_mlx import ParakeetMLXProvider
 from .parakeet_sherpa import ParakeetSherpaProvider
@@ -16,11 +17,7 @@ class ProviderRegistry:
             "parakeet-tdt": ParakeetSherpaProvider(),
             "parakeet-tdt-mlx": ParakeetMLXProvider(),
             "whisper-large-v3-turbo-mlx-6bit": WhisperMLXProvider(),
-            "canary-qwen-2.5b": UnavailableASRProvider(
-                "canary-qwen-2.5b",
-                "Canary-Qwen-2.5B",
-                "Canary-Qwen-2.5B runtime is not installed in this build",
-            ),
+            "canary-qwen-2.5b": CanaryQwenProvider(),
         }
 
     def list_providers(self) -> list[ProviderInfo]:

@@ -4,6 +4,7 @@ from types import ModuleType
 from types import SimpleNamespace
 
 from omnivoice_engine.providers.registry import ProviderRegistry
+from omnivoice_engine.providers.canary_qwen import CanaryQwenProvider
 from omnivoice_engine.providers.parakeet_sherpa import ParakeetSherpaProvider
 from omnivoice_engine.providers.parakeet_mlx import ParakeetMLXProvider
 from omnivoice_engine.providers.whisper_mlx import WhisperMLXProvider
@@ -308,11 +309,75 @@ def test_parakeet_provider_returns_empty_text_for_empty_request_body(tmp_path, m
     assert ParakeetSherpaProvider(str(tmp_path)).transcribe(b"") == ""
 
 
-def test_canary_qwen_provider_is_visible_as_installable_accuracy_mode():
+def test_canary_qwen_provider_is_visible_as_installable_accuracy_mode(monkeypatch):
+    monkeypatch.setenv("OMNIVOICE_CANARY_MODEL_DIR", "/tmp/omnivoice-missing-canary-model")
     registry = ProviderRegistry()
 
     providers = registry.list_providers()
 
     canary = next(provider for provider in providers if provider.id == "canary-qwen-2.5b")
     assert canary.available is False
-    assert canary.reason == "Canary-Qwen-2.5B runtime is not installed in this build"
+    assert canary.label == "Canary-Qwen-2.5B"
+    assert "model files not found" in canary.reason
+
+
+def test_canary_qwen_provider_reports_missing_runtime(tmp_path, monkeypatch):
+    for filename in ["config.json", "model.safetensors"]:
+        (tmp_path / filename).write_text("model")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+
+    info = CanaryQwenProvider(str(tmp_path)).info()
+
+    assert info.available is False
+    assert info.reason == "NVIDIA NeMo speechlm2 runtime is not installed"
+
+
+def test_canary_qwen_provider_transcribes_with_local_model_dir(tmp_path, monkeypatch):
+    captured = {}
+    fake_models_module = ModuleType("nemo.collections.speechlm2.models")
+
+    for filename in ["config.json", "model.safetensors"]:
+        (tmp_path / filename).write_text("model")
+
+    class FakeIds:
+        def cpu(self):
+            return "decoded-token-ids"
+
+    class FakeTokenizer:
+        def ids_to_text(self, token_ids):
+            captured["token_ids"] = token_ids
+            return "hello from canary"
+
+    class FakeSALM:
+        audio_locator_tag = "<|audio|>"
+        tokenizer = FakeTokenizer()
+
+        @classmethod
+        def from_pretrained(cls, model_path):
+            captured["model_path"] = model_path
+            return cls()
+
+        def generate(self, prompts, max_new_tokens):
+            captured["prompts"] = prompts
+            captured["max_new_tokens"] = max_new_tokens
+            return [FakeIds()]
+
+    fake_models_module.SALM = FakeSALM
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name: object() if name == "nemo.collections.speechlm2.models" else None,
+    )
+    monkeypatch.setitem(sys.modules, "nemo", ModuleType("nemo"))
+    monkeypatch.setitem(sys.modules, "nemo.collections", ModuleType("nemo.collections"))
+    monkeypatch.setitem(sys.modules, "nemo.collections.speechlm2", ModuleType("nemo.collections.speechlm2"))
+    monkeypatch.setitem(sys.modules, "nemo.collections.speechlm2.models", fake_models_module)
+
+    transcript = CanaryQwenProvider(str(tmp_path)).transcribe_aligned_pcm_float32(b"\0\0\0\0" * 16, 16000)
+
+    assert transcript.text == "hello from canary"
+    assert captured["model_path"] == str(tmp_path)
+    assert captured["token_ids"] == "decoded-token-ids"
+    assert captured["max_new_tokens"] == 256
+    assert captured["prompts"][0][0]["content"] == "Transcribe the following: <|audio|>"
+    assert captured["prompts"][0][0]["audio"][0].endswith(".wav")

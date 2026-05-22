@@ -126,6 +126,11 @@ class ModelManager:
                 local_dir=canary_dir,
                 required_files=["config.json", "model.safetensors"],
                 allow_patterns=["config.json", "model.safetensors", "README.md", "LICENSES"],
+                recommendation="English Accuracy",
+                detail="Advanced English ASR through NVIDIA NeMo when the Canary runtime is installed.",
+                size="5.1 GB",
+                precision="BF16",
+                license="cc-by-4.0",
             ),
             "translategemma-mlx": ModelSpec(
                 provider_id="translategemma-mlx",

@@ -583,6 +583,87 @@ struct SettingsView: View {
         }
     }
 
+    private func speechModelCard(_ recommendation: SpeechModelRecommendation) -> some View {
+        let status = model.modelStatus(forProviderID: recommendation.providerID)
+        let isSelected = model.preferences.asrProvider == recommendation.providerKind
+        let isRunning = isModelActionRunning(providerID: recommendation.providerID)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text(status?.label ?? recommendation.displayName)
+                            .font(.callout.weight(.semibold))
+                        Text(status?.recommendation ?? recommendation.badge)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color(themeColor: model.activeTheme.accentColor))
+                    }
+                    Text(status?.detail ?? recommendation.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Text(isSelected ? "Selected" : (status?.installed == true ? "Ready" : "Not installed"))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(status?.installed == true ? .green : .secondary)
+            }
+
+            if let status {
+                HStack(spacing: 12) {
+                    if let size = status.size {
+                        Label(size, systemImage: "externaldrive")
+                    }
+                    if let precision = status.precision {
+                        Label(precision, systemImage: "gauge.with.dots.needle.67percent")
+                    }
+                    if status.requiresHFAuth {
+                        Label("HF gated", systemImage: "lock")
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+
+            if let message = modelMessage(providerID: recommendation.providerID, status: status) {
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            HStack {
+                Button(isSelected ? "Selected" : "Use") {
+                    model.setASRProvider(recommendation.providerKind)
+                }
+                .disabled(isSelected)
+
+                Button("Check") {
+                    Task {
+                        await model.checkModelUpdate(providerID: recommendation.providerID)
+                    }
+                }
+                .disabled(isRunning)
+
+                Button(modelButtonTitle(status: status)) {
+                    Task {
+                        await model.downloadModel(providerID: recommendation.providerID)
+                    }
+                }
+                .disabled(isRunning)
+
+                Button("Delete") {
+                    Task {
+                        await model.deleteModel(providerID: recommendation.providerID)
+                    }
+                }
+                .disabled(isRunning || status?.installed != true)
+            }
+            .font(.caption)
+        }
+        .padding(10)
+        .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
+    }
+
     @ViewBuilder
     private var providerRecoveryActions: some View {
         HStack {
@@ -788,6 +869,12 @@ struct SettingsView: View {
             Picker("ASR Provider", selection: providerBinding) {
                 ForEach(providerOrder, id: \.self) { provider in
                     Text(model.label(for: provider)).tag(provider)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(SpeechModelRecommendation.allCases) { recommendation in
+                    speechModelCard(recommendation)
                 }
             }
 
@@ -2210,12 +2297,16 @@ struct SettingsView: View {
     }
 
     private var selectedModelMessage: String? {
+        modelMessage(providerID: model.preferences.asrProvider.rawValue, status: selectedModelStatus)
+    }
+
+    private func modelMessage(providerID: String, status: EngineModelStatus?) -> String? {
         if let download = model.modelDownloadStatus,
-           download.providerID == model.preferences.asrProvider.rawValue {
+           download.providerID == providerID {
             return download.message ?? download.state
         }
 
-        guard let status = selectedModelStatus, !status.missingFiles.isEmpty else {
+        guard let status, !status.missingFiles.isEmpty else {
             return nil
         }
 
@@ -2251,7 +2342,11 @@ struct SettingsView: View {
     }
 
     private var modelDownloadButtonTitle: String {
-        guard let status = selectedModelStatus else { return "Download" }
+        modelButtonTitle(status: selectedModelStatus)
+    }
+
+    private func modelButtonTitle(status: EngineModelStatus?) -> String {
+        guard let status else { return "Download" }
         return status.installed ? "Update Model" : "Download Model"
     }
 
@@ -2266,8 +2361,12 @@ struct SettingsView: View {
     }
 
     private var isModelActionRunning: Bool {
+        isModelActionRunning(providerID: model.preferences.asrProvider.rawValue)
+    }
+
+    private func isModelActionRunning(providerID: String) -> Bool {
         guard let download = model.modelDownloadStatus,
-              download.providerID == model.preferences.asrProvider.rawValue else {
+              download.providerID == providerID else {
             return false
         }
         return download.state == "queued" || download.state == "downloading"
