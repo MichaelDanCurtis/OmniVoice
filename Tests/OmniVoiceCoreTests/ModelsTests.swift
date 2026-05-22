@@ -56,6 +56,24 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(ASRProviderKind.canaryQwen25B.displayName, "Canary-Qwen-2.5B")
     }
 
+    func testEngineProviderContractDetectsStaleEngineProviderList() {
+        let staleProviders = [
+            EngineProviderInfo(id: "fake", label: "Fake ASR", available: true),
+            EngineProviderInfo(id: "parakeet-tdt-mlx", label: "Parakeet TDT MLX", available: true),
+            EngineProviderInfo(id: "canary-qwen-2.5b", label: "Canary-Qwen-2.5B", available: false),
+        ]
+
+        XCTAssertEqual(
+            EngineProviderContract.missingRequiredASRProviderIDs(in: staleProviders),
+            ["whisper-large-v3-turbo-mlx-6bit"]
+        )
+
+        let currentProviders = ASRProviderKind.userSelectableCases.map {
+            EngineProviderInfo(id: $0.rawValue, label: $0.displayName, available: true)
+        }
+        XCTAssertTrue(EngineProviderContract.missingRequiredASRProviderIDs(in: currentProviders).isEmpty)
+    }
+
     func testDiarizationPrecisionMapsToMLXProviderIDs() {
         XCTAssertEqual(DiarizationPrecision.fp16.providerID, "mlx-sortformer-streaming-fp16")
         XCTAssertEqual(DiarizationPrecision.fp32.providerID, "mlx-sortformer-streaming-fp32")

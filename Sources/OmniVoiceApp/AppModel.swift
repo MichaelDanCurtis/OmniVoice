@@ -2338,7 +2338,40 @@ final class AppModel {
     private func loadEngineStatus(startEngineIfOffline: Bool) async {
         do {
             _ = try await engineClient.health()
-            providerStatuses = try await engineClient.providers()
+            let fetchedProviderStatuses = try await engineClient.providers()
+            let missingProviderIDs = EngineProviderContract.missingRequiredASRProviderIDs(in: fetchedProviderStatuses)
+            if !missingProviderIDs.isEmpty {
+                if startEngineIfOffline {
+                    statusText = "Restarting outdated engine"
+                    let startResult = await EngineSupervisor.shared.restart(forceExternal: true)
+                    switch startResult {
+                    case .alreadyOnline, .started:
+                        await loadEngineStatus(startEngineIfOffline: false)
+                        return
+                    case .stillStarting, .unavailable, .failed:
+                        providerStatuses = []
+                        diarizationProviderStatuses = []
+                        translationProviderStatuses = []
+                        modelStatuses = []
+                        transcripts = []
+                        engineState = .offline(startResult.detail)
+                        statusText = startResult.detail
+                        return
+                    }
+                }
+
+                providerStatuses = fetchedProviderStatuses
+                diarizationProviderStatuses = []
+                translationProviderStatuses = []
+                modelStatuses = []
+                transcripts = []
+                let missing = missingProviderIDs.joined(separator: ", ")
+                engineState = .offline("Engine is outdated. Missing providers: \(missing)")
+                statusText = "Engine restart required"
+                return
+            }
+
+            providerStatuses = fetchedProviderStatuses
             diarizationProviderStatuses = try await engineClient.diarizationProviders()
             translationProviderStatuses = try await engineClient.translationProviders()
             modelStatuses = try await engineClient.models()

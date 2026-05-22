@@ -120,6 +120,7 @@ stop_engine() {
   fi
 
   pkill -f "$ROOT_DIR/engine/.venv/bin/uvicorn omnivoice_engine.main:app --host 127.0.0.1 --port 8765" >/dev/null 2>&1 || true
+  pkill -f "Application Support/OmniVoice/engine-venv/bin/uvicorn omnivoice_engine.main:app --host 127.0.0.1 --port 8765" >/dev/null 2>&1 || true
   pkill -f "$ROOT_DIR/scripts/run-engine.sh" >/dev/null 2>&1 || true
   rm -f "$ENGINE_PID_FILE" "$ENGINE_APP_PATH_FILE"
 }

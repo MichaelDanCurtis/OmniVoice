@@ -107,6 +107,15 @@ public enum SpeechModelRecommendation: String, CaseIterable, Codable, Equatable,
     }
 }
 
+public enum EngineProviderContract {
+    public static let requiredASRProviderIDs: [String] = ASRProviderKind.userSelectableCases.map(\.rawValue)
+
+    public static func missingRequiredASRProviderIDs(in providers: [EngineProviderInfo]) -> [String] {
+        let availableIDs = Set(providers.map(\.id))
+        return requiredASRProviderIDs.filter { !availableIDs.contains($0) }
+    }
+}
+
 public enum TranslationProviderKind: String, CaseIterable, Codable, Equatable, Identifiable, Sendable {
     case fake = "fake"
     case translateGemmaMLX = "translategemma-mlx"

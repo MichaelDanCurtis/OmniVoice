@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import OmniVoiceCore
 
@@ -62,7 +63,7 @@ final class EngineSupervisor {
         process.terminate()
     }
 
-    func restart() async -> EngineStartResult {
+    func restart(forceExternal: Bool = false) async -> EngineStartResult {
         didAttemptStart = false
 
         if let process, process.isRunning {
@@ -70,6 +71,9 @@ final class EngineSupervisor {
             for _ in 0..<20 where process.isRunning {
                 try? await Task.sleep(for: .milliseconds(100))
             }
+        }
+        if forceExternal {
+            await terminateExternalEngineListeners()
         }
         process = nil
 
@@ -135,6 +139,60 @@ final class EngineSupervisor {
             return true
         } catch {
             return false
+        }
+    }
+
+    private func terminateExternalEngineListeners() async {
+        let pids = listeningEnginePIDs()
+        for pid in pids where pid != getpid() {
+            let command = processCommand(pid: pid)
+            guard isOmniVoiceEngineCommand(command) else {
+                continue
+            }
+            kill(pid, SIGTERM)
+        }
+
+        for _ in 0..<20 {
+            let remaining = listeningEnginePIDs().filter { pids.contains($0) }
+            if remaining.isEmpty {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
+    private func listeningEnginePIDs() -> [pid_t] {
+        let output = runAndCapture("/usr/sbin/lsof", ["-tiTCP:8765", "-sTCP:LISTEN"])
+        return output
+            .split(whereSeparator: \.isNewline)
+            .compactMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    }
+
+    private func processCommand(pid: pid_t) -> String {
+        runAndCapture("/bin/ps", ["-p", "\(pid)", "-o", "command="])
+    }
+
+    private func isOmniVoiceEngineCommand(_ command: String) -> Bool {
+        command.contains("omnivoice_engine.main:app")
+            || command.contains("Application Support/OmniVoice/engine-venv")
+            || command.contains("/OmniVoice/engine/.venv/bin/uvicorn")
+            || command.contains("scripts/run-engine.sh")
+    }
+
+    private func runAndCapture(_ executable: String, _ arguments: [String]) -> String {
+        let task = Process()
+        let pipe = Pipe()
+        task.executableURL = URL(fileURLWithPath: executable)
+        task.arguments = arguments
+        task.standardOutput = pipe
+        task.standardError = Pipe()
+        do {
+            try task.run()
+            task.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(decoding: data, as: UTF8.self)
+        } catch {
+            return ""
         }
     }
 

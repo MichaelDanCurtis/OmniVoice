@@ -585,8 +585,14 @@ struct SettingsView: View {
 
     private func speechModelCard(_ recommendation: SpeechModelRecommendation) -> some View {
         let status = model.modelStatus(forProviderID: recommendation.providerID)
+        let providerInfo = model.providerInfo(for: recommendation.providerKind)
         let isSelected = model.preferences.asrProvider == recommendation.providerKind
         let isRunning = isModelActionRunning(providerID: recommendation.providerID)
+        let cardState = speechModelCardState(
+            status: status,
+            providerInfo: providerInfo,
+            isSelected: isSelected
+        )
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 3) {
@@ -603,9 +609,9 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
-                Text(isSelected ? "Selected" : (status?.installed == true ? "Ready" : "Not installed"))
+                Text(cardState.label)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(status?.installed == true ? .green : .secondary)
+                    .foregroundStyle(cardState.color)
             }
 
             if let status {
@@ -626,6 +632,13 @@ struct SettingsView: View {
 
             if let message = modelMessage(providerID: recommendation.providerID, status: status) {
                 Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            if let providerInfo, !providerInfo.available, status?.installed == true {
+                Text(providerInfo.reason ?? "\(providerInfo.label) runtime is unavailable.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -671,13 +684,19 @@ struct SettingsView: View {
                 selectedTab = .models
             }
 
-            Button("Download Model") {
-                selectedTab = .models
-                Task {
-                    await model.downloadSelectedModel()
+            if selectedModelStatus?.installed != true {
+                Button("Download Model") {
+                    selectedTab = .models
+                    Task {
+                        await model.downloadSelectedModel()
+                    }
                 }
+                .disabled(isModelActionRunning || selectedModelStatus == nil)
+            } else {
+                Text("The model is installed; resolve the runtime requirement before using this provider.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .disabled(isModelActionRunning || selectedModelStatus == nil)
         }
     }
 
@@ -2298,6 +2317,22 @@ struct SettingsView: View {
 
     private var selectedModelMessage: String? {
         modelMessage(providerID: model.preferences.asrProvider.rawValue, status: selectedModelStatus)
+    }
+
+    private func speechModelCardState(
+        status: EngineModelStatus?,
+        providerInfo: EngineProviderInfo?,
+        isSelected: Bool
+    ) -> (label: String, color: Color) {
+        if status?.installed != true {
+            return ("Not installed", .secondary)
+        }
+
+        if let providerInfo, !providerInfo.available {
+            return ("Runtime missing", .orange)
+        }
+
+        return (isSelected ? "Selected" : "Ready", .green)
     }
 
     private func modelMessage(providerID: String, status: EngineModelStatus?) -> String? {
