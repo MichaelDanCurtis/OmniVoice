@@ -3482,7 +3482,7 @@ final class AppModel {
     }
 
     func label(for provider: ASRProviderKind) -> String {
-        providerInfo(for: provider)?.label ?? provider.rawValue
+        providerInfo(for: provider)?.label ?? provider.displayName
     }
 
     func microphoneLabel(for microphoneID: String?) -> String {

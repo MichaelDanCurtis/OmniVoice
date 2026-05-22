@@ -497,6 +497,10 @@ final class PreferencesStoreTests: XCTestCase {
 
         preferences.cycleASRProvider()
 
+        XCTAssertEqual(preferences.asrProvider, .whisperLargeV3TurboMLX6Bit)
+
+        preferences.cycleASRProvider()
+
         XCTAssertEqual(preferences.asrProvider, .canaryQwen25B)
 
         preferences.cycleASRProvider()

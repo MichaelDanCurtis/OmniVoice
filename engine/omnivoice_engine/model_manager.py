@@ -59,6 +59,9 @@ class ModelManager:
         parakeet_mlx_dir = Path(
             os.environ.get("OMNIVOICE_PARAKEET_MLX_MODEL_DIR", root / "parakeet-tdt-mlx")
         ).expanduser()
+        whisper_mlx_dir = Path(
+            os.environ.get("OMNIVOICE_WHISPER_MLX_MODEL_DIR", root / "whisper-large-v3-turbo-mlx-6bit")
+        ).expanduser()
         canary_dir = Path(os.environ.get("OMNIVOICE_CANARY_MODEL_DIR", root / "canary-qwen-2.5b")).expanduser()
         translategemma_dir = Path(
             os.environ.get("OMNIVOICE_TRANSLATEGEMMA_MLX_MODEL_DIR", root / "translategemma-mlx")
@@ -102,6 +105,19 @@ class ModelManager:
                 local_dir=parakeet_mlx_dir,
                 required_files=["config.json", "model.safetensors"],
                 allow_patterns=["config.json", "model.safetensors", "README.md"],
+            ),
+            "whisper-large-v3-turbo-mlx-6bit": ModelSpec(
+                provider_id="whisper-large-v3-turbo-mlx-6bit",
+                label="Whisper Large v3 Turbo MLX 6-bit",
+                repo_id="mlx-community/whisper-large-v3-turbo-asr-6bit",
+                local_dir=whisper_mlx_dir,
+                required_files=["config.json", "model.safetensors", "tokenizer.json", "preprocessor_config.json"],
+                allow_patterns=whisper_mlx_allow_patterns(),
+                recommendation="Multilingual",
+                detail="Local multilingual ASR for 99-language dictation on Apple Silicon.",
+                size="664 MB",
+                precision="6-bit",
+                license="mit",
             ),
             "canary-qwen-2.5b": ModelSpec(
                 provider_id="canary-qwen-2.5b",
@@ -525,6 +541,24 @@ def plamo_allow_patterns() -> list[str]:
         "special_tokens_map.json",
         "modeling_plamo.py",
         "tokenization_plamo.py",
+        "README.md",
+    ]
+
+
+def whisper_mlx_allow_patterns() -> list[str]:
+    return [
+        "config.json",
+        "generation_config.json",
+        "model.safetensors",
+        "model.safetensors.index.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "preprocessor_config.json",
+        "normalizer.json",
+        "vocab.json",
+        "merges.txt",
+        "added_tokens.json",
+        "special_tokens_map.json",
         "README.md",
     ]
 

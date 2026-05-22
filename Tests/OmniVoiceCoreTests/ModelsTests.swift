@@ -22,13 +22,22 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(ASRProviderKind.fake.rawValue, "fake")
         XCTAssertEqual(ASRProviderKind.parakeetTDT.rawValue, "parakeet-tdt")
         XCTAssertEqual(ASRProviderKind.parakeetTDTMLX.rawValue, "parakeet-tdt-mlx")
+        XCTAssertEqual(ASRProviderKind.whisperLargeV3TurboMLX6Bit.rawValue, "whisper-large-v3-turbo-mlx-6bit")
         XCTAssertEqual(ASRProviderKind.canaryQwen25B.rawValue, "canary-qwen-2.5b")
     }
 
     func testASRProviderUserSelectableCasesUseProductionLocalModels() {
-        XCTAssertEqual(ASRProviderKind.userSelectableCases, [.parakeetTDTMLX, .canaryQwen25B])
+        XCTAssertEqual(ASRProviderKind.userSelectableCases, [.parakeetTDTMLX, .whisperLargeV3TurboMLX6Bit, .canaryQwen25B])
         XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.fake))
         XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.parakeetTDT))
+    }
+
+    func testASRProviderDisplayNamesAreReadableBeforeEngineRefresh() {
+        XCTAssertEqual(ASRProviderKind.fake.displayName, "Fake ASR")
+        XCTAssertEqual(ASRProviderKind.parakeetTDT.displayName, "Parakeet TDT")
+        XCTAssertEqual(ASRProviderKind.parakeetTDTMLX.displayName, "Parakeet TDT MLX")
+        XCTAssertEqual(ASRProviderKind.whisperLargeV3TurboMLX6Bit.displayName, "Whisper Large v3 Turbo MLX 6-bit")
+        XCTAssertEqual(ASRProviderKind.canaryQwen25B.displayName, "Canary-Qwen-2.5B")
     }
 
     func testDiarizationPrecisionMapsToMLXProviderIDs() {

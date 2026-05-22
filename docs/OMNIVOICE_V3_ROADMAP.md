@@ -8,8 +8,8 @@ Goal: support speech-to-text input beyond the current English-first Parakeet pat
 
 Planned work:
 
-- Add a multilingual ASR provider interface that reports language coverage by model.
-- Add at least one local Apple Silicon multilingual ASR backend that can recognize Chinese speech and emit Chinese characters in live captions.
+- Add Whisper Large v3 Turbo MLX 6-bit as the first selectable local Apple Silicon multilingual ASR backend.
+- Add richer multilingual ASR capability metadata that reports language coverage by model.
 - Add model capability flags for English ASR, multilingual ASR, Chinese ASR, translation, timestamps, streaming partials, diarization, and word confidence.
 - Update the UI so unsupported language/model combinations are obvious before the user records.
 - Keep Parakeet as the fast English-first default and route non-English speech to a multilingual backend when selected.
@@ -28,9 +28,13 @@ Important architecture note:
 
 ## Candidate Model Direction
 
-Research candidates:
+Primary backend:
 
-- Whisper MLX or whisper.cpp multilingual models.
+- Whisper Large v3 Turbo MLX 6-bit from `mlx-community/whisper-large-v3-turbo-asr-6bit`.
+
+Future candidates:
+
+- whisper.cpp multilingual models.
 - SenseVoice-style local multilingual ASR if a stable Apple Silicon path is available.
 - Future MLX-native multilingual speech models with streaming partial support.
 

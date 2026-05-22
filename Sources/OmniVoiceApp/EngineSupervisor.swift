@@ -97,6 +97,7 @@ final class EngineSupervisor {
         environment["OMNIVOICE_MODEL_ROOT"] = modelRoot.path
         environment["OMNIVOICE_PARAKEET_MODEL_DIR"] = modelRoot.appending(path: "parakeet-tdt").path
         environment["OMNIVOICE_PARAKEET_MLX_MODEL_DIR"] = modelRoot.appending(path: "parakeet-tdt-mlx").path
+        environment["OMNIVOICE_WHISPER_MLX_MODEL_DIR"] = modelRoot.appending(path: "whisper-large-v3-turbo-mlx-6bit").path
         environment["OMNIVOICE_CANARY_MODEL_DIR"] = modelRoot.appending(path: "canary-qwen-2.5b").path
         environment["OMNIVOICE_MLX_SORTFORMER_FP16_DIR"] = modelRoot.appending(path: "mlx-sortformer-streaming-fp16").path
         environment["OMNIVOICE_MLX_SORTFORMER_FP32_DIR"] = modelRoot.appending(path: "mlx-sortformer-streaming-fp32").path

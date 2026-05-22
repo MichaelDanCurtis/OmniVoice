@@ -6,6 +6,7 @@ from .base import ASRProvider, UnavailableASRProvider
 from .fake import FakeASRProvider
 from .parakeet_mlx import ParakeetMLXProvider
 from .parakeet_sherpa import ParakeetSherpaProvider
+from .whisper_mlx import WhisperMLXProvider
 
 
 class ProviderRegistry:
@@ -14,6 +15,7 @@ class ProviderRegistry:
             "fake": FakeASRProvider(),
             "parakeet-tdt": ParakeetSherpaProvider(),
             "parakeet-tdt-mlx": ParakeetMLXProvider(),
+            "whisper-large-v3-turbo-mlx-6bit": WhisperMLXProvider(),
             "canary-qwen-2.5b": UnavailableASRProvider(
                 "canary-qwen-2.5b",
                 "Canary-Qwen-2.5B",

@@ -431,6 +431,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public mutating func cycleASRProvider() {
         switch asrProvider {
         case .parakeetTDTMLX:
+            asrProvider = .whisperLargeV3TurboMLX6Bit
+        case .whisperLargeV3TurboMLX6Bit:
             asrProvider = .canaryQwen25B
         case .canaryQwen25B:
             asrProvider = .parakeetTDTMLX

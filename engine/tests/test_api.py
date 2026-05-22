@@ -37,6 +37,17 @@ class FakeModelManager:
                 missing_files=["config.json", "model.safetensors"],
             ),
             ModelStatus(
+                provider_id="whisper-large-v3-turbo-mlx-6bit",
+                label="Whisper Large v3 Turbo MLX 6-bit",
+                repo_id="mlx-community/whisper-large-v3-turbo-asr-6bit",
+                local_path="/models/whisper-large-v3-turbo-mlx-6bit",
+                installed=False,
+                missing_files=["config.json", "model.safetensors", "tokenizer.json", "preprocessor_config.json"],
+                recommendation="Multilingual",
+                size="664 MB",
+                precision="6-bit",
+            ),
+            ModelStatus(
                 provider_id="translategemma-mlx",
                 label="TranslateGemma MLX",
                 repo_id="mlx-community/translategemma-4b-it-4bit",
@@ -1011,6 +1022,23 @@ def test_models_endpoint_lists_mlx_parakeet_download_target(monkeypatch):
     mlx_parakeet = next(model for model in payload if model["provider_id"] == "parakeet-tdt-mlx")
     assert mlx_parakeet["repo_id"] == "mlx-community/parakeet-tdt-0.6b-v3"
     assert mlx_parakeet["missing_files"] == ["config.json", "model.safetensors"]
+
+
+def test_models_endpoint_lists_whisper_mlx_download_target(monkeypatch):
+    monkeypatch.setattr("omnivoice_engine.main.model_manager", FakeModelManager(), raising=False)
+
+    response = client.get("/models")
+
+    assert response.status_code == 200
+    payload = response.json()
+    whisper = next(model for model in payload if model["provider_id"] == "whisper-large-v3-turbo-mlx-6bit")
+    assert whisper["repo_id"] == "mlx-community/whisper-large-v3-turbo-asr-6bit"
+    assert whisper["missing_files"] == [
+        "config.json",
+        "model.safetensors",
+        "tokenizer.json",
+        "preprocessor_config.json",
+    ]
 
 
 def test_models_endpoint_lists_translategemma_download_target(monkeypatch):

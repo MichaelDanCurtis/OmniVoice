@@ -33,15 +33,32 @@ public enum ASRProviderKind: String, CaseIterable, Codable, Equatable, Sendable 
     case fake = "fake"
     case parakeetTDT = "parakeet-tdt"
     case parakeetTDTMLX = "parakeet-tdt-mlx"
+    case whisperLargeV3TurboMLX6Bit = "whisper-large-v3-turbo-mlx-6bit"
     case canaryQwen25B = "canary-qwen-2.5b"
 
     public static let userSelectableCases: [ASRProviderKind] = [
         .parakeetTDTMLX,
+        .whisperLargeV3TurboMLX6Bit,
         .canaryQwen25B,
     ]
 
     public var normalizedForUserSelection: ASRProviderKind {
         Self.userSelectableCases.contains(self) ? self : .parakeetTDTMLX
+    }
+
+    public var displayName: String {
+        switch self {
+        case .fake:
+            "Fake ASR"
+        case .parakeetTDT:
+            "Parakeet TDT"
+        case .parakeetTDTMLX:
+            "Parakeet TDT MLX"
+        case .whisperLargeV3TurboMLX6Bit:
+            "Whisper Large v3 Turbo MLX 6-bit"
+        case .canaryQwen25B:
+            "Canary-Qwen-2.5B"
+        }
     }
 }
 

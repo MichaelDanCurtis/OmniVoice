@@ -12,7 +12,8 @@ Hold a configured hotkey, speak, see live captions while the app listens, then r
 - Draggable liquid-glass caption overlay
 - Local FastAPI engine
 - Parakeet TDT MLX provider support
-- Canary-Qwen-2.5B provider slot for future multilingual ASR work
+- Whisper Large v3 Turbo MLX 6-bit multilingual ASR support
+- Canary-Qwen-2.5B provider slot for future accuracy work
 - Hugging Face model download and update checks
 - Hugging Face token validation for gated model access
 - Grammar cleanup, correction handling, quote handling, and punctuation
@@ -30,7 +31,7 @@ Hold a configured hotkey, speak, see live captions while the app listens, then r
 
 ## Planned Next
 
-The next major track is V3 multilingual ASR and deeper automation: non-English speech input, stronger local diarization options, richer MCP-backed Ask AI actions, memory, and production signing/notarization.
+The next major track is deeper V3 automation: broader multilingual polish, stronger local diarization options, richer MCP-backed Ask AI actions, memory, and production signing/notarization.
 
 ## Requirements
 

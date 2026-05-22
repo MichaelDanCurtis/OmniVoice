@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from omnivoice_engine.providers.registry import ProviderRegistry
 from omnivoice_engine.providers.parakeet_sherpa import ParakeetSherpaProvider
 from omnivoice_engine.providers.parakeet_mlx import ParakeetMLXProvider
+from omnivoice_engine.providers.whisper_mlx import WhisperMLXProvider
 
 
 def test_fake_provider_is_available():
@@ -142,6 +143,93 @@ def test_mlx_parakeet_provider_preserves_aligned_tokens(tmp_path, monkeypatch):
     assert transcript.sentences[0].end_ms == 850
     assert [token.text for token in transcript.tokens] == ["hello", " world"]
     assert [(token.start_ms, token.end_ms) for token in transcript.tokens] == [(100, 400), (400, 850)]
+
+
+def test_whisper_mlx_provider_is_visible_as_multilingual_apple_silicon_backend(monkeypatch):
+    monkeypatch.setenv("OMNIVOICE_WHISPER_MLX_MODEL_DIR", "/tmp/omnivoice-missing-whisper-model")
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr("platform.machine", lambda: "arm64")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "mlx_audio" else None)
+    registry = ProviderRegistry()
+
+    providers = registry.list_providers()
+
+    whisper = next(provider for provider in providers if provider.id == "whisper-large-v3-turbo-mlx-6bit")
+    assert whisper.available is False
+    assert whisper.label == "Whisper Large v3 Turbo MLX 6-bit"
+    assert "model files not found" in whisper.reason
+
+
+def test_whisper_mlx_provider_requires_apple_silicon(monkeypatch):
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr("platform.machine", lambda: "x86_64")
+
+    info = WhisperMLXProvider("/tmp/unused").info()
+
+    assert info.available is False
+    assert info.reason == "Whisper MLX requires Apple Silicon macOS"
+
+
+def test_whisper_mlx_provider_reports_missing_runtime(tmp_path, monkeypatch):
+    for filename in ["config.json", "model.safetensors", "tokenizer.json", "preprocessor_config.json"]:
+        (tmp_path / filename).write_text("model")
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr("platform.machine", lambda: "arm64")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+
+    info = WhisperMLXProvider(str(tmp_path)).info()
+
+    assert info.available is False
+    assert info.reason == "mlx-audio runtime is not installed"
+
+
+def test_whisper_mlx_provider_transcribes_with_local_model_dir(tmp_path, monkeypatch):
+    captured = {}
+    fake_utils_module = ModuleType("mlx_audio.stt.utils")
+    fake_generate_module = ModuleType("mlx_audio.stt.generate")
+
+    for filename in ["config.json", "model.safetensors", "tokenizer.json", "preprocessor_config.json"]:
+        (tmp_path / filename).write_text("model")
+
+    class FakeModel:
+        pass
+
+    def fake_load_model(model_path, lazy=False, strict=False):
+        captured["model_path"] = model_path
+        captured["lazy"] = lazy
+        captured["strict"] = strict
+        return FakeModel()
+
+    def fake_generate_transcription(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            text="你好世界",
+            segments=[
+                {"text": "你好", "start": 0.0, "end": 0.4},
+                {"text": "世界", "start": 0.4, "end": 0.9},
+            ],
+        )
+
+    fake_utils_module.load_model = fake_load_model
+    fake_generate_module.generate_transcription = fake_generate_transcription
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr("platform.machine", lambda: "arm64")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "mlx_audio" else None)
+    monkeypatch.setitem(sys.modules, "mlx_audio", ModuleType("mlx_audio"))
+    monkeypatch.setitem(sys.modules, "mlx_audio.stt", ModuleType("mlx_audio.stt"))
+    monkeypatch.setitem(sys.modules, "mlx_audio.stt.utils", fake_utils_module)
+    monkeypatch.setitem(sys.modules, "mlx_audio.stt.generate", fake_generate_module)
+
+    transcript = WhisperMLXProvider(str(tmp_path)).transcribe_aligned_pcm_float32(b"\0\0\0\0" * 16, 16000)
+
+    assert transcript.text == "你好世界"
+    assert captured["model_path"] == str(tmp_path)
+    assert captured["audio"].endswith(".wav")
+    assert captured["format"] == "txt"
+    assert captured["verbose"] is False
+    assert captured["task"] == "transcribe"
+    assert [sentence.text for sentence in transcript.sentences] == ["你好", "世界"]
+    assert [(sentence.start_ms, sentence.end_ms) for sentence in transcript.sentences] == [(0, 400), (400, 900)]
 
 
 def test_parakeet_provider_default_dir_uses_project_models_when_started_from_engine_dir(tmp_path, monkeypatch):

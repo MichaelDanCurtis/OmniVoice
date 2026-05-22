@@ -24,6 +24,7 @@ mlx-diarization = [
 ]
 mlx-asr = [
   "parakeet-mlx>=0.5.1",
+  "mlx-audio>=0.4.3",
 ]
 
 [tool.pytest.ini_options]
