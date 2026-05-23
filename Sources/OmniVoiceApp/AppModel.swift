@@ -3285,6 +3285,31 @@ final class AppModel {
         await downloadModel(providerID: preferences.asrProvider.rawValue)
     }
 
+    func installSelectedProviderRuntime() async {
+        guard preferences.asrProvider == .canaryQwen25B else {
+            statusText = "No runtime installer for selected model"
+            return
+        }
+
+        engineState = .checking
+        statusText = "Installing Canary runtime"
+        let startResult = await EngineSupervisor.shared.installCanaryRuntime()
+        switch startResult {
+        case .alreadyOnline, .started:
+            await loadEngineStatus(startEngineIfOffline: false)
+            statusText = "Canary runtime install finished"
+        case .stillStarting, .unavailable, .failed:
+            providerStatuses = []
+            modelStatuses = []
+            diarizationProviderStatuses = []
+            translationProviderStatuses = []
+            transcripts = []
+            engineState = .offline(startResult.detail)
+            statusText = startResult.detail
+        }
+        await refreshStartupChecks()
+    }
+
     func downloadModel(providerID: String) async {
         guard providerID != ASRProviderKind.fake.rawValue else {
             statusText = "Fake ASR has no model download"
@@ -3514,6 +3539,20 @@ final class AppModel {
 
     var selectedProviderIssue: ProviderRecoveryIssue? {
         providerIssue(for: preferences.asrProvider)
+    }
+
+    var selectedProviderRuntimeInstallAvailable: Bool {
+        providerRuntimeInstallAvailable(for: preferences.asrProvider)
+    }
+
+    func providerRuntimeInstallAvailable(for provider: ASRProviderKind) -> Bool {
+        guard provider == .canaryQwen25B,
+              modelStatus(for: provider)?.installed == true,
+              let info = providerInfo(for: provider),
+              !info.available else {
+            return false
+        }
+        return (info.reason ?? "").localizedCaseInsensitiveContains("runtime")
     }
 
     func providerIssue(for provider: ASRProviderKind) -> ProviderRecoveryIssue? {

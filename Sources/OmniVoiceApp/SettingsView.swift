@@ -697,6 +697,16 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            if model.selectedProviderRuntimeInstallAvailable {
+                Button("Install Runtime") {
+                    selectedTab = .models
+                    Task {
+                        await model.installSelectedProviderRuntime()
+                    }
+                }
+                .disabled(isModelActionRunning)
+            }
         }
     }
 

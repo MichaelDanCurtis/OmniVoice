@@ -31,13 +31,13 @@ final class EngineSupervisor {
     private var process: Process?
     private var didAttemptStart = false
 
-    func startIfNeeded() async -> EngineStartResult {
+    func startIfNeeded(healthAttempts: Int = 120) async -> EngineStartResult {
         if await isHealthy() {
             return .alreadyOnline
         }
 
         if process?.isRunning == true {
-            return await waitForHealth()
+            return await waitForHealth(attempts: healthAttempts)
         }
 
         guard !didAttemptStart else {
@@ -55,7 +55,7 @@ final class EngineSupervisor {
             return .failed("Engine launch failed: \(error.localizedDescription)")
         }
 
-        return await waitForHealth()
+        return await waitForHealth(attempts: healthAttempts)
     }
 
     func stopStartedProcess() {
@@ -63,7 +63,7 @@ final class EngineSupervisor {
         process.terminate()
     }
 
-    func restart(forceExternal: Bool = false) async -> EngineStartResult {
+    func restart(forceExternal: Bool = false, healthAttempts: Int = 120) async -> EngineStartResult {
         didAttemptStart = false
 
         if let process, process.isRunning {
@@ -77,7 +77,23 @@ final class EngineSupervisor {
         }
         process = nil
 
-        return await startIfNeeded()
+        return await startIfNeeded(healthAttempts: healthAttempts)
+    }
+
+    func installCanaryRuntime() async -> EngineStartResult {
+        do {
+            let supportURL = try applicationSupportURL()
+            let runtimeURL = supportURL.appending(path: "engine-runtimes", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: runtimeURL, withIntermediateDirectories: true)
+            FileManager.default.createFile(
+                atPath: runtimeURL.appending(path: "canary-asr.enabled").path,
+                contents: Data("1\n".utf8)
+            )
+        } catch {
+            return .failed("Could not enable Canary runtime install: \(error.localizedDescription)")
+        }
+
+        return await restart(forceExternal: true, healthAttempts: 900)
     }
 
     private func launchEngine(using launcherURL: URL) throws {
@@ -110,6 +126,7 @@ final class EngineSupervisor {
         environment["OMNIVOICE_INSTALL_ASR"] = environment["OMNIVOICE_INSTALL_ASR"] ?? "1"
         environment["OMNIVOICE_INSTALL_MLX_DIARIZATION"] = environment["OMNIVOICE_INSTALL_MLX_DIARIZATION"] ?? "1"
         environment["OMNIVOICE_INSTALL_MLX_ASR"] = environment["OMNIVOICE_INSTALL_MLX_ASR"] ?? "1"
+        environment["OMNIVOICE_INSTALL_CANARY_ASR"] = environment["OMNIVOICE_INSTALL_CANARY_ASR"] ?? (canaryRuntimeInstallIsEnabled(supportURL: supportURL) ? "1" : "0")
 
         let launched = Process()
         launched.executableURL = launcherURL
@@ -122,8 +139,8 @@ final class EngineSupervisor {
         process = launched
     }
 
-    private func waitForHealth() async -> EngineStartResult {
-        for _ in 0..<120 {
+    private func waitForHealth(attempts: Int = 120) async -> EngineStartResult {
+        for _ in 0..<attempts {
             if await isHealthy() {
                 return .started
             }
@@ -140,6 +157,15 @@ final class EngineSupervisor {
         } catch {
             return false
         }
+    }
+
+    private func canaryRuntimeInstallIsEnabled(supportURL: URL) -> Bool {
+        FileManager.default.fileExists(
+            atPath: supportURL
+                .appending(path: "engine-runtimes", directoryHint: .isDirectory)
+                .appending(path: "canary-asr.enabled")
+                .path
+        )
     }
 
     private func terminateExternalEngineListeners() async {

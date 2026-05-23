@@ -126,6 +126,20 @@ if ! python_is_supported "$(command -v python)" "3.12"; then
   echo "OmniVoice engine venv is not using Python 3.12 or newer after creation." >&2
   exit 1
 fi
+
+python_module_available() {
+  python - "$1" <<'PY' >/dev/null 2>&1
+import importlib.util
+import sys
+
+try:
+    available = importlib.util.find_spec(sys.argv[1]) is not None
+except (ImportError, ModuleNotFoundError, ValueError):
+    available = False
+raise SystemExit(0 if available else 1)
+PY
+}
+
 python -m ensurepip --upgrade >/dev/null 2>&1 || true
 python -m pip install --upgrade pip
 python -m pip install "$RUNTIME_ENGINE_ROOT"
@@ -143,7 +157,9 @@ if [[ "${OMNIVOICE_INSTALL_MLX_ASR:-0}" = "1" ]]; then
 fi
 
 if [[ "${OMNIVOICE_INSTALL_CANARY_ASR:-0}" = "1" ]]; then
-  python -m pip install "$RUNTIME_ENGINE_ROOT[canary-asr]" || echo "Canary-Qwen runtime install failed; continuing without it." >&2
+  if ! python_module_available "nemo.collections.speechlm2.models"; then
+    python -m pip install "$RUNTIME_ENGINE_ROOT[canary-asr]" || echo "Canary-Qwen runtime install failed; continuing without it." >&2
+  fi
 fi
 
 export OMNIVOICE_MODEL_ROOT="${OMNIVOICE_MODEL_ROOT:-$APP_SUPPORT_DIR/models}"
