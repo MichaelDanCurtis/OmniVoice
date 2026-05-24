@@ -245,13 +245,16 @@ final class ModelsTests: XCTestCase {
     func testDefaultHotkeyBindingsMatchPlannedShortcuts() {
         XCTAssertEqual(HotkeyBinding.defaultDictation.keyCode, 49)
         XCTAssertEqual(HotkeyBinding.defaultStyle.keyCode, 1)
+        XCTAssertEqual(HotkeyBinding.defaultTranscriptCache.keyCode, 8)
         XCTAssertEqual(HotkeyBinding.defaultDictation.modifiers, 2_304)
         XCTAssertEqual(HotkeyBinding.defaultStyle.modifiers, 2_304)
+        XCTAssertEqual(HotkeyBinding.defaultTranscriptCache.modifiers, 2_304)
     }
 
     func testHotkeyBindingsExposeReadableLabels() {
         XCTAssertEqual(HotkeyBinding.defaultDictation.displayName, "⌥⌘Space")
         XCTAssertEqual(HotkeyBinding.defaultStyle.displayName, "⌥⌘S")
+        XCTAssertEqual(HotkeyBinding.defaultTranscriptCache.displayName, "⌥⌘C")
     }
 
     func testHotkeyPresetsIncludeDefaultsAndReadableNames() {
@@ -271,6 +274,36 @@ final class ModelsTests: XCTestCase {
         XCTAssertTrue(HotkeyBinding(keyCode: 49, modifiers: 2_304).hasModifier)
         XCTAssertTrue(HotkeyBinding.modifierOnly(6_144).hasModifier)
         XCTAssertFalse(HotkeyBinding(keyCode: 49, modifiers: 0).hasModifier)
+    }
+
+    func testMouseButtonBindingsPreferExtraButtons() {
+        XCTAssertEqual(MouseButtonBinding.defaultPushToTalk.buttonNumber, 3)
+        XCTAssertEqual(MouseButtonBinding.defaultPushToTalk.displayName, "Mouse Button 4")
+        XCTAssertEqual(MouseButtonBinding.defaultTranscriptCache.buttonNumber, 4)
+        XCTAssertEqual(MouseButtonBinding.defaultTranscriptCache.displayName, "Mouse Button 5")
+        XCTAssertFalse(MouseButtonBinding(buttonNumber: 0).isUsableShortcut)
+        XCTAssertFalse(MouseButtonBinding(buttonNumber: 2).isUsableShortcut)
+        XCTAssertTrue(MouseButtonBinding(buttonNumber: 3).isUsableShortcut)
+    }
+
+    func testTranscriptCacheSelectionWrapsThroughItems() {
+        var selection = TranscriptCacheSelectionState()
+
+        selection.move(delta: 1, count: 3)
+        XCTAssertEqual(selection.selectedIndex, 1)
+
+        selection.move(delta: 3, count: 3)
+        XCTAssertEqual(selection.selectedIndex, 1)
+
+        selection.move(delta: -2, count: 3)
+        XCTAssertEqual(selection.selectedIndex, 2)
+
+        XCTAssertEqual(selection.selected(from: ["a", "b", "c"]), "c")
+        selection.reset(count: 2)
+        XCTAssertEqual(selection.selectedIndex, 1)
+        selection.reset(count: 0)
+        XCTAssertEqual(selection.selectedIndex, 0)
+        XCTAssertNil(selection.selected(from: [String]()))
     }
 
     func testHotkeyBindingsSupportModifierOnlyChords() {

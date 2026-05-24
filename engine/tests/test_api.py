@@ -275,6 +275,40 @@ def test_translation_capabilities_endpoint_lists_target_languages_from_model_tem
     assert payload["capability_source"] == "model-template"
 
 
+def test_translation_capabilities_endpoint_uses_asr_provider_for_source_languages(tmp_path):
+    model_dir = tmp_path / "translategemma"
+    model_dir.mkdir()
+    (model_dir / "chat_template.jinja").write_text(
+        """
+        {%- set languages = {
+            "en": "English",
+            "es": "Spanish",
+            "zh": "Chinese"
+        } -%}
+        """,
+        encoding="utf-8",
+    )
+
+    response = client.get(
+        "/translation/capabilities",
+        params={
+            "provider_id": "translategemma-mlx",
+            "model_provider_id": "translategemma-mlx",
+            "model_path": str(model_dir),
+            "asr_provider": "whisper-large-v3-turbo-mlx-6bit",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    source_codes = [language["code"] for language in payload["source_languages"]]
+    target_codes = [language["code"] for language in payload["target_languages"]]
+
+    assert payload["source_language_locked"] is False
+    assert source_codes == ["auto", "en", "es", "zh"]
+    assert target_codes == ["zh", "en", "es"]
+
+
 def test_translate_endpoint_returns_detected_language_and_target_text(monkeypatch, tmp_path):
     monkeypatch.setattr("omnivoice_engine.main.runtime_store", RuntimeStore(tmp_path), raising=False)
 

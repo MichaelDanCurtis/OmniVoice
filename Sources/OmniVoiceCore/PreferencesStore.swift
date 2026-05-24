@@ -2,6 +2,7 @@ import Foundation
 
 public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public static let translationQuickTargetLanguageSlotCount = 4
+    public static let maxAdditionalDictationHotkeys = 3
     public static let defaultTranslationQuickTargetLanguages = ["zh", "fr", "en"]
 
     public var asrProvider: ASRProviderKind
@@ -9,8 +10,14 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var dictionaryTerms: [String]
     public var microphoneId: String?
     public var dictationHotkey: HotkeyBinding
+    public var additionalDictationHotkeys: [HotkeyBinding]
     public var styleHotkey: HotkeyBinding
     public var hotMenuHotkey: HotkeyBinding
+    public var transcriptCacheHotkey: HotkeyBinding
+    public var mousePushToTalkEnabled: Bool
+    public var mousePushToTalkButton: MouseButtonBinding
+    public var transcriptCacheMouseEnabled: Bool
+    public var transcriptCacheMouseButton: MouseButtonBinding
     public var hotMenuUpActions: [HotMenuAction]
     public var hotMenuLeftActions: [HotMenuAction]
     public var hotMenuRightActions: [HotMenuAction]
@@ -106,8 +113,14 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         dictionaryTerms: [],
         microphoneID: nil,
         dictationHotkey: .defaultDictation,
+        additionalDictationHotkeys: [],
         styleHotkey: .defaultStyle,
         hotMenuHotkey: .defaultHotMenu,
+        transcriptCacheHotkey: .defaultTranscriptCache,
+        mousePushToTalkEnabled: false,
+        mousePushToTalkButton: .defaultPushToTalk,
+        transcriptCacheMouseEnabled: false,
+        transcriptCacheMouseButton: .defaultTranscriptCache,
         hotMenuUpActions: HotMenuAction.defaultActions(for: .up),
         hotMenuLeftActions: HotMenuAction.defaultActions(for: .left),
         hotMenuRightActions: HotMenuAction.defaultActions(for: .right),
@@ -153,8 +166,14 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         dictionaryTerms: [String],
         microphoneID: String? = nil,
         dictationHotkey: HotkeyBinding = .defaultDictation,
+        additionalDictationHotkeys: [HotkeyBinding] = [],
         styleHotkey: HotkeyBinding = .defaultStyle,
         hotMenuHotkey: HotkeyBinding = .defaultHotMenu,
+        transcriptCacheHotkey: HotkeyBinding = .defaultTranscriptCache,
+        mousePushToTalkEnabled: Bool = false,
+        mousePushToTalkButton: MouseButtonBinding = .defaultPushToTalk,
+        transcriptCacheMouseEnabled: Bool = false,
+        transcriptCacheMouseButton: MouseButtonBinding = .defaultTranscriptCache,
         hotMenuUpAction: HotMenuAction? = nil,
         hotMenuLeftAction: HotMenuAction? = nil,
         hotMenuRightAction: HotMenuAction? = nil,
@@ -202,8 +221,17 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         self.dictionaryTerms = dictionaryTerms
         self.microphoneId = microphoneID
         self.dictationHotkey = dictationHotkey
+        self.additionalDictationHotkeys = Self.normalizedAdditionalDictationHotkeys(
+            additionalDictationHotkeys,
+            primary: dictationHotkey
+        )
         self.styleHotkey = styleHotkey
         self.hotMenuHotkey = hotMenuHotkey
+        self.transcriptCacheHotkey = transcriptCacheHotkey
+        self.mousePushToTalkEnabled = mousePushToTalkEnabled
+        self.mousePushToTalkButton = mousePushToTalkButton
+        self.transcriptCacheMouseEnabled = transcriptCacheMouseEnabled
+        self.transcriptCacheMouseButton = transcriptCacheMouseButton
         self.hotMenuUpActions = Self.resolvedHotMenuActions(
             actions: hotMenuUpActions,
             legacyAction: hotMenuUpAction,
@@ -296,8 +324,20 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             dictionaryTerms: try container.decode([String].self, forKey: .dictionaryTerms),
             microphoneID: try container.decodeIfPresent(String.self, forKey: .microphoneId),
             dictationHotkey: try container.decode(HotkeyBinding.self, forKey: .dictationHotkey),
+            additionalDictationHotkeys: try container.decodeIfPresent(
+                [HotkeyBinding].self,
+                forKey: .additionalDictationHotkeys
+            ) ?? [],
             styleHotkey: try container.decode(HotkeyBinding.self, forKey: .styleHotkey),
             hotMenuHotkey: try container.decodeIfPresent(HotkeyBinding.self, forKey: .hotMenuHotkey) ?? .defaultHotMenu,
+            transcriptCacheHotkey: try container.decodeIfPresent(HotkeyBinding.self, forKey: .transcriptCacheHotkey)
+                ?? .defaultTranscriptCache,
+            mousePushToTalkEnabled: try container.decodeIfPresent(Bool.self, forKey: .mousePushToTalkEnabled) ?? false,
+            mousePushToTalkButton: try container.decodeIfPresent(MouseButtonBinding.self, forKey: .mousePushToTalkButton)
+                ?? .defaultPushToTalk,
+            transcriptCacheMouseEnabled: try container.decodeIfPresent(Bool.self, forKey: .transcriptCacheMouseEnabled) ?? false,
+            transcriptCacheMouseButton: try container.decodeIfPresent(MouseButtonBinding.self, forKey: .transcriptCacheMouseButton)
+                ?? .defaultTranscriptCache,
             hotMenuUpAction: try legacyHotMenuContainer.decodeIfPresent(HotMenuAction.self, forKey: .hotMenuUpAction),
             hotMenuLeftAction: try legacyHotMenuContainer.decodeIfPresent(HotMenuAction.self, forKey: .hotMenuLeftAction),
             hotMenuRightAction: try legacyHotMenuContainer.decodeIfPresent(HotMenuAction.self, forKey: .hotMenuRightAction),
@@ -368,8 +408,20 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             dictionaryTerms: try container.decode([String].self, forKey: .dictionaryTerms),
             microphoneID: try container.decodeIfPresent(String.self, forKey: .microphoneId),
             dictationHotkey: try container.decode(HotkeyBinding.self, forKey: .dictationHotkey),
+            additionalDictationHotkeys: try container.decodeIfPresent(
+                [HotkeyBinding].self,
+                forKey: .additionalDictationHotkeys
+            ) ?? [],
             styleHotkey: try container.decode(HotkeyBinding.self, forKey: .styleHotkey),
             hotMenuHotkey: try container.decodeIfPresent(HotkeyBinding.self, forKey: .hotMenuHotkey) ?? .defaultHotMenu,
+            transcriptCacheHotkey: try container.decodeIfPresent(HotkeyBinding.self, forKey: .transcriptCacheHotkey)
+                ?? .defaultTranscriptCache,
+            mousePushToTalkEnabled: try container.decodeIfPresent(Bool.self, forKey: .mousePushToTalkEnabled) ?? false,
+            mousePushToTalkButton: try container.decodeIfPresent(MouseButtonBinding.self, forKey: .mousePushToTalkButton)
+                ?? .defaultPushToTalk,
+            transcriptCacheMouseEnabled: try container.decodeIfPresent(Bool.self, forKey: .transcriptCacheMouseEnabled) ?? false,
+            transcriptCacheMouseButton: try container.decodeIfPresent(MouseButtonBinding.self, forKey: .transcriptCacheMouseButton)
+                ?? .defaultTranscriptCache,
             hotMenuUpAction: try legacyHotMenuContainer.decodeIfPresent(HotMenuAction.self, forKey: .hotMenuUpAction),
             hotMenuLeftAction: try legacyHotMenuContainer.decodeIfPresent(HotMenuAction.self, forKey: .hotMenuLeftAction),
             hotMenuRightAction: try legacyHotMenuContainer.decodeIfPresent(HotMenuAction.self, forKey: .hotMenuRightAction),
@@ -645,8 +697,14 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case dictionaryTerms = "dictionary_terms"
         case microphoneId = "microphone_id"
         case dictationHotkey = "dictation_hotkey"
+        case additionalDictationHotkeys = "additional_dictation_hotkeys"
         case styleHotkey = "style_hotkey"
         case hotMenuHotkey = "hot_menu_hotkey"
+        case transcriptCacheHotkey = "transcript_cache_hotkey"
+        case mousePushToTalkEnabled = "mouse_push_to_talk_enabled"
+        case mousePushToTalkButton = "mouse_push_to_talk_button"
+        case transcriptCacheMouseEnabled = "transcript_cache_mouse_enabled"
+        case transcriptCacheMouseButton = "transcript_cache_mouse_button"
         case hotMenuUpActions = "hot_menu_up_actions"
         case hotMenuLeftActions = "hot_menu_left_actions"
         case hotMenuRightActions = "hot_menu_right_actions"
@@ -692,8 +750,14 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case dictionaryTerms
         case microphoneId
         case dictationHotkey
+        case additionalDictationHotkeys
         case styleHotkey
         case hotMenuHotkey
+        case transcriptCacheHotkey
+        case mousePushToTalkEnabled
+        case mousePushToTalkButton
+        case transcriptCacheMouseEnabled
+        case transcriptCacheMouseButton
         case hotMenuUpActions
         case hotMenuLeftActions
         case hotMenuRightActions
@@ -805,6 +869,18 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             .prefix(translationQuickTargetLanguageSlotCount)
 
         return normalized.isEmpty ? defaultTranslationQuickTargetLanguages : Array(normalized)
+    }
+
+    public static func normalizedAdditionalDictationHotkeys(
+        _ hotkeys: [HotkeyBinding],
+        primary: HotkeyBinding
+    ) -> [HotkeyBinding] {
+        var seen: Set<HotkeyBinding> = [primary]
+        return hotkeys
+            .filter { $0.hasModifier }
+            .filter { seen.insert($0).inserted }
+            .prefix(maxAdditionalDictationHotkeys)
+            .map { $0 }
     }
 }
 

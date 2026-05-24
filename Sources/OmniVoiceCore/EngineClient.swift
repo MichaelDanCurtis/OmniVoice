@@ -694,7 +694,8 @@ public struct EngineClient: Sendable {
     public func translationCapabilities(
         providerID: String,
         modelProviderID: String = "",
-        modelPath: String = ""
+        modelPath: String = "",
+        asrProviderID: String = ASRProviderKind.parakeetTDTMLX.rawValue
     ) async throws -> TranslationCapabilities {
         let endpoint = baseURL
             .appending(path: "translation")
@@ -704,6 +705,7 @@ public struct EngineClient: Sendable {
             URLQueryItem(name: "provider_id", value: providerID),
             URLQueryItem(name: "model_provider_id", value: modelProviderID),
             URLQueryItem(name: "model_path", value: modelPath),
+            URLQueryItem(name: "asr_provider", value: asrProviderID),
         ]
         guard let url = components?.url else {
             throw URLError(.badURL)

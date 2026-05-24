@@ -4,10 +4,12 @@ OmniVoice is a local-first macOS dictation app inspired by the push-to-talk work
 
 Hold a configured hotkey, speak, see live captions while the app listens, then release the hotkey to insert cleaned text wherever the cursor was active.
 
-## v2 Scope
+## v3 Scope
 
 - Native macOS menu bar app
-- Configurable push-to-talk, style, and hot-menu hotkeys
+- Configurable keyboard and mouse push-to-talk shortcuts, including alternate dictation triggers
+- Transcript cache picker with keyboard and mouse shortcuts
+- Selectable recording start/stop cue sounds
 - Microphone picker
 - Draggable liquid-glass caption overlay
 - Local FastAPI engine
@@ -27,19 +29,18 @@ Hold a configured hotkey, speak, see live captions while the app listens, then r
 - Liquid-glass themes, custom accent color, waveform modes, and Help capability demos
 - Engine dashboard with health, logs, transcripts, model controls, and export links
 - Raycast script-command integration
-- Local development DMG build
+- Local development DMG with embedded Python runtime, bundled engine source, and bundled Python wheelhouse
 
 ## Planned Next
 
-The next major track is deeper V3 automation: broader multilingual polish, stronger local diarization options, richer MCP-backed Ask AI actions, memory, and production signing/notarization.
+The next major track is production distribution polish: Developer ID signing, notarization, a cleaner first-run installer experience, richer MCP-backed Ask AI actions, and long-term memory.
 
 ## Requirements
 
 - macOS 14+
-- Python 3.12 or newer
 - Microphone permission
 - Accessibility permission
-- Network access for first-run dependency installation and Hugging Face model downloads
+- Network access for Hugging Face model downloads
 
 ## Build
 
@@ -63,6 +64,8 @@ If the engine is offline, the app starts the bundled engine launcher and creates
 
 `~/Library/Application Support/OmniVoice`
 
+The distributable app includes a bundled Python runtime, the local engine source, and a bundled Python wheelhouse for the core/ASR/MLX runtime packages. Model weights are not bundled; they are downloaded or selected through the app and stored under Application Support by default.
+
 For development, run the engine directly:
 
 ```bash
@@ -73,4 +76,4 @@ scripts/run-engine.sh
 
 The current DMG is locally signed for development. Public distribution still requires Developer ID signing, hardened-runtime review, Apple notarization, and stapling.
 
-See [docs/LOCAL_DISTRIBUTION.md](docs/LOCAL_DISTRIBUTION.md) for details.
+See [docs/LOCAL_DISTRIBUTION.md](docs/LOCAL_DISTRIBUTION.md) and [docs/V3_RELEASE_NOTES.md](docs/V3_RELEASE_NOTES.md) for details.

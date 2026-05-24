@@ -147,6 +147,7 @@ struct SettingsView: View {
                 appearanceSection
                 recordingCueSection
                 hotkeySection
+                mouseControlsSection
                 waveformSection
                 engineFrameSection
             }
@@ -720,6 +721,30 @@ struct SettingsView: View {
                 onChange: model.setDictationHotkey
             )
 
+            ForEach(Array(model.preferences.additionalDictationHotkeys.enumerated()), id: \.offset) { index, hotkey in
+                HotkeyRecorderView(
+                    title: "Dictation Alternate \(index + 2)",
+                    binding: hotkey,
+                    theme: model.activeTheme,
+                    advancedTitle: "Remove",
+                    advancedSystemImage: "minus.circle",
+                    onAdvanced: {
+                        model.removeAdditionalDictationHotkey(at: index)
+                    },
+                    onChange: { binding in
+                        model.setAdditionalDictationHotkey(binding, at: index)
+                    }
+                )
+            }
+
+            Button {
+                model.addAdditionalDictationHotkey()
+            } label: {
+                Label("Add Dictation Hotkey", systemImage: "plus.circle")
+            }
+            .disabled(model.preferences.additionalDictationHotkeys.count >= OmniVoicePreferences.maxAdditionalDictationHotkeys)
+            .help("Add another keyboard shortcut that starts and stops dictation.")
+
             HotkeyRecorderView(
                 title: "Style Hotkey",
                 binding: model.preferences.styleHotkey,
@@ -741,6 +766,13 @@ struct SettingsView: View {
                 onChange: model.setHotMenuHotkey
             )
 
+            HotkeyRecorderView(
+                title: "Transcript Cache",
+                binding: model.preferences.transcriptCacheHotkey,
+                theme: model.activeTheme,
+                onChange: model.setTranscriptCacheHotkey
+            )
+
             if hotMenuAdvancedExpanded {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Hot Menu Actions")
@@ -759,6 +791,35 @@ struct SettingsView: View {
                 .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
+        }
+    }
+
+    @ViewBuilder
+    private var mouseControlsSection: some View {
+        Section("Mouse Controls") {
+            Toggle("Mouse push-to-talk", isOn: mousePushToTalkEnabledBinding)
+                .help("Hold a configured extra mouse button to dictate without using the keyboard.")
+
+            MouseButtonRecorderView(
+                title: "Push-to-talk Button",
+                binding: model.preferences.mousePushToTalkButton,
+                theme: model.activeTheme,
+                onChange: model.setMousePushToTalkButton
+            )
+
+            Toggle("Transcript cache picker", isOn: transcriptCacheMouseEnabledBinding)
+                .help("Open a floating picker for recent dictations, then scroll and click to insert one.")
+
+            MouseButtonRecorderView(
+                title: "Cache Picker Button",
+                binding: model.preferences.transcriptCacheMouseButton,
+                theme: model.activeTheme,
+                onChange: model.setTranscriptCacheMouseButton
+            )
+
+            Text("Mouse shortcuts only accept extra buttons so normal left, right, and middle clicks stay untouched.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -1251,7 +1312,7 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
 
-            Text("Target languages come from the selected model's engine capability metadata. Current live speech translation uses English spoken input.")
+            Text("Spoken languages follow the selected speech model. Target languages come from the selected translation model's engine capability metadata.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -1804,6 +1865,20 @@ struct SettingsView: View {
         Binding(
             get: { model.preferences.recordingCueVolume },
             set: { model.setRecordingCueVolume($0) }
+        )
+    }
+
+    private var mousePushToTalkEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { model.preferences.mousePushToTalkEnabled },
+            set: { model.setMousePushToTalkEnabled($0) }
+        )
+    }
+
+    private var transcriptCacheMouseEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { model.preferences.transcriptCacheMouseEnabled },
+            set: { model.setTranscriptCacheMouseEnabled($0) }
         )
     }
 

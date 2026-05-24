@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import ast
 import importlib.util
 import os
+import re
 import tempfile
 import wave
 from pathlib import Path
@@ -81,14 +83,14 @@ class CanaryQwenProvider(ASRProvider):
                     }
                 ]
             ],
-            max_new_tokens=256,
+            max_new_tokens=128,
         )
         first_answer = answer_ids[0] if isinstance(answer_ids, (list, tuple)) else answer_ids
         if hasattr(first_answer, "cpu"):
             first_answer = first_answer.cpu()
         tokenizer = getattr(model, "tokenizer", None)
-        if tokenizer is not None and hasattr(tokenizer, "ids_to_text"):
-            return self._clean_text(str(tokenizer.ids_to_text(first_answer)))
+        if tokenizer is not None:
+            return self._clean_text(self._decode_answer(tokenizer, first_answer))
         return self._clean_text(str(first_answer))
 
     def _get_model(self):
@@ -125,7 +127,50 @@ class CanaryQwenProvider(ASRProvider):
             wav.writeframes(int16_samples.tobytes())
 
     def _clean_text(self, text: str) -> str:
-        cleaned = text.strip()
-        for marker in ["<|endoftext|>", "<|im_end|>", "</s>"]:
-            cleaned = cleaned.replace(marker, "")
-        return cleaned.strip()
+        cleaned = self._unwrap_text_payload(text.strip())
+        normalized = cleaned.replace("\r\n", "\n")
+
+        for marker in ("<|im_start|>assistant", "\nassistant\n", "\nassistant:", "assistant\n", "assistant:"):
+            index = normalized.lower().rfind(marker)
+            if index >= 0:
+                normalized = normalized[index + len(marker):]
+                break
+
+        prompt_index = normalized.lower().rfind("transcribe the following:")
+        if prompt_index >= 0:
+            normalized = normalized[prompt_index + len("transcribe the following:"):]
+
+        normalized = re.sub(r"<\|[^|]+?\|>", " ", normalized)
+        normalized = normalized.replace("</s>", " ").replace("<s>", " ")
+        lines = [
+            line.strip()
+            for line in normalized.splitlines()
+            if line.strip().lower() not in {"user", "assistant", "system"}
+        ]
+        return re.sub(r"\s+", " ", " ".join(lines)).strip()
+
+    def _unwrap_text_payload(self, text: str) -> str:
+        try:
+            payload = ast.literal_eval(text)
+        except (SyntaxError, ValueError):
+            return text
+
+        if isinstance(payload, str):
+            return payload
+        if isinstance(payload, (list, tuple)) and all(isinstance(item, str) for item in payload):
+            return " ".join(item.strip() for item in payload if item.strip())
+        return text
+
+    def _decode_answer(self, tokenizer, token_ids) -> str:
+        decode_ids = token_ids.tolist() if hasattr(token_ids, "tolist") else token_ids
+
+        if hasattr(tokenizer, "decode"):
+            try:
+                return str(tokenizer.decode(decode_ids, skip_special_tokens=True))
+            except TypeError:
+                return str(tokenizer.decode(decode_ids))
+
+        if hasattr(tokenizer, "ids_to_text"):
+            return str(tokenizer.ids_to_text(token_ids))
+
+        return str(token_ids)

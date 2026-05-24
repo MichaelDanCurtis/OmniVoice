@@ -378,6 +378,68 @@ def test_canary_qwen_provider_transcribes_with_local_model_dir(tmp_path, monkeyp
     assert transcript.text == "hello from canary"
     assert captured["model_path"] == str(tmp_path)
     assert captured["token_ids"] == "decoded-token-ids"
-    assert captured["max_new_tokens"] == 256
+    assert captured["max_new_tokens"] == 128
     assert captured["prompts"][0][0]["content"] == "Transcribe the following: <|audio|>"
     assert captured["prompts"][0][0]["audio"][0].endswith(".wav")
+
+
+def test_canary_qwen_provider_cleans_chat_template_echoes(tmp_path, monkeypatch):
+    captured = {}
+    fake_models_module = ModuleType("nemo.collections.speechlm2.models")
+
+    for filename in ["config.json", "model.safetensors"]:
+        (tmp_path / filename).write_text("model")
+
+    class FakeIds:
+        def cpu(self):
+            return [1, 2, 3]
+
+    class FakeTokenizer:
+        def decode(self, token_ids, skip_special_tokens=False):
+            captured["decode_token_ids"] = token_ids
+            captured["skip_special_tokens"] = skip_special_tokens
+            return "<|im_start|>user\nTranscribe the following: <|audioplaceholder|><|im_end|>\n<|im_start|>assistant\nHello from Canary.<|im_end|>"
+
+        def ids_to_text(self, token_ids):
+            captured["ids_to_text_token_ids"] = token_ids
+            return "should not be used"
+
+    class FakeSALM:
+        audio_locator_tag = "<|audioplaceholder|>"
+        tokenizer = FakeTokenizer()
+
+        @classmethod
+        def from_pretrained(cls, model_path):
+            captured["model_path"] = model_path
+            return cls()
+
+        def generate(self, prompts, max_new_tokens):
+            captured["prompts"] = prompts
+            captured["max_new_tokens"] = max_new_tokens
+            return [FakeIds()]
+
+    fake_models_module.SALM = FakeSALM
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name: object() if name == "nemo.collections.speechlm2.models" else None,
+    )
+    monkeypatch.setitem(sys.modules, "nemo", ModuleType("nemo"))
+    monkeypatch.setitem(sys.modules, "nemo.collections", ModuleType("nemo.collections"))
+    monkeypatch.setitem(sys.modules, "nemo.collections.speechlm2", ModuleType("nemo.collections.speechlm2"))
+    monkeypatch.setitem(sys.modules, "nemo.collections.speechlm2.models", fake_models_module)
+
+    transcript = CanaryQwenProvider(str(tmp_path)).transcribe_aligned_pcm_float32(b"\0\0\0\0" * 16, 16000)
+
+    assert transcript.text == "Hello from Canary."
+    assert captured["decode_token_ids"] == [1, 2, 3]
+    assert captured["skip_special_tokens"] is True
+    assert "ids_to_text_token_ids" not in captured
+    assert captured["max_new_tokens"] == 128
+
+
+def test_canary_qwen_provider_cleans_list_shaped_transcript_payload():
+    provider = CanaryQwenProvider("/tmp/unused")
+
+    assert provider._clean_text("['Hello from Canary.']") == "Hello from Canary."
+    assert provider._clean_text('["Hello", "from Canary."]') == "Hello from Canary."

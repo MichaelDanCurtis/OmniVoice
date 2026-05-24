@@ -192,6 +192,7 @@ final class AppModel {
     @ObservationIgnored private var liveDiarizationPreviewGeneration = 0
     @ObservationIgnored private var conversationAIContextSessionID: String?
     @ObservationIgnored var onHotkeysChanged: ((OmniVoicePreferences) -> Void)?
+    @ObservationIgnored var onMouseShortcutsChanged: ((OmniVoicePreferences) -> Void)?
     @ObservationIgnored var onThemeChanged: ((OmniVoiceTheme, AppAppearanceMode) -> Void)?
 
     init(
@@ -1210,7 +1211,11 @@ final class AppModel {
         persistPreferences()
         modelUpdateInfo = nil
         modelDownloadStatus = nil
+        translationCapabilities = nil
         statusText = "ASR: \(normalizedProvider.rawValue)"
+        Task {
+            await refreshTranslationCapabilities()
+        }
     }
 
     func completeFirstRunSetup() {
@@ -2113,18 +2118,28 @@ final class AppModel {
     }
 
     func setDictationHotkey(_ binding: HotkeyBinding) {
-        guard binding != preferences.styleHotkey, binding != preferences.hotMenuHotkey else {
+        guard binding != preferences.styleHotkey,
+              binding != preferences.hotMenuHotkey,
+              binding != preferences.transcriptCacheHotkey,
+              !preferences.additionalDictationHotkeys.contains(binding) else {
             statusText = "Hotkeys must be different"
             return
         }
         preferences.dictationHotkey = binding
+        preferences.additionalDictationHotkeys = OmniVoicePreferences.normalizedAdditionalDictationHotkeys(
+            preferences.additionalDictationHotkeys,
+            primary: binding
+        )
         persistPreferences()
         onHotkeysChanged?(preferences)
         statusText = "Dictation hotkey: \(binding.displayName)"
     }
 
     func setStyleHotkey(_ binding: HotkeyBinding) {
-        guard binding != preferences.dictationHotkey, binding != preferences.hotMenuHotkey else {
+        guard binding != preferences.dictationHotkey,
+              binding != preferences.hotMenuHotkey,
+              binding != preferences.transcriptCacheHotkey,
+              !preferences.additionalDictationHotkeys.contains(binding) else {
             statusText = "Hotkeys must be different"
             return
         }
@@ -2135,7 +2150,10 @@ final class AppModel {
     }
 
     func setHotMenuHotkey(_ binding: HotkeyBinding) {
-        guard binding != preferences.dictationHotkey, binding != preferences.styleHotkey else {
+        guard binding != preferences.dictationHotkey,
+              binding != preferences.styleHotkey,
+              binding != preferences.transcriptCacheHotkey,
+              !preferences.additionalDictationHotkeys.contains(binding) else {
             statusText = "Hotkeys must be different"
             return
         }
@@ -2143,6 +2161,143 @@ final class AppModel {
         persistPreferences()
         onHotkeysChanged?(preferences)
         statusText = "Hot menu: \(binding.displayName)"
+    }
+
+    func setTranscriptCacheHotkey(_ binding: HotkeyBinding) {
+        guard binding != preferences.dictationHotkey,
+              !preferences.additionalDictationHotkeys.contains(binding),
+              binding != preferences.styleHotkey,
+              binding != preferences.hotMenuHotkey else {
+            statusText = "Hotkeys must be different"
+            return
+        }
+
+        preferences.transcriptCacheHotkey = binding
+        persistPreferences()
+        onHotkeysChanged?(preferences)
+        statusText = "Transcript cache hotkey: \(binding.displayName)"
+    }
+
+    func addAdditionalDictationHotkey() {
+        guard preferences.additionalDictationHotkeys.count < OmniVoicePreferences.maxAdditionalDictationHotkeys else {
+            statusText = "Dictation hotkey limit reached"
+            return
+        }
+        guard let candidate = nextAdditionalDictationHotkeyCandidate() else {
+            statusText = "No available dictation shortcut preset"
+            return
+        }
+
+        preferences.additionalDictationHotkeys.append(candidate)
+        preferences.additionalDictationHotkeys = OmniVoicePreferences.normalizedAdditionalDictationHotkeys(
+            preferences.additionalDictationHotkeys,
+            primary: preferences.dictationHotkey
+        )
+        persistPreferences()
+        onHotkeysChanged?(preferences)
+        statusText = "Added dictation hotkey: \(candidate.displayName)"
+    }
+
+    func setAdditionalDictationHotkey(_ binding: HotkeyBinding, at index: Int) {
+        guard preferences.additionalDictationHotkeys.indices.contains(index) else { return }
+        guard binding != preferences.dictationHotkey,
+              binding != preferences.styleHotkey,
+              binding != preferences.hotMenuHotkey,
+              binding != preferences.transcriptCacheHotkey else {
+            statusText = "Hotkeys must be different"
+            return
+        }
+        guard !preferences.additionalDictationHotkeys.enumerated().contains(where: { offset, existing in
+            offset != index && existing == binding
+        }) else {
+            statusText = "Dictation hotkeys must be different"
+            return
+        }
+
+        preferences.additionalDictationHotkeys[index] = binding
+        preferences.additionalDictationHotkeys = OmniVoicePreferences.normalizedAdditionalDictationHotkeys(
+            preferences.additionalDictationHotkeys,
+            primary: preferences.dictationHotkey
+        )
+        persistPreferences()
+        onHotkeysChanged?(preferences)
+        statusText = "Dictation hotkey \(index + 2): \(binding.displayName)"
+    }
+
+    func removeAdditionalDictationHotkey(at index: Int) {
+        guard preferences.additionalDictationHotkeys.indices.contains(index) else { return }
+
+        let removed = preferences.additionalDictationHotkeys.remove(at: index)
+        persistPreferences()
+        onHotkeysChanged?(preferences)
+        statusText = "Removed dictation hotkey: \(removed.displayName)"
+    }
+
+    private func nextAdditionalDictationHotkeyCandidate() -> HotkeyBinding? {
+        let candidates = Array(HotkeyBinding.dictationPresets.dropFirst()) + [
+            HotkeyBinding(keyCode: 46, modifiers: 2_304),
+            HotkeyBinding(keyCode: 31, modifiers: 2_304),
+            HotkeyBinding(keyCode: 49, modifiers: HotkeyBinding.carbonModifiers(command: true, shift: true)),
+        ]
+        return candidates.first { isHotkeyAvailableForAdditionalDictation($0) }
+    }
+
+    private func isHotkeyAvailableForAdditionalDictation(_ binding: HotkeyBinding) -> Bool {
+        binding != preferences.dictationHotkey
+            && binding != preferences.styleHotkey
+            && binding != preferences.hotMenuHotkey
+            && binding != preferences.transcriptCacheHotkey
+            && !preferences.additionalDictationHotkeys.contains(binding)
+    }
+
+    func setMousePushToTalkEnabled(_ enabled: Bool) {
+        guard preferences.mousePushToTalkEnabled != enabled else { return }
+
+        preferences.mousePushToTalkEnabled = enabled
+        persistPreferences()
+        onMouseShortcutsChanged?(preferences)
+        statusText = enabled ? "Mouse push-to-talk enabled" : "Mouse push-to-talk disabled"
+    }
+
+    func setMousePushToTalkButton(_ binding: MouseButtonBinding) {
+        guard binding.isUsableShortcut else {
+            statusText = "Use an extra mouse button"
+            return
+        }
+        guard binding != preferences.transcriptCacheMouseButton else {
+            statusText = "Mouse shortcuts must be different"
+            return
+        }
+
+        preferences.mousePushToTalkButton = binding
+        persistPreferences()
+        onMouseShortcutsChanged?(preferences)
+        statusText = "Mouse push-to-talk: \(binding.displayName)"
+    }
+
+    func setTranscriptCacheMouseEnabled(_ enabled: Bool) {
+        guard preferences.transcriptCacheMouseEnabled != enabled else { return }
+
+        preferences.transcriptCacheMouseEnabled = enabled
+        persistPreferences()
+        onMouseShortcutsChanged?(preferences)
+        statusText = enabled ? "Transcript cache mouse picker enabled" : "Transcript cache mouse picker disabled"
+    }
+
+    func setTranscriptCacheMouseButton(_ binding: MouseButtonBinding) {
+        guard binding.isUsableShortcut else {
+            statusText = "Use an extra mouse button"
+            return
+        }
+        guard binding != preferences.mousePushToTalkButton else {
+            statusText = "Mouse shortcuts must be different"
+            return
+        }
+
+        preferences.transcriptCacheMouseButton = binding
+        persistPreferences()
+        onMouseShortcutsChanged?(preferences)
+        statusText = "Transcript cache: \(binding.displayName)"
     }
 
     func setHotMenuAction(_ action: HotMenuAction, for direction: HotMenuDirection) {
@@ -2407,12 +2562,16 @@ final class AppModel {
         }
     }
 
-    func refreshTranscripts() async {
+    func refreshTranscripts(updateStatus: Bool = true) async {
         do {
             transcripts = try await engineClient.transcripts(limit: 100)
-            statusText = "Conversation history refreshed"
+            if updateStatus {
+                statusText = "Conversation history refreshed"
+            }
         } catch {
-            statusText = "Conversation history unavailable"
+            if updateStatus {
+                statusText = "Conversation history unavailable"
+            }
         }
     }
 
@@ -3213,7 +3372,8 @@ final class AppModel {
             let capabilities = try await engineClient.translationCapabilities(
                 providerID: preferences.translationProvider.rawValue,
                 modelProviderID: selectedTranslationModelProviderID(),
-                modelPath: effectiveTranslationModelPath()
+                modelPath: effectiveTranslationModelPath(),
+                asrProviderID: preferences.asrProvider.rawValue
             )
             translationCapabilities = capabilities
             reconcileTranslationLanguages(with: capabilities)

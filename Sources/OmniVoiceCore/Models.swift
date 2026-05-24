@@ -972,6 +972,7 @@ public struct HotkeyBinding: Codable, Equatable, Hashable, Sendable {
     public static let defaultDictation = HotkeyBinding(keyCode: 49, modifiers: 2_304)
     public static let defaultStyle = HotkeyBinding(keyCode: 1, modifiers: 2_304)
     public static let defaultHotMenu = HotkeyBinding.modifierOnly(carbonModifiers(option: true, control: true))
+    public static let defaultTranscriptCache = HotkeyBinding(keyCode: 8, modifiers: 2_304)
     public static let dictationPresets = [
         HotkeyBinding(keyCode: 49, modifiers: 2_304),
         HotkeyBinding(keyCode: 2, modifiers: 2_304),
@@ -1085,6 +1086,67 @@ public struct HotkeyBinding: Codable, Equatable, Hashable, Sendable {
         case 126: "↑"
         default: "Key \(keyCode)"
         }
+    }
+}
+
+public struct MouseButtonBinding: Codable, Equatable, Hashable, Sendable {
+    public static let minimumShortcutButtonNumber = 3
+    public static let defaultPushToTalk = MouseButtonBinding(buttonNumber: 3)
+    public static let defaultTranscriptCache = MouseButtonBinding(buttonNumber: 4)
+
+    public let buttonNumber: Int
+
+    public init(buttonNumber: Int) {
+        self.buttonNumber = buttonNumber
+    }
+
+    public var isUsableShortcut: Bool {
+        buttonNumber >= Self.minimumShortcutButtonNumber
+    }
+
+    public var displayName: String {
+        switch buttonNumber {
+        case 0:
+            "Left Click"
+        case 1:
+            "Right Click"
+        case 2:
+            "Middle Click"
+        default:
+            "Mouse Button \(buttonNumber + 1)"
+        }
+    }
+}
+
+public struct TranscriptCacheSelectionState: Equatable, Sendable {
+    public private(set) var selectedIndex: Int
+
+    public init(selectedIndex: Int = 0) {
+        self.selectedIndex = max(0, selectedIndex)
+    }
+
+    public mutating func reset(count: Int) {
+        guard count > 0 else {
+            selectedIndex = 0
+            return
+        }
+        selectedIndex = min(selectedIndex, count - 1)
+    }
+
+    public mutating func move(delta: Int, count: Int) {
+        guard count > 0 else {
+            selectedIndex = 0
+            return
+        }
+        let next = (selectedIndex + delta) % count
+        selectedIndex = next >= 0 ? next : next + count
+    }
+
+    public func selected<Item>(from items: [Item]) -> Item? {
+        guard items.indices.contains(selectedIndex) else {
+            return nil
+        }
+        return items[selectedIndex]
     }
 }
 
