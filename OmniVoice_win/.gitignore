@@ -1,0 +1,16 @@
+# Build outputs
+bin/
+obj/
+
+# Python engine runtime
+engine/.venv/
+engine/.pytest_cache/
+engine/**/*.pyc
+engine/**/__pycache__/
+engine/*.egg-info/
+engine/**/.omnivoice-engine/
+
+# ASR model weights (download via engine dashboard / run-engine.ps1)
+engine/models/
+
+.DS_Store
