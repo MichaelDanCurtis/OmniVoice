@@ -10,8 +10,15 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.dictionaryTerms, [])
         XCTAssertNil(preferences.microphoneID)
         XCTAssertEqual(preferences.dictationHotkey, .defaultDictation)
+        XCTAssertEqual(preferences.additionalDictationHotkeys, [])
         XCTAssertEqual(preferences.styleHotkey, .defaultStyle)
         XCTAssertEqual(preferences.hotMenuHotkey, .defaultHotMenu)
+        XCTAssertEqual(preferences.additionalDictationHotkeys, [])
+        XCTAssertEqual(preferences.transcriptCacheHotkey, .defaultTranscriptCache)
+        XCTAssertFalse(preferences.mousePushToTalkEnabled)
+        XCTAssertEqual(preferences.mousePushToTalkButton, .defaultPushToTalk)
+        XCTAssertFalse(preferences.transcriptCacheMouseEnabled)
+        XCTAssertEqual(preferences.transcriptCacheMouseButton, .defaultTranscriptCache)
         XCTAssertEqual(preferences.hotMenuActions(for: .up), [.openConversation, .transcriptionMode, .askAI])
         XCTAssertEqual(preferences.hotMenuActions(for: .left), [.cycleTranslationLanguage])
         XCTAssertEqual(preferences.hotMenuActions(for: .right), [.toggleTranslation])
@@ -20,6 +27,14 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.hotMenuLeftAction, .cycleTranslationLanguage)
         XCTAssertEqual(preferences.hotMenuRightAction, .toggleTranslation)
         XCTAssertEqual(preferences.hotMenuDownAction, .cycleStyle)
+        XCTAssertTrue(preferences.recordingSoundCuesEnabled)
+        XCTAssertTrue(preferences.recordingStartCueEnabled)
+        XCTAssertTrue(preferences.recordingStopCueEnabled)
+        XCTAssertEqual(preferences.recordingCueTiming, .both)
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .stop))
+        XCTAssertEqual(preferences.recordingCueSet, .glassTap)
+        XCTAssertEqual(preferences.recordingCueVolume, 0.28)
         XCTAssertFalse(preferences.firstRunSetupCompleted)
     }
 
@@ -62,6 +77,11 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.conversationArchiveFolderPath, ConversationArchive.defaultRootURL().path)
         XCTAssertTrue(preferences.automaticallyArchiveConversations)
         XCTAssertEqual(preferences.hotMenuHotkey, .defaultHotMenu)
+        XCTAssertEqual(preferences.transcriptCacheHotkey, .defaultTranscriptCache)
+        XCTAssertFalse(preferences.mousePushToTalkEnabled)
+        XCTAssertEqual(preferences.mousePushToTalkButton, .defaultPushToTalk)
+        XCTAssertFalse(preferences.transcriptCacheMouseEnabled)
+        XCTAssertEqual(preferences.transcriptCacheMouseButton, .defaultTranscriptCache)
         XCTAssertEqual(preferences.hotMenuActions(for: .up), [.openConversation, .transcriptionMode, .askAI])
         XCTAssertEqual(preferences.hotMenuActions(for: .left), [.cycleTranslationLanguage])
         XCTAssertEqual(preferences.hotMenuActions(for: .right), [.toggleTranslation])
@@ -106,6 +126,17 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.asrProvider, .parakeetTDTMLX)
         XCTAssertEqual(preferences.conversationArchiveFolderPath, ConversationArchive.defaultRootURL().path)
         XCTAssertTrue(preferences.automaticallyArchiveConversations)
+        XCTAssertTrue(preferences.recordingSoundCuesEnabled)
+        XCTAssertTrue(preferences.recordingStartCueEnabled)
+        XCTAssertTrue(preferences.recordingStopCueEnabled)
+        XCTAssertEqual(preferences.recordingCueSet, .glassTap)
+        XCTAssertEqual(preferences.recordingCueVolume, 0.28)
+        XCTAssertEqual(preferences.additionalDictationHotkeys, [])
+        XCTAssertEqual(preferences.transcriptCacheHotkey, .defaultTranscriptCache)
+        XCTAssertFalse(preferences.mousePushToTalkEnabled)
+        XCTAssertEqual(preferences.mousePushToTalkButton, .defaultPushToTalk)
+        XCTAssertFalse(preferences.transcriptCacheMouseEnabled)
+        XCTAssertEqual(preferences.transcriptCacheMouseButton, .defaultTranscriptCache)
         XCTAssertFalse(preferences.firstRunSetupCompleted)
     }
 
@@ -140,12 +171,65 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertNotNil(object["live_draft_insertion_enabled"])
         XCTAssertNotNil(object["conversation_archive_folder_path"])
         XCTAssertNotNil(object["automatically_archive_conversations"])
+        XCTAssertNotNil(object["recording_sound_cues_enabled"])
+        XCTAssertNotNil(object["recording_start_cue_enabled"])
+        XCTAssertNotNil(object["recording_stop_cue_enabled"])
+        XCTAssertNotNil(object["recording_cue_set"])
+        XCTAssertNotNil(object["recording_cue_volume"])
         XCTAssertNotNil(object["hot_menu_hotkey"])
+        XCTAssertNotNil(object["additional_dictation_hotkeys"])
+        XCTAssertNotNil(object["transcript_cache_hotkey"])
         XCTAssertNotNil(object["hot_menu_up_actions"])
         XCTAssertNotNil(object["hot_menu_left_actions"])
         XCTAssertNotNil(object["hot_menu_right_actions"])
         XCTAssertNotNil(object["hot_menu_down_actions"])
+        XCTAssertNotNil(object["mouse_push_to_talk_enabled"])
+        XCTAssertNotNil(object["mouse_push_to_talk_button"])
+        XCTAssertNotNil(object["transcript_cache_mouse_enabled"])
+        XCTAssertNotNil(object["transcript_cache_mouse_button"])
         XCTAssertNotNil(object["first_run_setup_completed"])
+    }
+
+    func testRecordingCueEventPreferencesCanBeControlledIndependently() {
+        var preferences = OmniVoicePreferences.defaults
+
+        preferences.recordingCueTiming = .stop
+        XCTAssertFalse(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .stop))
+        XCTAssertEqual(preferences.recordingCueTiming, .stop)
+
+        preferences.recordingCueTiming = .start
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertFalse(preferences.isRecordingCueEnabled(for: .stop))
+        XCTAssertEqual(preferences.recordingCueTiming, .start)
+
+        preferences.recordingCueTiming = .both
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .stop))
+
+        preferences.recordingSoundCuesEnabled = false
+        XCTAssertFalse(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertFalse(preferences.isRecordingCueEnabled(for: .stop))
+    }
+
+    func testRecordingCueTimingExposesThreeWayDisplayNames() {
+        XCTAssertEqual(RecordingCueTiming.allCases.map(\.displayName), ["Start", "Stop", "Both"])
+    }
+
+    func testRecordingCueTimingNormalizesLegacyBothOffState() {
+        let preferences = OmniVoicePreferences(
+            asrProvider: .parakeetTDTMLX,
+            style: .neutral,
+            dictionaryTerms: [],
+            recordingStartCueEnabled: false,
+            recordingStopCueEnabled: false
+        )
+
+        XCTAssertEqual(preferences.recordingCueTiming, .both)
+        XCTAssertTrue(preferences.recordingStartCueEnabled)
+        XCTAssertTrue(preferences.recordingStopCueEnabled)
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .stop))
     }
 
     func testLegacyDiarizationPrecisionFallsBackFromProvider() throws {
@@ -437,6 +521,10 @@ final class PreferencesStoreTests: XCTestCase {
 
         preferences.cycleASRProvider()
 
+        XCTAssertEqual(preferences.asrProvider, .whisperLargeV3TurboMLX6Bit)
+
+        preferences.cycleASRProvider()
+
         XCTAssertEqual(preferences.asrProvider, .canaryQwen25B)
 
         preferences.cycleASRProvider()
@@ -488,8 +576,13 @@ final class PreferencesStoreTests: XCTestCase {
             dictionaryTerms: ["CUDA", "SwiftUI"],
             microphoneID: "BuiltInMicrophoneDevice",
             dictationHotkey: HotkeyBinding(keyCode: 12, modifiers: 2_304),
+            additionalDictationHotkeys: [
+                HotkeyBinding(keyCode: 2, modifiers: 2_304),
+                HotkeyBinding(keyCode: 3, modifiers: 2_304),
+            ],
             styleHotkey: HotkeyBinding(keyCode: 13, modifiers: 2_304),
             hotMenuHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(command: true, option: true, control: true)),
+            transcriptCacheHotkey: HotkeyBinding(keyCode: 14, modifiers: 2_304),
             hotMenuUpActions: [.openDashboard, .dictation],
             hotMenuLeftActions: [.toggleTranslation, .cycleASRProvider],
             hotMenuRightActions: [.dictation, .openConversation],
@@ -536,8 +629,12 @@ final class PreferencesStoreTests: XCTestCase {
             dictionaryTerms: [],
             microphoneID: "USBMicDevice",
             dictationHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(option: true, control: true)),
+            additionalDictationHotkeys: [
+                .modifierOnly(HotkeyBinding.carbonModifiers(command: true, control: true)),
+            ],
             styleHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(control: true, shift: true)),
-            hotMenuHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(command: true, option: true))
+            hotMenuHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(command: true, option: true)),
+            transcriptCacheHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(command: true, shift: true))
         )
 
         try store.save(preferences)

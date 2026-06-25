@@ -62,6 +62,7 @@ final class ConversationRecorderService {
         provider: ASRProviderKind,
         microphoneID: String?,
         liveDiarizationEnabled: Bool,
+        onBeforeAudioStart: (() -> TimeInterval)? = nil,
         onSegment: @escaping (ConversationSegmentCreateRequest) async -> Void,
         onAssistCard: @escaping (ConversationAssistCardCreateRequest) async -> Void
     ) async throws {
@@ -113,6 +114,11 @@ final class ConversationRecorderService {
             streamingClient.connect(provider: provider, sampleRate: Double(sampleRate))
             await waitForStreamOpen()
             guard diagnostics.state == .open else { throw RecorderError.streamUnavailable }
+            let cueDuration = onBeforeAudioStart?() ?? 0
+            if cueDuration > 0 {
+                let delay = min(cueDuration + 0.03, 0.30)
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
             _ = try audioCapture.start(deviceUID: microphoneID)
         } catch {
             cancel()

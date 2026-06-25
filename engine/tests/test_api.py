@@ -37,6 +37,28 @@ class FakeModelManager:
                 missing_files=["config.json", "model.safetensors"],
             ),
             ModelStatus(
+                provider_id="whisper-large-v3-turbo-mlx-6bit",
+                label="Whisper Large v3 Turbo MLX 6-bit",
+                repo_id="mlx-community/whisper-large-v3-turbo-asr-6bit",
+                local_path="/models/whisper-large-v3-turbo-mlx-6bit",
+                installed=False,
+                missing_files=["config.json", "model.safetensors", "tokenizer.json", "preprocessor_config.json"],
+                recommendation="Multilingual",
+                size="664 MB",
+                precision="6-bit",
+            ),
+            ModelStatus(
+                provider_id="canary-qwen-2.5b",
+                label="Canary-Qwen-2.5B",
+                repo_id="nvidia/canary-qwen-2.5b",
+                local_path="/models/canary-qwen-2.5b",
+                installed=False,
+                missing_files=["config.json", "model.safetensors"],
+                recommendation="English Accuracy",
+                size="5.1 GB",
+                precision="BF16",
+            ),
+            ModelStatus(
                 provider_id="translategemma-mlx",
                 label="TranslateGemma MLX",
                 repo_id="mlx-community/translategemma-4b-it-4bit",
@@ -251,6 +273,40 @@ def test_translation_capabilities_endpoint_lists_target_languages_from_model_tem
         {"code": "es", "name": "Spanish", "is_default": False},
     ]
     assert payload["capability_source"] == "model-template"
+
+
+def test_translation_capabilities_endpoint_uses_asr_provider_for_source_languages(tmp_path):
+    model_dir = tmp_path / "translategemma"
+    model_dir.mkdir()
+    (model_dir / "chat_template.jinja").write_text(
+        """
+        {%- set languages = {
+            "en": "English",
+            "es": "Spanish",
+            "zh": "Chinese"
+        } -%}
+        """,
+        encoding="utf-8",
+    )
+
+    response = client.get(
+        "/translation/capabilities",
+        params={
+            "provider_id": "translategemma-mlx",
+            "model_provider_id": "translategemma-mlx",
+            "model_path": str(model_dir),
+            "asr_provider": "whisper-large-v3-turbo-mlx-6bit",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    source_codes = [language["code"] for language in payload["source_languages"]]
+    target_codes = [language["code"] for language in payload["target_languages"]]
+
+    assert payload["source_language_locked"] is False
+    assert source_codes == ["auto", "en", "es", "zh"]
+    assert target_codes == ["zh", "en", "es"]
 
 
 def test_translate_endpoint_returns_detected_language_and_target_text(monkeypatch, tmp_path):
@@ -1011,6 +1067,36 @@ def test_models_endpoint_lists_mlx_parakeet_download_target(monkeypatch):
     mlx_parakeet = next(model for model in payload if model["provider_id"] == "parakeet-tdt-mlx")
     assert mlx_parakeet["repo_id"] == "mlx-community/parakeet-tdt-0.6b-v3"
     assert mlx_parakeet["missing_files"] == ["config.json", "model.safetensors"]
+
+
+def test_models_endpoint_lists_whisper_mlx_download_target(monkeypatch):
+    monkeypatch.setattr("omnivoice_engine.main.model_manager", FakeModelManager(), raising=False)
+
+    response = client.get("/models")
+
+    assert response.status_code == 200
+    payload = response.json()
+    whisper = next(model for model in payload if model["provider_id"] == "whisper-large-v3-turbo-mlx-6bit")
+    assert whisper["repo_id"] == "mlx-community/whisper-large-v3-turbo-asr-6bit"
+    assert whisper["missing_files"] == [
+        "config.json",
+        "model.safetensors",
+        "tokenizer.json",
+        "preprocessor_config.json",
+    ]
+
+
+def test_models_endpoint_lists_canary_qwen_download_target(monkeypatch):
+    monkeypatch.setattr("omnivoice_engine.main.model_manager", FakeModelManager(), raising=False)
+
+    response = client.get("/models")
+
+    assert response.status_code == 200
+    payload = response.json()
+    canary = next(model for model in payload if model["provider_id"] == "canary-qwen-2.5b")
+    assert canary["repo_id"] == "nvidia/canary-qwen-2.5b"
+    assert canary["recommendation"] == "English Accuracy"
+    assert canary["missing_files"] == ["config.json", "model.safetensors"]
 
 
 def test_models_endpoint_lists_translategemma_download_target(monkeypatch):

@@ -33,15 +33,86 @@ public enum ASRProviderKind: String, CaseIterable, Codable, Equatable, Sendable 
     case fake = "fake"
     case parakeetTDT = "parakeet-tdt"
     case parakeetTDTMLX = "parakeet-tdt-mlx"
+    case whisperLargeV3TurboMLX6Bit = "whisper-large-v3-turbo-mlx-6bit"
     case canaryQwen25B = "canary-qwen-2.5b"
 
     public static let userSelectableCases: [ASRProviderKind] = [
         .parakeetTDTMLX,
+        .whisperLargeV3TurboMLX6Bit,
         .canaryQwen25B,
     ]
 
     public var normalizedForUserSelection: ASRProviderKind {
         Self.userSelectableCases.contains(self) ? self : .parakeetTDTMLX
+    }
+
+    public var displayName: String {
+        switch self {
+        case .fake:
+            "Fake ASR"
+        case .parakeetTDT:
+            "Parakeet TDT"
+        case .parakeetTDTMLX:
+            "Parakeet TDT MLX"
+        case .whisperLargeV3TurboMLX6Bit:
+            "Whisper Large v3 Turbo MLX 6-bit"
+        case .canaryQwen25B:
+            "Canary-Qwen-2.5B"
+        }
+    }
+}
+
+public enum SpeechModelRecommendation: String, CaseIterable, Codable, Equatable, Identifiable, Sendable {
+    case parakeetTDTMLX = "parakeet-tdt-mlx"
+    case whisperLargeV3TurboMLX6Bit = "whisper-large-v3-turbo-mlx-6bit"
+    case canaryQwen25B = "canary-qwen-2.5b"
+
+    public static let defaultProviderID = Self.parakeetTDTMLX.providerID
+
+    public init(providerID: String) {
+        self = Self(rawValue: providerID) ?? .parakeetTDTMLX
+    }
+
+    public var id: String { rawValue }
+    public var providerID: String { rawValue }
+
+    public var providerKind: ASRProviderKind {
+        ASRProviderKind(rawValue: providerID) ?? .parakeetTDTMLX
+    }
+
+    public var displayName: String {
+        providerKind.displayName
+    }
+
+    public var badge: String {
+        switch self {
+        case .parakeetTDTMLX:
+            "Fast / Default"
+        case .whisperLargeV3TurboMLX6Bit:
+            "Multilingual"
+        case .canaryQwen25B:
+            "English Accuracy"
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .parakeetTDTMLX:
+            "Best daily driver for low-latency English dictation on Apple Silicon."
+        case .whisperLargeV3TurboMLX6Bit:
+            "Local MLX Whisper path for multilingual speech input and Chinese/Japanese/Korean captions."
+        case .canaryQwen25B:
+            "NVIDIA NeMo-backed English ASR accuracy mode. Heavier than the MLX models and requires the Canary runtime."
+        }
+    }
+}
+
+public enum EngineProviderContract {
+    public static let requiredASRProviderIDs: [String] = ASRProviderKind.userSelectableCases.map(\.rawValue)
+
+    public static func missingRequiredASRProviderIDs(in providers: [EngineProviderInfo]) -> [String] {
+        let availableIDs = Set(providers.map(\.id))
+        return requiredASRProviderIDs.filter { !availableIDs.contains($0) }
     }
 }
 
@@ -901,6 +972,7 @@ public struct HotkeyBinding: Codable, Equatable, Hashable, Sendable {
     public static let defaultDictation = HotkeyBinding(keyCode: 49, modifiers: 2_304)
     public static let defaultStyle = HotkeyBinding(keyCode: 1, modifiers: 2_304)
     public static let defaultHotMenu = HotkeyBinding.modifierOnly(carbonModifiers(option: true, control: true))
+    public static let defaultTranscriptCache = HotkeyBinding(keyCode: 8, modifiers: 2_304)
     public static let dictationPresets = [
         HotkeyBinding(keyCode: 49, modifiers: 2_304),
         HotkeyBinding(keyCode: 2, modifiers: 2_304),
@@ -1014,6 +1086,67 @@ public struct HotkeyBinding: Codable, Equatable, Hashable, Sendable {
         case 126: "↑"
         default: "Key \(keyCode)"
         }
+    }
+}
+
+public struct MouseButtonBinding: Codable, Equatable, Hashable, Sendable {
+    public static let minimumShortcutButtonNumber = 3
+    public static let defaultPushToTalk = MouseButtonBinding(buttonNumber: 3)
+    public static let defaultTranscriptCache = MouseButtonBinding(buttonNumber: 4)
+
+    public let buttonNumber: Int
+
+    public init(buttonNumber: Int) {
+        self.buttonNumber = buttonNumber
+    }
+
+    public var isUsableShortcut: Bool {
+        buttonNumber >= Self.minimumShortcutButtonNumber
+    }
+
+    public var displayName: String {
+        switch buttonNumber {
+        case 0:
+            "Left Click"
+        case 1:
+            "Right Click"
+        case 2:
+            "Middle Click"
+        default:
+            "Mouse Button \(buttonNumber + 1)"
+        }
+    }
+}
+
+public struct TranscriptCacheSelectionState: Equatable, Sendable {
+    public private(set) var selectedIndex: Int
+
+    public init(selectedIndex: Int = 0) {
+        self.selectedIndex = max(0, selectedIndex)
+    }
+
+    public mutating func reset(count: Int) {
+        guard count > 0 else {
+            selectedIndex = 0
+            return
+        }
+        selectedIndex = min(selectedIndex, count - 1)
+    }
+
+    public mutating func move(delta: Int, count: Int) {
+        guard count > 0 else {
+            selectedIndex = 0
+            return
+        }
+        let next = (selectedIndex + delta) % count
+        selectedIndex = next >= 0 ? next : next + count
+    }
+
+    public func selected<Item>(from items: [Item]) -> Item? {
+        guard items.indices.contains(selectedIndex) else {
+            return nil
+        }
+        return items[selectedIndex]
     }
 }
 

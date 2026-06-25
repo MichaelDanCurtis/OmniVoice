@@ -1,4 +1,4 @@
-# OmniVoice V2 Release Checklist
+# OmniVoice V3 Release Checklist
 
 ## Required Before Tagging
 
@@ -10,7 +10,7 @@
 
 ## Required For Local DMG
 
-- `OMNIVOICE_APP_VERSION=2.0.1 ./script/build_and_run.sh --dmg`
+- `./script/build_and_run.sh --dmg`
 - `/usr/bin/codesign --verify --deep --strict --verbose=2 dist/OmniVoice.app`
 - `/usr/bin/hdiutil verify dist/OmniVoice.dmg`
 - `/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' dist/OmniVoice.app/Contents/Info.plist`
@@ -23,6 +23,8 @@
 - Staple the notarization ticket.
 - Re-run Gatekeeper validation on a clean machine.
 
-## V2 Known Distribution Limit
+## Local Runtime Packaging
 
-The local DMG bundles the Swift app and engine source launcher. It does not bundle Python, model weights, or ASR/MLX dependencies. First launch installs runtime dependencies into `~/Library/Application Support/OmniVoice` and downloads models through the app or engine dashboard.
+The local DMG bundles the Swift app, engine source launcher, embedded Python runtime, and a Python wheelhouse for the normal core/ASR/MLX runtime packages. First launch creates the engine venv under `~/Library/Application Support/OmniVoice` from bundled resources.
+
+Model weights are still external by design. Users download or select models through the app or engine dashboard.

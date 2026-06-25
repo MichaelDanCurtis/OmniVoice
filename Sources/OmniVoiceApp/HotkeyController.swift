@@ -11,6 +11,7 @@ final class HotkeyController {
         case stylePressed
         case hotMenuPressed
         case hotMenuReleased
+        case transcriptCachePressed
     }
 
     enum HotkeyError: Error {
@@ -21,25 +22,37 @@ final class HotkeyController {
     var onEvent: ((Event) -> Void)?
 
     private var dictationHotkey: EventHotKeyRef?
+    private var additionalDictationHotkeys: [EventHotKeyRef?] = []
     private var styleHotkey: EventHotKeyRef?
     private var hotMenuHotkey: EventHotKeyRef?
+    private var transcriptCacheHotkey: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
-    private var dictationModifierChord: HotkeyBinding?
+    private var dictationModifierChords: [HotkeyBinding] = []
     private var styleModifierChord: HotkeyBinding?
     private var hotMenuModifierChord: HotkeyBinding?
+    private var transcriptCacheModifierChord: HotkeyBinding?
     private var localModifierMonitor: Any?
     private var globalModifierMonitor: Any?
-    private var isDictationModifierActive = false
+    private var activeDictationModifierChord: UInt32?
     private var isStyleModifierActive = false
     private var isHotMenuModifierActive = false
+    private var isTranscriptCacheModifierActive = false
     private var isRegistered = false
 
-    func register(dictation: HotkeyBinding, style: HotkeyBinding, hotMenu: HotkeyBinding) throws {
+    func register(
+        dictation: HotkeyBinding,
+        additionalDictation: [HotkeyBinding],
+        style: HotkeyBinding,
+        hotMenu: HotkeyBinding,
+        transcriptCache: HotkeyBinding
+    ) throws {
         guard !isRegistered else { return }
 
-        dictationModifierChord = dictation.isModifierOnly ? dictation : nil
+        let dictationBindings = [dictation] + additionalDictation
+        dictationModifierChords = dictationBindings.filter(\.isModifierOnly)
         styleModifierChord = style.isModifierOnly ? style : nil
         hotMenuModifierChord = hotMenu.isModifierOnly ? hotMenu : nil
+        transcriptCacheModifierChord = transcriptCache.isModifierOnly ? transcriptCache : nil
 
         var eventTypes = [
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
@@ -78,19 +91,25 @@ final class HotkeyController {
             throw HotkeyError.handlerInstallFailed(handlerStatus)
         }
 
-        if !dictation.isModifierOnly {
-            let dictationID = EventHotKeyID(signature: OSType(0x4F4D4E49), id: 1)
+        for (index, binding) in dictationBindings.enumerated() where !binding.isModifierOnly {
+            let dictationID = EventHotKeyID(signature: OSType(0x4F4D4E49), id: UInt32(index == 0 ? 1 : 100 + index))
+            var hotkeyRef: EventHotKeyRef?
             let dictationStatus = RegisterEventHotKey(
-                dictation.keyCode,
-                dictation.modifiers,
+                binding.keyCode,
+                binding.modifiers,
                 dictationID,
                 GetApplicationEventTarget(),
                 UInt32(kEventHotKeyExclusive),
-                &dictationHotkey
+                &hotkeyRef
             )
             guard dictationStatus == noErr else {
                 unregister()
                 throw HotkeyError.registrationFailed(dictationStatus)
+            }
+            if index == 0 {
+                dictationHotkey = hotkeyRef
+            } else {
+                additionalDictationHotkeys.append(hotkeyRef)
             }
         }
 
@@ -126,7 +145,26 @@ final class HotkeyController {
             }
         }
 
-        if dictation.isModifierOnly || style.isModifierOnly || hotMenu.isModifierOnly {
+        if !transcriptCache.isModifierOnly {
+            let transcriptCacheID = EventHotKeyID(signature: OSType(0x4F4D4E49), id: 4)
+            let transcriptCacheStatus = RegisterEventHotKey(
+                transcriptCache.keyCode,
+                transcriptCache.modifiers,
+                transcriptCacheID,
+                GetApplicationEventTarget(),
+                UInt32(kEventHotKeyExclusive),
+                &transcriptCacheHotkey
+            )
+            guard transcriptCacheStatus == noErr else {
+                unregister()
+                throw HotkeyError.registrationFailed(transcriptCacheStatus)
+            }
+        }
+
+        if dictationBindings.contains(where: \.isModifierOnly)
+            || style.isModifierOnly
+            || hotMenu.isModifierOnly
+            || transcriptCache.isModifierOnly {
             installModifierMonitors()
         }
 
@@ -137,11 +175,19 @@ final class HotkeyController {
         if let dictationHotkey {
             UnregisterEventHotKey(dictationHotkey)
         }
+        for hotkey in additionalDictationHotkeys {
+            if let hotkey {
+                UnregisterEventHotKey(hotkey)
+            }
+        }
         if let styleHotkey {
             UnregisterEventHotKey(styleHotkey)
         }
         if let hotMenuHotkey {
             UnregisterEventHotKey(hotMenuHotkey)
+        }
+        if let transcriptCacheHotkey {
+            UnregisterEventHotKey(transcriptCacheHotkey)
         }
         if let eventHandler {
             RemoveEventHandler(eventHandler)
@@ -153,27 +199,33 @@ final class HotkeyController {
             NSEvent.removeMonitor(globalModifierMonitor)
         }
         dictationHotkey = nil
+        additionalDictationHotkeys = []
         styleHotkey = nil
         hotMenuHotkey = nil
+        transcriptCacheHotkey = nil
         eventHandler = nil
-        dictationModifierChord = nil
+        dictationModifierChords = []
         styleModifierChord = nil
         hotMenuModifierChord = nil
+        transcriptCacheModifierChord = nil
         localModifierMonitor = nil
         globalModifierMonitor = nil
-        isDictationModifierActive = false
+        activeDictationModifierChord = nil
         isStyleModifierActive = false
         isHotMenuModifierActive = false
+        isTranscriptCacheModifierActive = false
         isRegistered = false
     }
 
     private func handle(hotkeyID: EventHotKeyID, kind: UInt32) {
-        if hotkeyID.id == 1 {
+        if hotkeyID.id == 1 || (100..<200).contains(hotkeyID.id) {
             onEvent?(kind == UInt32(kEventHotKeyPressed) ? .dictationPressed : .dictationReleased)
         } else if hotkeyID.id == 2, kind == UInt32(kEventHotKeyPressed) {
             onEvent?(.stylePressed)
         } else if hotkeyID.id == 3 {
             onEvent?(kind == UInt32(kEventHotKeyPressed) ? .hotMenuPressed : .hotMenuReleased)
+        } else if hotkeyID.id == 4, kind == UInt32(kEventHotKeyPressed) {
+            onEvent?(.transcriptCachePressed)
         }
     }
 
@@ -195,14 +247,15 @@ final class HotkeyController {
     }
 
     private func handleModifierState(_ modifiers: UInt32) {
-        if let dictationModifierChord {
-            let isActive = modifiers == dictationModifierChord.modifiers
-            if isActive, !isDictationModifierActive {
-                isDictationModifierActive = true
-                onEvent?(.dictationPressed)
-            } else if !isActive, isDictationModifierActive {
-                isDictationModifierActive = false
+        let activeDictationChord = dictationModifierChords.first { $0.modifiers == modifiers }?.modifiers
+        if activeDictationChord != activeDictationModifierChord {
+            if activeDictationModifierChord != nil {
+                activeDictationModifierChord = nil
                 onEvent?(.dictationReleased)
+            }
+            if let activeDictationChord {
+                activeDictationModifierChord = activeDictationChord
+                onEvent?(.dictationPressed)
             }
         }
 
@@ -224,6 +277,16 @@ final class HotkeyController {
             } else if !isActive, isHotMenuModifierActive {
                 isHotMenuModifierActive = false
                 onEvent?(.hotMenuReleased)
+            }
+        }
+
+        if let transcriptCacheModifierChord {
+            let isActive = modifiers == transcriptCacheModifierChord.modifiers
+            if isActive, !isTranscriptCacheModifierActive {
+                isTranscriptCacheModifierActive = true
+                onEvent?(.transcriptCachePressed)
+            } else if !isActive {
+                isTranscriptCacheModifierActive = false
             }
         }
     }

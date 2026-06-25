@@ -145,7 +145,9 @@ struct SettingsView: View {
         case .appearance:
             tabPage {
                 appearanceSection
+                recordingCueSection
                 hotkeySection
+                mouseControlsSection
                 waveformSection
                 engineFrameSection
             }
@@ -582,6 +584,100 @@ struct SettingsView: View {
         }
     }
 
+    private func speechModelCard(_ recommendation: SpeechModelRecommendation) -> some View {
+        let status = model.modelStatus(forProviderID: recommendation.providerID)
+        let providerInfo = model.providerInfo(for: recommendation.providerKind)
+        let isSelected = model.preferences.asrProvider == recommendation.providerKind
+        let isRunning = isModelActionRunning(providerID: recommendation.providerID)
+        let cardState = speechModelCardState(
+            status: status,
+            providerInfo: providerInfo,
+            isSelected: isSelected
+        )
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text(status?.label ?? recommendation.displayName)
+                            .font(.callout.weight(.semibold))
+                        Text(status?.recommendation ?? recommendation.badge)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color(themeColor: model.activeTheme.accentColor))
+                    }
+                    Text(status?.detail ?? recommendation.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Text(cardState.label)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(cardState.color)
+            }
+
+            if let status {
+                HStack(spacing: 12) {
+                    if let size = status.size {
+                        Label(size, systemImage: "externaldrive")
+                    }
+                    if let precision = status.precision {
+                        Label(precision, systemImage: "gauge.with.dots.needle.67percent")
+                    }
+                    if status.requiresHFAuth {
+                        Label("HF gated", systemImage: "lock")
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+
+            if let message = modelMessage(providerID: recommendation.providerID, status: status) {
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            if let providerInfo, !providerInfo.available, status?.installed == true {
+                Text(providerInfo.reason ?? "\(providerInfo.label) runtime is unavailable.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            HStack {
+                Button(isSelected ? "Selected" : "Use") {
+                    model.setASRProvider(recommendation.providerKind)
+                }
+                .disabled(isSelected)
+
+                Button("Check") {
+                    Task {
+                        await model.checkModelUpdate(providerID: recommendation.providerID)
+                    }
+                }
+                .disabled(isRunning)
+
+                Button(modelButtonTitle(status: status)) {
+                    Task {
+                        await model.downloadModel(providerID: recommendation.providerID)
+                    }
+                }
+                .disabled(isRunning)
+
+                Button("Delete") {
+                    Task {
+                        await model.deleteModel(providerID: recommendation.providerID)
+                    }
+                }
+                .disabled(isRunning || status?.installed != true)
+            }
+            .font(.caption)
+        }
+        .padding(10)
+        .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
+    }
+
     @ViewBuilder
     private var providerRecoveryActions: some View {
         HStack {
@@ -589,13 +685,29 @@ struct SettingsView: View {
                 selectedTab = .models
             }
 
-            Button("Download Model") {
-                selectedTab = .models
-                Task {
-                    await model.downloadSelectedModel()
+            if selectedModelStatus?.installed != true {
+                Button("Download Model") {
+                    selectedTab = .models
+                    Task {
+                        await model.downloadSelectedModel()
+                    }
                 }
+                .disabled(isModelActionRunning || selectedModelStatus == nil)
+            } else {
+                Text("The model is installed; resolve the runtime requirement before using this provider.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .disabled(isModelActionRunning || selectedModelStatus == nil)
+
+            if model.selectedProviderRuntimeInstallAvailable {
+                Button("Install Runtime") {
+                    selectedTab = .models
+                    Task {
+                        await model.installSelectedProviderRuntime()
+                    }
+                }
+                .disabled(isModelActionRunning)
+            }
         }
     }
 
@@ -608,6 +720,30 @@ struct SettingsView: View {
                 theme: model.activeTheme,
                 onChange: model.setDictationHotkey
             )
+
+            ForEach(Array(model.preferences.additionalDictationHotkeys.enumerated()), id: \.offset) { index, hotkey in
+                HotkeyRecorderView(
+                    title: "Dictation Alternate \(index + 2)",
+                    binding: hotkey,
+                    theme: model.activeTheme,
+                    advancedTitle: "Remove",
+                    advancedSystemImage: "minus.circle",
+                    onAdvanced: {
+                        model.removeAdditionalDictationHotkey(at: index)
+                    },
+                    onChange: { binding in
+                        model.setAdditionalDictationHotkey(binding, at: index)
+                    }
+                )
+            }
+
+            Button {
+                model.addAdditionalDictationHotkey()
+            } label: {
+                Label("Add Dictation Hotkey", systemImage: "plus.circle")
+            }
+            .disabled(model.preferences.additionalDictationHotkeys.count >= OmniVoicePreferences.maxAdditionalDictationHotkeys)
+            .help("Add another keyboard shortcut that starts and stops dictation.")
 
             HotkeyRecorderView(
                 title: "Style Hotkey",
@@ -630,6 +766,13 @@ struct SettingsView: View {
                 onChange: model.setHotMenuHotkey
             )
 
+            HotkeyRecorderView(
+                title: "Transcript Cache",
+                binding: model.preferences.transcriptCacheHotkey,
+                theme: model.activeTheme,
+                onChange: model.setTranscriptCacheHotkey
+            )
+
             if hotMenuAdvancedExpanded {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Hot Menu Actions")
@@ -648,6 +791,35 @@ struct SettingsView: View {
                 .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
+        }
+    }
+
+    @ViewBuilder
+    private var mouseControlsSection: some View {
+        Section("Mouse Controls") {
+            Toggle("Mouse push-to-talk", isOn: mousePushToTalkEnabledBinding)
+                .help("Hold a configured extra mouse button to dictate without using the keyboard.")
+
+            MouseButtonRecorderView(
+                title: "Push-to-talk Button",
+                binding: model.preferences.mousePushToTalkButton,
+                theme: model.activeTheme,
+                onChange: model.setMousePushToTalkButton
+            )
+
+            Toggle("Transcript cache picker", isOn: transcriptCacheMouseEnabledBinding)
+                .help("Open a floating picker for recent dictations, then scroll and click to insert one.")
+
+            MouseButtonRecorderView(
+                title: "Cache Picker Button",
+                binding: model.preferences.transcriptCacheMouseButton,
+                theme: model.activeTheme,
+                onChange: model.setTranscriptCacheMouseButton
+            )
+
+            Text("Mouse shortcuts only accept extra buttons so normal left, right, and middle clicks stay untouched.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -709,6 +881,57 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
+    private var recordingCueSection: some View {
+        Section("Recording Cues") {
+            Toggle("Sound cues", isOn: recordingSoundCuesEnabledBinding)
+                .help("Play a short sound when recording starts and stops.")
+
+            Picker("Timing", selection: recordingCueTimingBinding) {
+                ForEach(RecordingCueTiming.allCases, id: \.self) { timing in
+                    Text(timing.displayName).tag(timing)
+                }
+            }
+            .pickerStyle(.segmented)
+            .help("Choose whether recording cues play at start, stop, or both.")
+                .disabled(!model.preferences.recordingSoundCuesEnabled)
+
+            Picker("Cue set", selection: recordingCueSetBinding) {
+                ForEach(RecordingCueSet.allCases, id: \.self) { cueSet in
+                    Text(cueSet.displayName).tag(cueSet)
+                }
+            }
+            .disabled(!model.preferences.recordingSoundCuesEnabled)
+
+            LabeledContent("Volume") {
+                HStack(spacing: 10) {
+                    Slider(value: recordingCueVolumeBinding, in: 0...1)
+                        .frame(maxWidth: 220)
+                    Text("\(Int((model.preferences.recordingCueVolume * 100).rounded()))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 42, alignment: .trailing)
+                }
+            }
+            .disabled(!model.preferences.recordingSoundCuesEnabled)
+
+            HStack {
+                Button {
+                    model.previewRecordingCue(.start)
+                } label: {
+                    Label("Preview Start", systemImage: "record.circle")
+                }
+
+                Button {
+                    model.previewRecordingCue(.stop)
+                } label: {
+                    Label("Preview Stop", systemImage: "stop.circle")
+                }
+            }
+            .disabled(!model.preferences.recordingSoundCuesEnabled)
+        }
+    }
+
+    @ViewBuilder
     private var waveformSection: some View {
         Section("Waveform") {
             Picker("Waveform", selection: waveformModeBinding) {
@@ -736,6 +959,12 @@ struct SettingsView: View {
             Picker("ASR Provider", selection: providerBinding) {
                 ForEach(providerOrder, id: \.self) { provider in
                     Text(model.label(for: provider)).tag(provider)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(SpeechModelRecommendation.allCases) { recommendation in
+                    speechModelCard(recommendation)
                 }
             }
 
@@ -1083,7 +1312,7 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
 
-            Text("Target languages come from the selected model's engine capability metadata. Current live speech translation uses English spoken input.")
+            Text("Spoken languages follow the selected speech model. Target languages come from the selected translation model's engine capability metadata.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -1611,6 +1840,48 @@ struct SettingsView: View {
         )
     }
 
+    private var recordingSoundCuesEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { model.preferences.recordingSoundCuesEnabled },
+            set: { model.setRecordingSoundCuesEnabled($0) }
+        )
+    }
+
+    private var recordingCueTimingBinding: Binding<RecordingCueTiming> {
+        Binding(
+            get: { model.preferences.recordingCueTiming },
+            set: { model.setRecordingCueTiming($0) }
+        )
+    }
+
+    private var recordingCueSetBinding: Binding<RecordingCueSet> {
+        Binding(
+            get: { model.preferences.recordingCueSet },
+            set: { model.setRecordingCueSet($0) }
+        )
+    }
+
+    private var recordingCueVolumeBinding: Binding<Double> {
+        Binding(
+            get: { model.preferences.recordingCueVolume },
+            set: { model.setRecordingCueVolume($0) }
+        )
+    }
+
+    private var mousePushToTalkEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { model.preferences.mousePushToTalkEnabled },
+            set: { model.setMousePushToTalkEnabled($0) }
+        )
+    }
+
+    private var transcriptCacheMouseEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { model.preferences.transcriptCacheMouseEnabled },
+            set: { model.setTranscriptCacheMouseEnabled($0) }
+        )
+    }
+
     private func hotMenuActionBinding(for direction: HotMenuDirection, slot: Int) -> Binding<HotMenuAction> {
         Binding(
             get: {
@@ -2130,12 +2401,32 @@ struct SettingsView: View {
     }
 
     private var selectedModelMessage: String? {
+        modelMessage(providerID: model.preferences.asrProvider.rawValue, status: selectedModelStatus)
+    }
+
+    private func speechModelCardState(
+        status: EngineModelStatus?,
+        providerInfo: EngineProviderInfo?,
+        isSelected: Bool
+    ) -> (label: String, color: Color) {
+        if status?.installed != true {
+            return ("Not installed", .secondary)
+        }
+
+        if let providerInfo, !providerInfo.available {
+            return ("Runtime missing", .orange)
+        }
+
+        return (isSelected ? "Selected" : "Ready", .green)
+    }
+
+    private func modelMessage(providerID: String, status: EngineModelStatus?) -> String? {
         if let download = model.modelDownloadStatus,
-           download.providerID == model.preferences.asrProvider.rawValue {
+           download.providerID == providerID {
             return download.message ?? download.state
         }
 
-        guard let status = selectedModelStatus, !status.missingFiles.isEmpty else {
+        guard let status, !status.missingFiles.isEmpty else {
             return nil
         }
 
@@ -2171,7 +2462,11 @@ struct SettingsView: View {
     }
 
     private var modelDownloadButtonTitle: String {
-        guard let status = selectedModelStatus else { return "Download" }
+        modelButtonTitle(status: selectedModelStatus)
+    }
+
+    private func modelButtonTitle(status: EngineModelStatus?) -> String {
+        guard let status else { return "Download" }
         return status.installed ? "Update Model" : "Download Model"
     }
 
@@ -2186,8 +2481,12 @@ struct SettingsView: View {
     }
 
     private var isModelActionRunning: Bool {
+        isModelActionRunning(providerID: model.preferences.asrProvider.rawValue)
+    }
+
+    private func isModelActionRunning(providerID: String) -> Bool {
         guard let download = model.modelDownloadStatus,
-              download.providerID == model.preferences.asrProvider.rawValue else {
+              download.providerID == providerID else {
             return false
         }
         return download.state == "queued" || download.state == "downloading"

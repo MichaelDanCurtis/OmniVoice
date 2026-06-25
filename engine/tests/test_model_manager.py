@@ -67,6 +67,40 @@ def test_model_manager_reports_mlx_parakeet_hugging_face_source(tmp_path: Path) 
     assert status.missing_files == ["config.json", "model.safetensors"]
 
 
+def test_model_manager_reports_whisper_large_v3_turbo_mlx_6bit_source(tmp_path: Path) -> None:
+    manager = ModelManager(model_root=tmp_path, hub_api=FakeHubApi(), snapshot_downloader=FakeSnapshotDownloader())
+
+    status = manager.status("whisper-large-v3-turbo-mlx-6bit")
+
+    assert status.provider_id == "whisper-large-v3-turbo-mlx-6bit"
+    assert status.label == "Whisper Large v3 Turbo MLX 6-bit"
+    assert status.repo_id == "mlx-community/whisper-large-v3-turbo-asr-6bit"
+    assert status.local_path == str(tmp_path / "whisper-large-v3-turbo-mlx-6bit")
+    assert status.installed is False
+    assert status.missing_files == ["config.json", "model.safetensors", "tokenizer.json", "preprocessor_config.json"]
+    assert status.recommendation == "Multilingual"
+    assert status.detail == "Local multilingual ASR for 99-language dictation on Apple Silicon."
+    assert status.size == "664 MB"
+    assert status.precision == "6-bit"
+
+
+def test_model_manager_reports_canary_qwen_source_as_advanced_asr(tmp_path: Path) -> None:
+    manager = ModelManager(model_root=tmp_path, hub_api=FakeHubApi(), snapshot_downloader=FakeSnapshotDownloader())
+
+    status = manager.status("canary-qwen-2.5b")
+
+    assert status.provider_id == "canary-qwen-2.5b"
+    assert status.label == "Canary-Qwen-2.5B"
+    assert status.repo_id == "nvidia/canary-qwen-2.5b"
+    assert status.local_path == str(tmp_path / "canary-qwen-2.5b")
+    assert status.installed is False
+    assert status.missing_files == ["config.json", "model.safetensors"]
+    assert status.recommendation == "English Accuracy"
+    assert status.detail == "Advanced English ASR through NVIDIA NeMo when the Canary runtime is installed."
+    assert status.size == "5.1 GB"
+    assert status.precision == "BF16"
+
+
 def test_model_manager_reports_translategemma_mlx_hugging_face_source(tmp_path: Path) -> None:
     manager = ModelManager(model_root=tmp_path, hub_api=FakeHubApi(), snapshot_downloader=FakeSnapshotDownloader())
 
@@ -191,6 +225,55 @@ def test_model_manager_downloads_mlx_parakeet_model(tmp_path: Path) -> None:
     assert downloader.calls[0]["repo_id"] == "mlx-community/parakeet-tdt-0.6b-v3"
     assert downloader.calls[0]["allow_patterns"] == ["config.json", "model.safetensors", "README.md"]
     assert manager.status("parakeet-tdt-mlx").installed is True
+
+
+def test_model_manager_downloads_whisper_large_v3_turbo_mlx_6bit_model(tmp_path: Path) -> None:
+    hub_api = FakeHubApi(sha="whisper-sha")
+    downloader = FakeSnapshotDownloader()
+    manager = ModelManager(model_root=tmp_path, hub_api=hub_api, snapshot_downloader=downloader)
+
+    status = manager.download("whisper-large-v3-turbo-mlx-6bit")
+
+    assert status.state == "completed"
+    assert status.revision == "whisper-sha"
+    assert status.local_path == str(tmp_path / "whisper-large-v3-turbo-mlx-6bit")
+    assert downloader.calls[0]["repo_id"] == "mlx-community/whisper-large-v3-turbo-asr-6bit"
+    assert downloader.calls[0]["allow_patterns"] == [
+        "config.json",
+        "generation_config.json",
+        "model.safetensors",
+        "model.safetensors.index.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "preprocessor_config.json",
+        "normalizer.json",
+        "vocab.json",
+        "merges.txt",
+        "added_tokens.json",
+        "special_tokens_map.json",
+        "README.md",
+    ]
+    assert manager.status("whisper-large-v3-turbo-mlx-6bit").installed is True
+
+
+def test_model_manager_downloads_canary_qwen_model(tmp_path: Path) -> None:
+    hub_api = FakeHubApi(sha="canary-sha")
+    downloader = FakeSnapshotDownloader()
+    manager = ModelManager(model_root=tmp_path, hub_api=hub_api, snapshot_downloader=downloader)
+
+    status = manager.download("canary-qwen-2.5b")
+
+    assert status.state == "completed"
+    assert status.revision == "canary-sha"
+    assert status.local_path == str(tmp_path / "canary-qwen-2.5b")
+    assert downloader.calls[0]["repo_id"] == "nvidia/canary-qwen-2.5b"
+    assert downloader.calls[0]["allow_patterns"] == [
+        "config.json",
+        "model.safetensors",
+        "README.md",
+        "LICENSES",
+    ]
+    assert manager.status("canary-qwen-2.5b").installed is True
 
 
 def test_model_manager_downloads_translategemma_mlx_model(tmp_path: Path) -> None:

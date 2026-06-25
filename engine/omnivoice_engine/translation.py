@@ -49,6 +49,112 @@ FALLBACK_TRANSLATION_LANGUAGES = (
     TranslationLanguageOption(code="vi", name="Vietnamese"),
 )
 
+ENGLISH_SOURCE_LANGUAGE = TranslationLanguageOption(code="en", name="English", is_default=True)
+
+WHISPER_SOURCE_LANGUAGES = (
+    TranslationLanguageOption(code="auto", name="Auto Detect", is_default=True),
+    TranslationLanguageOption(code="en", name="English"),
+    TranslationLanguageOption(code="af", name="Afrikaans"),
+    TranslationLanguageOption(code="am", name="Amharic"),
+    TranslationLanguageOption(code="ar", name="Arabic"),
+    TranslationLanguageOption(code="as", name="Assamese"),
+    TranslationLanguageOption(code="az", name="Azerbaijani"),
+    TranslationLanguageOption(code="ba", name="Bashkir"),
+    TranslationLanguageOption(code="be", name="Belarusian"),
+    TranslationLanguageOption(code="bg", name="Bulgarian"),
+    TranslationLanguageOption(code="bn", name="Bengali"),
+    TranslationLanguageOption(code="bo", name="Tibetan"),
+    TranslationLanguageOption(code="br", name="Breton"),
+    TranslationLanguageOption(code="bs", name="Bosnian"),
+    TranslationLanguageOption(code="ca", name="Catalan"),
+    TranslationLanguageOption(code="cs", name="Czech"),
+    TranslationLanguageOption(code="cy", name="Welsh"),
+    TranslationLanguageOption(code="da", name="Danish"),
+    TranslationLanguageOption(code="de", name="German"),
+    TranslationLanguageOption(code="el", name="Greek"),
+    TranslationLanguageOption(code="es", name="Spanish"),
+    TranslationLanguageOption(code="et", name="Estonian"),
+    TranslationLanguageOption(code="eu", name="Basque"),
+    TranslationLanguageOption(code="fa", name="Persian"),
+    TranslationLanguageOption(code="fi", name="Finnish"),
+    TranslationLanguageOption(code="fo", name="Faroese"),
+    TranslationLanguageOption(code="fr", name="French"),
+    TranslationLanguageOption(code="gl", name="Galician"),
+    TranslationLanguageOption(code="gu", name="Gujarati"),
+    TranslationLanguageOption(code="ha", name="Hausa"),
+    TranslationLanguageOption(code="haw", name="Hawaiian"),
+    TranslationLanguageOption(code="he", name="Hebrew"),
+    TranslationLanguageOption(code="hi", name="Hindi"),
+    TranslationLanguageOption(code="hr", name="Croatian"),
+    TranslationLanguageOption(code="ht", name="Haitian Creole"),
+    TranslationLanguageOption(code="hu", name="Hungarian"),
+    TranslationLanguageOption(code="hy", name="Armenian"),
+    TranslationLanguageOption(code="id", name="Indonesian"),
+    TranslationLanguageOption(code="is", name="Icelandic"),
+    TranslationLanguageOption(code="it", name="Italian"),
+    TranslationLanguageOption(code="ja", name="Japanese"),
+    TranslationLanguageOption(code="jw", name="Javanese"),
+    TranslationLanguageOption(code="ka", name="Georgian"),
+    TranslationLanguageOption(code="kk", name="Kazakh"),
+    TranslationLanguageOption(code="km", name="Khmer"),
+    TranslationLanguageOption(code="kn", name="Kannada"),
+    TranslationLanguageOption(code="ko", name="Korean"),
+    TranslationLanguageOption(code="la", name="Latin"),
+    TranslationLanguageOption(code="lb", name="Luxembourgish"),
+    TranslationLanguageOption(code="ln", name="Lingala"),
+    TranslationLanguageOption(code="lo", name="Lao"),
+    TranslationLanguageOption(code="lt", name="Lithuanian"),
+    TranslationLanguageOption(code="lv", name="Latvian"),
+    TranslationLanguageOption(code="mg", name="Malagasy"),
+    TranslationLanguageOption(code="mi", name="Maori"),
+    TranslationLanguageOption(code="mk", name="Macedonian"),
+    TranslationLanguageOption(code="ml", name="Malayalam"),
+    TranslationLanguageOption(code="mn", name="Mongolian"),
+    TranslationLanguageOption(code="mr", name="Marathi"),
+    TranslationLanguageOption(code="ms", name="Malay"),
+    TranslationLanguageOption(code="mt", name="Maltese"),
+    TranslationLanguageOption(code="my", name="Burmese"),
+    TranslationLanguageOption(code="ne", name="Nepali"),
+    TranslationLanguageOption(code="nl", name="Dutch"),
+    TranslationLanguageOption(code="nn", name="Norwegian Nynorsk"),
+    TranslationLanguageOption(code="no", name="Norwegian"),
+    TranslationLanguageOption(code="oc", name="Occitan"),
+    TranslationLanguageOption(code="pa", name="Punjabi"),
+    TranslationLanguageOption(code="pl", name="Polish"),
+    TranslationLanguageOption(code="ps", name="Pashto"),
+    TranslationLanguageOption(code="pt", name="Portuguese"),
+    TranslationLanguageOption(code="ro", name="Romanian"),
+    TranslationLanguageOption(code="ru", name="Russian"),
+    TranslationLanguageOption(code="sa", name="Sanskrit"),
+    TranslationLanguageOption(code="sd", name="Sindhi"),
+    TranslationLanguageOption(code="si", name="Sinhala"),
+    TranslationLanguageOption(code="sk", name="Slovak"),
+    TranslationLanguageOption(code="sl", name="Slovenian"),
+    TranslationLanguageOption(code="sn", name="Shona"),
+    TranslationLanguageOption(code="so", name="Somali"),
+    TranslationLanguageOption(code="sq", name="Albanian"),
+    TranslationLanguageOption(code="sr", name="Serbian"),
+    TranslationLanguageOption(code="su", name="Sundanese"),
+    TranslationLanguageOption(code="sv", name="Swedish"),
+    TranslationLanguageOption(code="sw", name="Swahili"),
+    TranslationLanguageOption(code="ta", name="Tamil"),
+    TranslationLanguageOption(code="te", name="Telugu"),
+    TranslationLanguageOption(code="tg", name="Tajik"),
+    TranslationLanguageOption(code="th", name="Thai"),
+    TranslationLanguageOption(code="tk", name="Turkmen"),
+    TranslationLanguageOption(code="tl", name="Tagalog"),
+    TranslationLanguageOption(code="tr", name="Turkish"),
+    TranslationLanguageOption(code="tt", name="Tatar"),
+    TranslationLanguageOption(code="uk", name="Ukrainian"),
+    TranslationLanguageOption(code="ur", name="Urdu"),
+    TranslationLanguageOption(code="uz", name="Uzbek"),
+    TranslationLanguageOption(code="vi", name="Vietnamese"),
+    TranslationLanguageOption(code="yi", name="Yiddish"),
+    TranslationLanguageOption(code="yo", name="Yoruba"),
+    TranslationLanguageOption(code="yue", name="Cantonese"),
+    TranslationLanguageOption(code="zh", name="Chinese"),
+)
+
 SCRIPT_RANGES: tuple[tuple[str, tuple[tuple[int, int], ...]], ...] = (
     ("Han", ((0x3400, 0x4DBF), (0x4E00, 0x9FFF), (0xF900, 0xFAFF), (0x20000, 0x2A6DF), (0x2A700, 0x2B73F))),
     ("Hiragana", ((0x3040, 0x309F),)),
@@ -173,10 +279,16 @@ class FakeTranslationProvider(TranslationProvider):
     def info(self, model_path: str = "") -> ProviderInfo:
         return ProviderInfo(id=self.id, label=self.label, available=True)
 
-    def capabilities(self, model_path: str = "", model_provider_id: str | None = None) -> TranslationCapabilities:
+    def capabilities(
+        self,
+        model_path: str = "",
+        model_provider_id: str | None = None,
+        asr_provider_id: str = "parakeet-tdt-mlx",
+    ) -> TranslationCapabilities:
         return translation_capabilities(
             provider_id=self.id,
             model_provider_id=model_provider_id,
+            asr_provider_id=asr_provider_id,
             target_languages=list(FALLBACK_TRANSLATION_LANGUAGES),
             capability_source="curated-fallback",
         )
@@ -229,7 +341,12 @@ class MLXPromptTranslationProvider(TranslationProvider):
             return ProviderInfo(id=self.id, label=self.label, available=False, reason="mlx-lm is not installed")
         return ProviderInfo(id=self.id, label=self.label, available=True)
 
-    def capabilities(self, model_path: str = "", model_provider_id: str | None = None) -> TranslationCapabilities:
+    def capabilities(
+        self,
+        model_path: str = "",
+        model_provider_id: str | None = None,
+        asr_provider_id: str = "parakeet-tdt-mlx",
+    ) -> TranslationCapabilities:
         resolved_path = resolved_model_path(model_path, self.env_var, self.default_dir)
         template_path = Path(resolved_path) / "chat_template.jinja" if resolved_path else Path()
         languages = languages_from_chat_template(template_path)
@@ -237,6 +354,7 @@ class MLXPromptTranslationProvider(TranslationProvider):
         return translation_capabilities(
             provider_id=self.id,
             model_provider_id=model_provider_id,
+            asr_provider_id=asr_provider_id,
             target_languages=languages or list(FALLBACK_TRANSLATION_LANGUAGES),
             capability_source=capability_source,
             message=None if languages else "Model language template not found; showing curated fallback languages.",
@@ -312,10 +430,16 @@ class NLLBTranslationProvider(TranslationProvider):
             reason="NLLB runtime is planned; use TranslateGemma MLX for the first local backend",
         )
 
-    def capabilities(self, model_path: str = "", model_provider_id: str | None = None) -> TranslationCapabilities:
+    def capabilities(
+        self,
+        model_path: str = "",
+        model_provider_id: str | None = None,
+        asr_provider_id: str = "parakeet-tdt-mlx",
+    ) -> TranslationCapabilities:
         return translation_capabilities(
             provider_id=self.id,
             model_provider_id=model_provider_id,
+            asr_provider_id=asr_provider_id,
             target_languages=list(FALLBACK_TRANSLATION_LANGUAGES),
             capability_source="curated-fallback",
             message="NLLB runtime is planned; language support is a curated placeholder.",
@@ -340,10 +464,17 @@ class TranslationRegistry:
     def get(self, provider_id: str) -> TranslationProvider:
         return self._providers[provider_id]
 
-    def capabilities(self, provider_id: str, *, model_path: str = "", model_provider_id: str | None = None) -> TranslationCapabilities:
+    def capabilities(
+        self,
+        provider_id: str,
+        *,
+        model_path: str = "",
+        model_provider_id: str | None = None,
+        asr_provider_id: str = "parakeet-tdt-mlx",
+    ) -> TranslationCapabilities:
         provider = self.get(provider_id)
         provider_capabilities = getattr(provider, "capabilities")
-        return provider_capabilities(model_path, model_provider_id)
+        return provider_capabilities(model_path, model_provider_id, asr_provider_id)
 
 
 def resolved_model_path(model_path: str, env_var: str, default_dir: str | Path | None = None) -> str:
@@ -670,17 +801,49 @@ def translation_capabilities(
     target_languages: list[TranslationLanguageOption],
     capability_source: str,
     model_provider_id: str | None = None,
+    asr_provider_id: str = "parakeet-tdt-mlx",
     message: str | None = None,
 ) -> TranslationCapabilities:
+    source_locked, source_reason, source_languages = source_language_capabilities(asr_provider_id, target_languages)
     return TranslationCapabilities(
         provider_id=provider_id,
         model_provider_id=model_provider_id,
-        source_language_locked=True,
-        source_language_reason="Live speech translation currently uses English ASR input.",
-        source_languages=[TranslationLanguageOption(code="en", name="English", is_default=True)],
+        source_language_locked=source_locked,
+        source_language_reason=source_reason,
+        source_languages=source_languages,
         target_languages=target_languages,
         capability_source=capability_source,
         message=message,
+    )
+
+
+def source_language_capabilities(
+    asr_provider_id: str,
+    target_languages: list[TranslationLanguageOption] | None = None,
+) -> tuple[bool, str | None, list[TranslationLanguageOption]]:
+    normalized = asr_provider_id.strip().lower() or "parakeet-tdt-mlx"
+    if normalized == "whisper-large-v3-turbo-mlx-6bit":
+        target_codes = {language.code.lower() for language in target_languages or []}
+        source_languages = list(WHISPER_SOURCE_LANGUAGES)
+        if target_codes:
+            source_languages = [
+                language
+                for language in source_languages
+                if language.code == "auto" or language.code.lower() in target_codes
+            ]
+            if len(source_languages) == 1:
+                source_languages.append(TranslationLanguageOption(code="en", name="English"))
+
+        return (
+            False,
+            "Whisper MLX can auto-detect or manually tag multilingual speech before translation.",
+            source_languages,
+        )
+
+    return (
+        True,
+        "The selected speech model uses English input for live translation. Use Whisper MLX for multilingual speech.",
+        [ENGLISH_SOURCE_LANGUAGE],
     )
 
 

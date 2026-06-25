@@ -9,11 +9,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private weak var model: AppModel?
     private let overlay = CaptionOverlayWindow()
     private let hotMenuOverlay = HotMenuOverlayWindow()
+    private let transcriptCacheOverlay = TranscriptCacheOverlayWindow()
     private let hotkeys = HotkeyController()
+    private let mouseShortcuts = MouseShortcutController()
     private let audioCapture = AudioCaptureService()
     private let engineClient = EngineClient()
     private let streamingClient = EngineStreamingClient()
     private let insertionService = TextInsertionService()
+    private let recordingCuePlayer = RecordingCuePlayer.shared
     private let dockIconController = DynamicDockIconController()
     private let commandExecutor = DictationCommandExecutor()
     private var lastInputLevel: Float = 0
@@ -27,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotMenuTriggerState = HotMenuTriggerState()
     private var dictationTriggerState = DictationTriggerState()
     private var pendingDictationFinishTask: Task<Void, Never>?
+    private var mousePushToTalkActive = false
     var onOpenConversationMode: (() -> Void)?
     var onOpenEditor: (() -> Void)?
     var onOpenEditorNotes: (() -> Void)?
@@ -44,6 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         permissionRefreshTimer?.invalidate()
         hotkeys.unregister()
+        mouseShortcuts.stop()
+        transcriptCacheOverlay.cancel()
         EngineSupervisor.shared.stopStartedProcess()
     }
 
@@ -61,6 +67,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.onHotkeysChanged = { [weak self] preferences in
             self?.applyHotkeys(preferences: preferences)
         }
+        mouseShortcuts.onPushToTalkPressed = { [weak self, weak model] in
+            guard let self, let model else { return }
+            self.handleMousePushToTalkPressed(model: model)
+        }
+        mouseShortcuts.onPushToTalkReleased = { [weak self, weak model] in
+            guard let self, let model else { return }
+            self.handleMousePushToTalkReleased(model: model)
+        }
+        mouseShortcuts.onTranscriptCachePressed = { [weak self, weak model] in
+            guard let self, let model else { return }
+            self.showTranscriptCache(model: model)
+        }
+        model.onMouseShortcutsChanged = { [weak self] preferences in
+            self?.applyMouseShortcuts(preferences: preferences)
+        }
         model.onThemeChanged = { [weak self] theme, appearanceMode in
             self?.dockIconController.apply(theme: theme, appearanceMode: appearanceMode)
         }
@@ -72,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         startPermissionRefreshTimer()
         applyHotkeys(preferences: model.preferences)
+        applyMouseShortcuts(preferences: model.preferences)
         dockIconController.apply(theme: model.activeTheme, appearanceMode: model.preferences.appearanceMode)
     }
 
@@ -148,6 +170,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let model else { return }
 
         let target = insertionService.captureTarget()
+        await insertCachedTranscript(text, target: target, model: model)
+    }
+
+    private func insertCachedTranscript(
+        _ text: String,
+        target: TextInsertionService.Target?,
+        model: AppModel
+    ) async {
         do {
             try await insertionService.insert(text, target: target)
             model.statusText = "Transcript inserted"
@@ -169,12 +199,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hotkeys.unregister()
             try hotkeys.register(
                 dictation: preferences.dictationHotkey,
+                additionalDictation: preferences.additionalDictationHotkeys,
                 style: preferences.styleHotkey,
-                hotMenu: preferences.hotMenuHotkey
+                hotMenu: preferences.hotMenuHotkey,
+                transcriptCache: preferences.transcriptCacheHotkey
             )
         } catch {
             model.statusText = "Hotkey registration failed"
         }
+    }
+
+    private func applyMouseShortcuts(preferences: OmniVoicePreferences) {
+        mouseShortcuts.apply(preferences: preferences)
     }
 
     private func startPermissionRefreshTimer() {
@@ -262,6 +298,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             showHotMenu(model: model)
         case .hotMenuReleased:
             releaseHotMenu(model: model)
+        case .transcriptCachePressed:
+            showTranscriptCache(model: model)
         }
     }
 
@@ -319,6 +357,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         streamingClient.finish()
         Task { [weak self] in
             await self?.finishDictation()
+        }
+    }
+
+    private func handleMousePushToTalkPressed(model: AppModel) {
+        guard model.session.state == .idle else { return }
+
+        pendingDictationFinishTask?.cancel()
+        pendingDictationFinishTask = nil
+        dictationTriggerState.cancel()
+        mousePushToTalkActive = true
+        startDictation(model: model)
+    }
+
+    private func handleMousePushToTalkReleased(model: AppModel) {
+        guard mousePushToTalkActive else { return }
+
+        mousePushToTalkActive = false
+        guard model.session.state == .listening else { return }
+        finishDictationNow()
+    }
+
+    private func showTranscriptCache(model: AppModel) {
+        guard model.session.state == .idle else { return }
+
+        if transcriptCacheOverlay.isPresented {
+            transcriptCacheOverlay.cancel()
+            return
+        }
+
+        let target = insertionService.captureTarget()
+        let anchor = NSEvent.mouseLocation
+        let showPicker: ([EngineTranscriptRecord]) -> Void = { [weak self, weak model] transcripts in
+            guard let self, let model else { return }
+            let usableTranscripts = transcripts
+                .filter { !$0.displayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .prefix(16)
+
+            guard !usableTranscripts.isEmpty else {
+                model.statusText = "No recent transcripts"
+                self.showOverlay(text: "No recent transcripts", styleName: "Transcript Cache", theme: model.activeTheme)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    self?.hideOverlay()
+                }
+                return
+            }
+
+            model.statusText = "Transcript cache"
+            self.transcriptCacheOverlay.show(
+                anchor: anchor,
+                transcripts: Array(usableTranscripts),
+                theme: model.activeTheme,
+                appearanceMode: model.preferences.appearanceMode,
+                onInsert: { [weak self, weak model] transcript in
+                    guard let self, let model else { return }
+                    Task {
+                        await self.insertCachedTranscript(
+                            transcript.displayText,
+                            target: target,
+                            model: model
+                        )
+                    }
+                },
+                onCancel: {
+                    model.statusText = "Transcript cache cancelled"
+                }
+            )
+        }
+
+        if model.transcripts.isEmpty {
+            Task { @MainActor [weak model] in
+                guard let model else { return }
+                await model.refreshTranscripts(updateStatus: false)
+                showPicker(model.transcripts)
+            }
+        } else {
+            showPicker(model.transcripts)
         }
     }
 
@@ -542,6 +656,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 sampleRate: sampleRate,
                 translation: streamingTranslationConfiguration(for: model)
             )
+            let cueDuration = recordingCuePlayer.playStartCue(preferences: model.preferences)
+            if cueDuration > 0 {
+                Thread.sleep(forTimeInterval: min(cueDuration + 0.03, 0.30))
+            }
             _ = try audioCapture.start(deviceUID: model.preferences.microphoneID)
         } catch {
             model.session.fail("Microphone failed: \(error.localizedDescription)")
@@ -580,6 +698,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let audio: Data
         do {
             audio = try audioCapture.stopWAVData()
+            recordingCuePlayer.playStopCue(preferences: model.preferences)
             model.statusText = "Transcribing"
             showOverlay(
                 text: "Transcribing...",
@@ -588,6 +707,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 anchorFrame: activeOverlayAnchor
             )
         } catch {
+            recordingCuePlayer.playStopCue(preferences: model.preferences)
             model.session.fail("Audio capture failed: \(error.localizedDescription)")
             model.statusText = "Audio capture failed"
             streamingClient.cancel()
@@ -659,6 +779,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let insertionText = await translatedTextIfNeeded(finalText, model: model)
         model.session.finishCleanup(insertionText)
         await insertFinalText(insertionText, model: model, successStatus: model.preferences.liveTranslationEnabled ? "Translated text inserted" : "Inserted")
+        await model.refreshTranscripts(updateStatus: false)
     }
 
     private func translatedTextIfNeeded(_ text: String, model: AppModel) async -> String {

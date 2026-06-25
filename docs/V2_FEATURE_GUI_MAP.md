@@ -26,8 +26,8 @@ This file maps the V2 release feature set to the user-facing GUI. It is a releas
 | Configurable hotkeys | Implemented | Personalize tab | Record-button workflow supports modifier-only and chord hotkeys. |
 | Microphone picker | Implemented | Dictation tab | Selected mic drives dictation and conversation capture. |
 | Live captions | Implemented | Caption overlay | Draggable, theme-aware, translation-aware overlay. |
-| Local STT | Implemented | Dictation and Models tabs | Parakeet TDT MLX is the V2 default. Canary-Qwen remains a selectable future provider slot. |
-| Hugging Face integration | Implemented | Models tab | Token validation, gated-model guidance, downloads, and update checks. |
+| Local STT | Implemented | Dictation and Models tabs | Parakeet TDT MLX is the default. Whisper Large v3 Turbo MLX 6-bit adds selectable multilingual ASR. Canary-Qwen is an optional NeMo-backed English accuracy provider. |
+| Hugging Face integration | Implemented | Models tab | Token validation, gated-model guidance, downloads, update checks, and model deletion. |
 | Grammar cleanup and correction handling | Implemented | Dictation tab, Help tab | Covers punctuation, quote handling, no-wait/scratch-that corrections, literal mode, and dictionary terms. |
 | Hot menu | Implemented | Personalize tab, overlay | Up cycles modes, right controls translation, left cycles quick languages, down cycles dictation style. |
 | Themes and waveform styles | Implemented | Personalize tab | Includes appearance mode, custom accent color, built-in themes, and waveform modes. |

@@ -2,6 +2,7 @@ import Foundation
 
 public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public static let translationQuickTargetLanguageSlotCount = 4
+    public static let maxAdditionalDictationHotkeys = 3
     public static let defaultTranslationQuickTargetLanguages = ["zh", "fr", "en"]
 
     public var asrProvider: ASRProviderKind
@@ -9,8 +10,14 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var dictionaryTerms: [String]
     public var microphoneId: String?
     public var dictationHotkey: HotkeyBinding
+    public var additionalDictationHotkeys: [HotkeyBinding]
     public var styleHotkey: HotkeyBinding
     public var hotMenuHotkey: HotkeyBinding
+    public var transcriptCacheHotkey: HotkeyBinding
+    public var mousePushToTalkEnabled: Bool
+    public var mousePushToTalkButton: MouseButtonBinding
+    public var transcriptCacheMouseEnabled: Bool
+    public var transcriptCacheMouseButton: MouseButtonBinding
     public var hotMenuUpActions: [HotMenuAction]
     public var hotMenuLeftActions: [HotMenuAction]
     public var hotMenuRightActions: [HotMenuAction]
@@ -42,6 +49,11 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var liveDraftInsertionEnabled: Bool
     public var conversationArchiveFolderPath: String
     public var automaticallyArchiveConversations: Bool
+    public var recordingSoundCuesEnabled: Bool
+    public var recordingStartCueEnabled: Bool
+    public var recordingStopCueEnabled: Bool
+    public var recordingCueSet: RecordingCueSet
+    public var recordingCueVolume: Double
     public var firstRunSetupCompleted: Bool
 
     public var microphoneID: String? {
@@ -69,14 +81,46 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         set { setHotMenuActions([newValue], for: .down) }
     }
 
+    public var recordingCueTiming: RecordingCueTiming {
+        get {
+            switch (recordingStartCueEnabled, recordingStopCueEnabled) {
+            case (true, false):
+                return .start
+            case (false, true):
+                return .stop
+            default:
+                return .both
+            }
+        }
+        set {
+            switch newValue {
+            case .start:
+                recordingStartCueEnabled = true
+                recordingStopCueEnabled = false
+            case .stop:
+                recordingStartCueEnabled = false
+                recordingStopCueEnabled = true
+            case .both:
+                recordingStartCueEnabled = true
+                recordingStopCueEnabled = true
+            }
+        }
+    }
+
     public static let defaults = OmniVoicePreferences(
         asrProvider: .parakeetTDTMLX,
         style: .neutral,
         dictionaryTerms: [],
         microphoneID: nil,
         dictationHotkey: .defaultDictation,
+        additionalDictationHotkeys: [],
         styleHotkey: .defaultStyle,
         hotMenuHotkey: .defaultHotMenu,
+        transcriptCacheHotkey: .defaultTranscriptCache,
+        mousePushToTalkEnabled: false,
+        mousePushToTalkButton: .defaultPushToTalk,
+        transcriptCacheMouseEnabled: false,
+        transcriptCacheMouseButton: .defaultTranscriptCache,
         hotMenuUpActions: HotMenuAction.defaultActions(for: .up),
         hotMenuLeftActions: HotMenuAction.defaultActions(for: .left),
         hotMenuRightActions: HotMenuAction.defaultActions(for: .right),
@@ -108,6 +152,11 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         liveDraftInsertionEnabled: false,
         conversationArchiveFolderPath: ConversationArchive.defaultRootURL().path,
         automaticallyArchiveConversations: true,
+        recordingSoundCuesEnabled: true,
+        recordingStartCueEnabled: true,
+        recordingStopCueEnabled: true,
+        recordingCueSet: .glassTap,
+        recordingCueVolume: 0.28,
         firstRunSetupCompleted: false
     )
 
@@ -117,8 +166,14 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         dictionaryTerms: [String],
         microphoneID: String? = nil,
         dictationHotkey: HotkeyBinding = .defaultDictation,
+        additionalDictationHotkeys: [HotkeyBinding] = [],
         styleHotkey: HotkeyBinding = .defaultStyle,
         hotMenuHotkey: HotkeyBinding = .defaultHotMenu,
+        transcriptCacheHotkey: HotkeyBinding = .defaultTranscriptCache,
+        mousePushToTalkEnabled: Bool = false,
+        mousePushToTalkButton: MouseButtonBinding = .defaultPushToTalk,
+        transcriptCacheMouseEnabled: Bool = false,
+        transcriptCacheMouseButton: MouseButtonBinding = .defaultTranscriptCache,
         hotMenuUpAction: HotMenuAction? = nil,
         hotMenuLeftAction: HotMenuAction? = nil,
         hotMenuRightAction: HotMenuAction? = nil,
@@ -154,6 +209,11 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         liveDraftInsertionEnabled: Bool = false,
         conversationArchiveFolderPath: String = ConversationArchive.defaultRootURL().path,
         automaticallyArchiveConversations: Bool = true,
+        recordingSoundCuesEnabled: Bool = true,
+        recordingStartCueEnabled: Bool = true,
+        recordingStopCueEnabled: Bool = true,
+        recordingCueSet: RecordingCueSet = .glassTap,
+        recordingCueVolume: Double = 0.28,
         firstRunSetupCompleted: Bool = false
     ) {
         self.asrProvider = asrProvider.normalizedForUserSelection
@@ -161,8 +221,17 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         self.dictionaryTerms = dictionaryTerms
         self.microphoneId = microphoneID
         self.dictationHotkey = dictationHotkey
+        self.additionalDictationHotkeys = Self.normalizedAdditionalDictationHotkeys(
+            additionalDictationHotkeys,
+            primary: dictationHotkey
+        )
         self.styleHotkey = styleHotkey
         self.hotMenuHotkey = hotMenuHotkey
+        self.transcriptCacheHotkey = transcriptCacheHotkey
+        self.mousePushToTalkEnabled = mousePushToTalkEnabled
+        self.mousePushToTalkButton = mousePushToTalkButton
+        self.transcriptCacheMouseEnabled = transcriptCacheMouseEnabled
+        self.transcriptCacheMouseButton = transcriptCacheMouseButton
         self.hotMenuUpActions = Self.resolvedHotMenuActions(
             actions: hotMenuUpActions,
             legacyAction: hotMenuUpAction,
@@ -217,7 +286,13 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         self.liveDraftInsertionEnabled = liveDraftInsertionEnabled
         self.conversationArchiveFolderPath = conversationArchiveFolderPath
         self.automaticallyArchiveConversations = automaticallyArchiveConversations
+        self.recordingSoundCuesEnabled = recordingSoundCuesEnabled
+        self.recordingStartCueEnabled = recordingStartCueEnabled
+        self.recordingStopCueEnabled = recordingStopCueEnabled
+        self.recordingCueSet = recordingCueSet
+        self.recordingCueVolume = Self.clampedRecordingCueVolume(recordingCueVolume)
         self.firstRunSetupCompleted = firstRunSetupCompleted
+        self.normalizeRecordingCueTiming()
         self.migrateLegacyHotMenuDefaultsIfNeeded()
     }
 
@@ -249,8 +324,20 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             dictionaryTerms: try container.decode([String].self, forKey: .dictionaryTerms),
             microphoneID: try container.decodeIfPresent(String.self, forKey: .microphoneId),
             dictationHotkey: try container.decode(HotkeyBinding.self, forKey: .dictationHotkey),
+            additionalDictationHotkeys: try container.decodeIfPresent(
+                [HotkeyBinding].self,
+                forKey: .additionalDictationHotkeys
+            ) ?? [],
             styleHotkey: try container.decode(HotkeyBinding.self, forKey: .styleHotkey),
             hotMenuHotkey: try container.decodeIfPresent(HotkeyBinding.self, forKey: .hotMenuHotkey) ?? .defaultHotMenu,
+            transcriptCacheHotkey: try container.decodeIfPresent(HotkeyBinding.self, forKey: .transcriptCacheHotkey)
+                ?? .defaultTranscriptCache,
+            mousePushToTalkEnabled: try container.decodeIfPresent(Bool.self, forKey: .mousePushToTalkEnabled) ?? false,
+            mousePushToTalkButton: try container.decodeIfPresent(MouseButtonBinding.self, forKey: .mousePushToTalkButton)
+                ?? .defaultPushToTalk,
+            transcriptCacheMouseEnabled: try container.decodeIfPresent(Bool.self, forKey: .transcriptCacheMouseEnabled) ?? false,
+            transcriptCacheMouseButton: try container.decodeIfPresent(MouseButtonBinding.self, forKey: .transcriptCacheMouseButton)
+                ?? .defaultTranscriptCache,
             hotMenuUpAction: try legacyHotMenuContainer.decodeIfPresent(HotMenuAction.self, forKey: .hotMenuUpAction),
             hotMenuLeftAction: try legacyHotMenuContainer.decodeIfPresent(HotMenuAction.self, forKey: .hotMenuLeftAction),
             hotMenuRightAction: try legacyHotMenuContainer.decodeIfPresent(HotMenuAction.self, forKey: .hotMenuRightAction),
@@ -302,6 +389,11 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
                 ?? ConversationArchive.defaultRootURL().path,
             automaticallyArchiveConversations: try container.decodeIfPresent(Bool.self, forKey: .automaticallyArchiveConversations)
                 ?? true,
+            recordingSoundCuesEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingSoundCuesEnabled) ?? true,
+            recordingStartCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStartCueEnabled) ?? true,
+            recordingStopCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStopCueEnabled) ?? true,
+            recordingCueSet: try container.decodeIfPresent(RecordingCueSet.self, forKey: .recordingCueSet) ?? .glassTap,
+            recordingCueVolume: try container.decodeIfPresent(Double.self, forKey: .recordingCueVolume) ?? 0.28,
             firstRunSetupCompleted: try container.decodeIfPresent(Bool.self, forKey: .firstRunSetupCompleted) ?? false
         )
     }
@@ -316,8 +408,20 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             dictionaryTerms: try container.decode([String].self, forKey: .dictionaryTerms),
             microphoneID: try container.decodeIfPresent(String.self, forKey: .microphoneId),
             dictationHotkey: try container.decode(HotkeyBinding.self, forKey: .dictationHotkey),
+            additionalDictationHotkeys: try container.decodeIfPresent(
+                [HotkeyBinding].self,
+                forKey: .additionalDictationHotkeys
+            ) ?? [],
             styleHotkey: try container.decode(HotkeyBinding.self, forKey: .styleHotkey),
             hotMenuHotkey: try container.decodeIfPresent(HotkeyBinding.self, forKey: .hotMenuHotkey) ?? .defaultHotMenu,
+            transcriptCacheHotkey: try container.decodeIfPresent(HotkeyBinding.self, forKey: .transcriptCacheHotkey)
+                ?? .defaultTranscriptCache,
+            mousePushToTalkEnabled: try container.decodeIfPresent(Bool.self, forKey: .mousePushToTalkEnabled) ?? false,
+            mousePushToTalkButton: try container.decodeIfPresent(MouseButtonBinding.self, forKey: .mousePushToTalkButton)
+                ?? .defaultPushToTalk,
+            transcriptCacheMouseEnabled: try container.decodeIfPresent(Bool.self, forKey: .transcriptCacheMouseEnabled) ?? false,
+            transcriptCacheMouseButton: try container.decodeIfPresent(MouseButtonBinding.self, forKey: .transcriptCacheMouseButton)
+                ?? .defaultTranscriptCache,
             hotMenuUpAction: try legacyHotMenuContainer.decodeIfPresent(HotMenuAction.self, forKey: .hotMenuUpAction),
             hotMenuLeftAction: try legacyHotMenuContainer.decodeIfPresent(HotMenuAction.self, forKey: .hotMenuLeftAction),
             hotMenuRightAction: try legacyHotMenuContainer.decodeIfPresent(HotMenuAction.self, forKey: .hotMenuRightAction),
@@ -363,6 +467,11 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
                 ?? ConversationArchive.defaultRootURL().path,
             automaticallyArchiveConversations: try container.decodeIfPresent(Bool.self, forKey: .automaticallyArchiveConversations)
                 ?? true,
+            recordingSoundCuesEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingSoundCuesEnabled) ?? true,
+            recordingStartCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStartCueEnabled) ?? true,
+            recordingStopCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStopCueEnabled) ?? true,
+            recordingCueSet: try container.decodeIfPresent(RecordingCueSet.self, forKey: .recordingCueSet) ?? .glassTap,
+            recordingCueVolume: try container.decodeIfPresent(Double.self, forKey: .recordingCueVolume) ?? 0.28,
             firstRunSetupCompleted: try container.decodeIfPresent(Bool.self, forKey: .firstRunSetupCompleted) ?? false
         )
     }
@@ -374,6 +483,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public mutating func cycleASRProvider() {
         switch asrProvider {
         case .parakeetTDTMLX:
+            asrProvider = .whisperLargeV3TurboMLX6Bit
+        case .whisperLargeV3TurboMLX6Bit:
             asrProvider = .canaryQwen25B
         case .canaryQwen25B:
             asrProvider = .parakeetTDTMLX
@@ -557,14 +668,43 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         min(max(value, 0.08), 0.92)
     }
 
+    public static func clampedRecordingCueVolume(_ value: Double) -> Double {
+        min(max(value, 0), 1)
+    }
+
+    private mutating func normalizeRecordingCueTiming() {
+        if !recordingStartCueEnabled && !recordingStopCueEnabled {
+            recordingCueTiming = .both
+        }
+    }
+
+    public func isRecordingCueEnabled(for event: RecordingCueEvent) -> Bool {
+        guard recordingSoundCuesEnabled else {
+            return false
+        }
+
+        switch event {
+        case .start:
+            return recordingStartCueEnabled
+        case .stop:
+            return recordingStopCueEnabled
+        }
+    }
+
     private enum CodingKeys: String, CodingKey {
         case asrProvider = "asr_provider"
         case style = "style"
         case dictionaryTerms = "dictionary_terms"
         case microphoneId = "microphone_id"
         case dictationHotkey = "dictation_hotkey"
+        case additionalDictationHotkeys = "additional_dictation_hotkeys"
         case styleHotkey = "style_hotkey"
         case hotMenuHotkey = "hot_menu_hotkey"
+        case transcriptCacheHotkey = "transcript_cache_hotkey"
+        case mousePushToTalkEnabled = "mouse_push_to_talk_enabled"
+        case mousePushToTalkButton = "mouse_push_to_talk_button"
+        case transcriptCacheMouseEnabled = "transcript_cache_mouse_enabled"
+        case transcriptCacheMouseButton = "transcript_cache_mouse_button"
         case hotMenuUpActions = "hot_menu_up_actions"
         case hotMenuLeftActions = "hot_menu_left_actions"
         case hotMenuRightActions = "hot_menu_right_actions"
@@ -596,6 +736,11 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case liveDraftInsertionEnabled = "live_draft_insertion_enabled"
         case conversationArchiveFolderPath = "conversation_archive_folder_path"
         case automaticallyArchiveConversations = "automatically_archive_conversations"
+        case recordingSoundCuesEnabled = "recording_sound_cues_enabled"
+        case recordingStartCueEnabled = "recording_start_cue_enabled"
+        case recordingStopCueEnabled = "recording_stop_cue_enabled"
+        case recordingCueSet = "recording_cue_set"
+        case recordingCueVolume = "recording_cue_volume"
         case firstRunSetupCompleted = "first_run_setup_completed"
     }
 
@@ -605,8 +750,14 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case dictionaryTerms
         case microphoneId
         case dictationHotkey
+        case additionalDictationHotkeys
         case styleHotkey
         case hotMenuHotkey
+        case transcriptCacheHotkey
+        case mousePushToTalkEnabled
+        case mousePushToTalkButton
+        case transcriptCacheMouseEnabled
+        case transcriptCacheMouseButton
         case hotMenuUpActions
         case hotMenuLeftActions
         case hotMenuRightActions
@@ -638,6 +789,11 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case liveDraftInsertionEnabled
         case conversationArchiveFolderPath
         case automaticallyArchiveConversations
+        case recordingSoundCuesEnabled
+        case recordingStartCueEnabled
+        case recordingStopCueEnabled
+        case recordingCueSet
+        case recordingCueVolume
         case firstRunSetupCompleted
     }
 
@@ -713,6 +869,18 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             .prefix(translationQuickTargetLanguageSlotCount)
 
         return normalized.isEmpty ? defaultTranslationQuickTargetLanguages : Array(normalized)
+    }
+
+    public static func normalizedAdditionalDictationHotkeys(
+        _ hotkeys: [HotkeyBinding],
+        primary: HotkeyBinding
+    ) -> [HotkeyBinding] {
+        var seen: Set<HotkeyBinding> = [primary]
+        return hotkeys
+            .filter { $0.hasModifier }
+            .filter { seen.insert($0).inserted }
+            .prefix(maxAdditionalDictationHotkeys)
+            .map { $0 }
     }
 }
 

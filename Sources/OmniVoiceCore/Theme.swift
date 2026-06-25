@@ -20,6 +20,16 @@ public enum OmniVoiceThemeID: String, CaseIterable, Codable, Equatable, Hashable
     case graphiteIce
     case steelWhisper
     case monoGlass
+    case oceanGlass
+    case mintCircuit
+    case amberSlate
+    case roseQuartz
+    case indigoMist
+    case jadeSignal
+    case ultraviolet
+    case copperBlue
+    case glacierNight
+    case terminalAmber
     case highContrast
     case custom
 }
@@ -30,6 +40,16 @@ public enum WaveformMode: String, CaseIterable, Codable, Equatable, Hashable, Se
     case spectrumLine
     case orbMeter
     case glyphStream
+    case signalDots
+    case mirrorBars
+    case haloStack
+    case prismSweep
+    case needleMeter
+    case ribbonWave
+    case equalizerBlocks
+    case orbitDots
+    case sparkline
+    case constellation
 
     public var displayName: String {
         switch self {
@@ -43,6 +63,26 @@ public enum WaveformMode: String, CaseIterable, Codable, Equatable, Hashable, Se
             "Orb Meter"
         case .glyphStream:
             "Glyph Stream"
+        case .signalDots:
+            "Signal Dots"
+        case .mirrorBars:
+            "Mirror Bars"
+        case .haloStack:
+            "Halo Stack"
+        case .prismSweep:
+            "Prism Sweep"
+        case .needleMeter:
+            "Needle Meter"
+        case .ribbonWave:
+            "Ribbon Wave"
+        case .equalizerBlocks:
+            "Equalizer Blocks"
+        case .orbitDots:
+            "Orbit Dots"
+        case .sparkline:
+            "Sparkline"
+        case .constellation:
+            "Constellation"
         }
     }
 }
@@ -347,6 +387,16 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
         .preset(.graphiteIce, "Graphite Ice", "#CBD5E1", "#38BDF8", "#111827", 0.33, 0.14, 0.24, .elevated, .bars, .none, .right, 0.42),
         .preset(.steelWhisper, "Steel Whisper", "#94A3B8", "#67E8F9", "#0F172A", 0.31, 0.13, 0.22, .standard, .spectrumLine, .none, .left, 0.38),
         .preset(.monoGlass, "Mono Glass", "#F8FAFC", "#94A3B8", "#0A0A0A", 0.30, 0.12, 0.18, .elevated, .orbMeter, .none, .right, 0.32),
+        .preset(.oceanGlass, "Ocean Glass", "#2DD4BF", "#38BDF8", "#041E2E", 0.38, 0.15, 0.34, .standard, .signalDots, .beamSnap, .right, 0.72),
+        .preset(.mintCircuit, "Mint Circuit", "#5EEAD4", "#A7F3D0", "#071A18", 0.35, 0.14, 0.30, .standard, .mirrorBars, .glyphStream, .left, 0.64),
+        .preset(.amberSlate, "Amber Slate", "#F59E0B", "#38BDF8", "#17120A", 0.37, 0.16, 0.33, .elevated, .haloStack, .beamSnap, .right, 0.67),
+        .preset(.roseQuartz, "Rose Quartz", "#FB7185", "#F9A8D4", "#26101A", 0.36, 0.15, 0.32, .standard, .prismSweep, .cometCollapse, .right, 0.74),
+        .preset(.indigoMist, "Indigo Mist", "#6366F1", "#22D3EE", "#121226", 0.39, 0.16, 0.35, .standard, .needleMeter, .beamSnap, .left, 0.70),
+        .preset(.jadeSignal, "Jade Signal", "#10B981", "#84CC16", "#071A12", 0.35, 0.14, 0.31, .standard, .ribbonWave, .glyphStream, .left, 0.66),
+        .preset(.ultraviolet, "Ultraviolet", "#C084FC", "#60A5FA", "#170B2E", 0.40, 0.17, 0.36, .standard, .equalizerBlocks, .cometCollapse, .right, 0.76),
+        .preset(.copperBlue, "Copper Blue", "#F97316", "#0EA5E9", "#21120A", 0.37, 0.16, 0.34, .standard, .orbitDots, .beamSnap, .left, 0.69),
+        .preset(.glacierNight, "Glacier Night", "#BAE6FD", "#93C5FD", "#071421", 0.34, 0.14, 0.29, .elevated, .sparkline, .none, .right, 0.48),
+        .preset(.terminalAmber, "Terminal Amber", "#FBBF24", "#34D399", "#100F08", 0.36, 0.15, 0.35, .standard, .constellation, .glyphStream, .left, 0.73),
         .preset(.highContrast, "High Contrast", "#FFFFFF", "#FACC15", "#000000", 0.44, 0.22, 0.42, .highContrast, .bars, .beamSnap, .right, 0.55)
     ]
 
