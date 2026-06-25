@@ -108,7 +108,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     }
 
     public static let defaults = OmniVoicePreferences(
-        asrProvider: .parakeetTDTMLX,
+        asrProvider: .parakeetTDT,
         style: .neutral,
         dictionaryTerms: [],
         microphoneID: nil,
@@ -482,14 +482,16 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
 
     public mutating func cycleASRProvider() {
         switch asrProvider {
+        case .parakeetTDT:
+            asrProvider = .parakeetTDTMLX
         case .parakeetTDTMLX:
             asrProvider = .whisperLargeV3TurboMLX6Bit
         case .whisperLargeV3TurboMLX6Bit:
             asrProvider = .canaryQwen25B
         case .canaryQwen25B:
-            asrProvider = .parakeetTDTMLX
-        case .fake, .parakeetTDT:
-            asrProvider = .parakeetTDTMLX
+            asrProvider = .parakeetTDT
+        case .fake:
+            asrProvider = .parakeetTDT
         }
     }
 
