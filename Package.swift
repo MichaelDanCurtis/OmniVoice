@@ -18,5 +18,9 @@ let package = Package(
             name: "OmniVoiceCoreTests",
             dependencies: ["OmniVoiceCore"]
         ),
+        .testTarget(
+            name: "OmniVoiceAppTests",
+            dependencies: ["OmniVoiceApp"]
+        ),
     ]
 )

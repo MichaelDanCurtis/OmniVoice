@@ -1,0 +1,148 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1782424670486,
+  "projectRoot": "/Volumes/Main External/Development/OmniVoice",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "scripts"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "Assets": {
+      "path": "Assets",
+      "purpose": "Static assets",
+      "fileCount": 0,
+      "lastAccessed": 1782424670469,
+      "keyFiles": []
+    },
+    "Sources": {
+      "path": "Sources",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1782424670469,
+      "keyFiles": []
+    },
+    "Tests": {
+      "path": "Tests",
+      "purpose": "Test files",
+      "fileCount": 0,
+      "lastAccessed": 1782424670469,
+      "keyFiles": []
+    },
+    "dist": {
+      "path": "dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 4,
+      "lastAccessed": 1782424670472,
+      "keyFiles": [
+        "OmniVoice.icns",
+        "engine.log",
+        "engine.pid"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 4,
+      "lastAccessed": 1782424670479,
+      "keyFiles": [
+        "INTEGRATIONS.md",
+        "LOCAL_DISTRIBUTION.md",
+        "OMNIVOICE_QUICK_REFERENCE.md",
+        "V2_FEATURE_GUI_MAP.md"
+      ]
+    },
+    "engine": {
+      "path": "engine",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1782424670480,
+      "keyFiles": [
+        "pyproject.toml",
+        "uv.lock"
+      ]
+    },
+    "integrations": {
+      "path": "integrations",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1782424670480,
+      "keyFiles": []
+    },
+    "models": {
+      "path": "models",
+      "purpose": "Data models",
+      "fileCount": 0,
+      "lastAccessed": 1782424670480,
+      "keyFiles": []
+    },
+    "script": {
+      "path": "script",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1782424670481,
+      "keyFiles": [
+        "build_and_run.sh"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 4,
+      "lastAccessed": 1782424670481,
+      "keyFiles": [
+        "download-parakeet-tdt.sh",
+        "run-bundled-engine.sh",
+        "run-engine.sh",
+        "test-run-bundled-engine.sh"
+      ]
+    },
+    "engine/models": {
+      "path": "engine/models",
+      "purpose": "Data models",
+      "fileCount": 0,
+      "lastAccessed": 1782424670481,
+      "keyFiles": []
+    },
+    "engine/tests": {
+      "path": "engine/tests",
+      "purpose": "Test files",
+      "fileCount": 6,
+      "lastAccessed": 1782424670481,
+      "keyFiles": [
+        "conftest.py",
+        "test_api.py",
+        "test_cleanup.py"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}

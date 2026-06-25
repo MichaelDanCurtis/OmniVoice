@@ -16,7 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastLevelOverlayUpdate = Date.distantPast
     private var insertionTarget: TextInsertionService.Target?
     private var liveDraft: TextInsertionService.LiveDraft?
-    private var didPromptForAccessibility = false
+    private var accessibilityPromptGate = AccessibilityPromptGate()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -55,13 +55,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updatePermissionStatus()
     }
 
-    func requestAccessibilityPermission() {
-        didPromptForAccessibility = true
+    func requestAccessibilityPermission(openSettings: Bool = true) {
+        accessibilityPromptGate.markPrompted()
         let options = [
             "AXTrustedCheckOptionPrompt": true,
         ] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
-        openAccessibilitySettings()
+        if openSettings {
+            openAccessibilitySettings()
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.updatePermissionStatus()
@@ -98,9 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch TextInsertionService.InsertionError.accessibilityPermissionRequired {
             copyToPasteboard(text)
             model.statusText = "Accessibility required - copied"
-            if !didPromptForAccessibility {
-                requestAccessibilityPermission()
-            }
+            requestAccessibilityPermission()
         } catch {
             copyToPasteboard(text)
             model.statusText = "Transcript copied"
@@ -125,9 +125,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let accessibilityEnabled = AXIsProcessTrusted()
         model?.microphoneAuthorized = micStatus == .authorized
         model?.accessibilityTrusted = accessibilityEnabled
-        if accessibilityEnabled {
-            didPromptForAccessibility = false
-        }
+        let shouldPromptForAccessibility = accessibilityPromptGate
+            .shouldPromptAutomatically(isTrusted: accessibilityEnabled)
 
         switch (micStatus, accessibilityEnabled) {
         case (.authorized, true):
@@ -141,6 +140,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         case (_, false):
             model?.statusText = "Accessibility permission required"
+            if shouldPromptForAccessibility {
+                requestAccessibilityPermission(openSettings: false)
+            }
         default:
             model?.statusText = "Permissions required"
         }
@@ -398,11 +400,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.session.reset()
         } catch TextInsertionService.InsertionError.accessibilityPermissionRequired {
             model.session.fail("Accessibility permission required")
-            model.statusText = "Accessibility permission required"
+            model.statusText = "Accessibility required - copied"
             copyToPasteboard(finalText)
-            if !didPromptForAccessibility {
-                requestAccessibilityPermission()
-            }
+            requestAccessibilityPermission()
             showOverlay(text: finalText, styleName: "Accessibility required - copied")
         } catch {
             model.session.fail("Insertion failed: \(error.localizedDescription)")
