@@ -2,10 +2,10 @@ import XCTest
 @testable import OmniVoiceCore
 
 final class PreferencesStoreTests: XCTestCase {
-    func testDefaultsUseParakeetTDTAndNeutralStyle() {
+    func testDefaultsUseParakeetMLXAndNeutralStyle() {
         let preferences = OmniVoicePreferences.defaults
 
-        XCTAssertEqual(preferences.asrProvider, .parakeetTDT)
+        XCTAssertEqual(preferences.asrProvider, .parakeetTDTMLX)
         XCTAssertEqual(preferences.style, .neutral)
         XCTAssertEqual(preferences.dictionaryTerms, [])
         XCTAssertNil(preferences.microphoneID)
@@ -123,7 +123,7 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.translationQuickTargetLanguages, ["zh", "fr", "en"])
         XCTAssertEqual(preferences.openAICompatibleAPIKey, "")
         XCTAssertFalse(preferences.liveDraftInsertionEnabled)
-        XCTAssertEqual(preferences.asrProvider, .parakeetTDT)
+        XCTAssertEqual(preferences.asrProvider, .parakeetTDTMLX)
         XCTAssertEqual(preferences.conversationArchiveFolderPath, ConversationArchive.defaultRootURL().path)
         XCTAssertTrue(preferences.automaticallyArchiveConversations)
         XCTAssertTrue(preferences.recordingSoundCuesEnabled)
@@ -521,31 +521,30 @@ final class PreferencesStoreTests: XCTestCase {
 
         preferences.cycleASRProvider()
 
-        XCTAssertEqual(preferences.asrProvider, .parakeetTDTMLX)
-
-        preferences.cycleASRProvider()
-
         XCTAssertEqual(preferences.asrProvider, .whisperLargeV3TurboMLX6Bit)
 
         preferences.cycleASRProvider()
 
         XCTAssertEqual(preferences.asrProvider, .canaryQwen25B)
+
+        preferences.cycleASRProvider()
+
+        XCTAssertEqual(preferences.asrProvider, .parakeetTDTMLX)
     }
 
-    func testProviderCycleMovesFakeSelectionToInstalledParakeetTDT() {
+    func testProviderCycleMigratesLegacyAndFakeSelectionsToParakeetMLX() {
+        var legacyPreferences = OmniVoicePreferences.defaults
+        legacyPreferences.asrProvider = .parakeetTDT
+        legacyPreferences.cycleASRProvider()
+        XCTAssertEqual(legacyPreferences.asrProvider, .parakeetTDTMLX)
+
         var fakePreferences = OmniVoicePreferences.defaults
         fakePreferences.asrProvider = .fake
         fakePreferences.cycleASRProvider()
-        XCTAssertEqual(fakePreferences.asrProvider, .parakeetTDT)
-
-        // The installed sherpa provider is the start of the cycle and advances to MLX.
-        var parakeetPreferences = OmniVoicePreferences.defaults
-        parakeetPreferences.asrProvider = .parakeetTDT
-        parakeetPreferences.cycleASRProvider()
-        XCTAssertEqual(parakeetPreferences.asrProvider, .parakeetTDTMLX)
+        XCTAssertEqual(fakePreferences.asrProvider, .parakeetTDTMLX)
     }
 
-    func testDecodedFakeAndSelectableProvidersNormalizeToInstalledParakeetTDT() throws {
+    func testDecodedLegacyAndFakeProvidersNormalizeToParakeetMLX() throws {
         for providerID in ["fake", "parakeet-tdt"] {
             let json = """
             {
@@ -560,7 +559,7 @@ final class PreferencesStoreTests: XCTestCase {
 
             let preferences = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: json)
 
-            XCTAssertEqual(preferences.asrProvider, .parakeetTDT)
+            XCTAssertEqual(preferences.asrProvider, .parakeetTDTMLX)
             XCTAssertFalse(preferences.firstRunSetupCompleted)
         }
     }

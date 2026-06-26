@@ -27,12 +27,9 @@ final class ModelsTests: XCTestCase {
     }
 
     func testASRProviderUserSelectableCasesUseProductionLocalModels() {
-        XCTAssertEqual(
-            ASRProviderKind.userSelectableCases,
-            [.parakeetTDT, .parakeetTDTMLX, .whisperLargeV3TurboMLX6Bit, .canaryQwen25B]
-        )
+        XCTAssertEqual(ASRProviderKind.userSelectableCases, [.parakeetTDTMLX, .whisperLargeV3TurboMLX6Bit, .canaryQwen25B])
         XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.fake))
-        XCTAssertTrue(ASRProviderKind.userSelectableCases.contains(.parakeetTDT))
+        XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.parakeetTDT))
     }
 
     func testSpeechModelRecommendationsExposeCuratedASRChoices() {
@@ -62,7 +59,6 @@ final class ModelsTests: XCTestCase {
     func testEngineProviderContractDetectsStaleEngineProviderList() {
         let staleProviders = [
             EngineProviderInfo(id: "fake", label: "Fake ASR", available: true),
-            EngineProviderInfo(id: "parakeet-tdt", label: "Parakeet TDT", available: true),
             EngineProviderInfo(id: "parakeet-tdt-mlx", label: "Parakeet TDT MLX", available: true),
             EngineProviderInfo(id: "canary-qwen-2.5b", label: "Canary-Qwen-2.5B", available: false),
         ]
