@@ -64,29 +64,46 @@ fi
 Create one: Xcode > Settings > Accounts > Manage Certificates > + Developer ID Application."
 log "Signing identity: $IDENTITY"
 
-# --- 1. Sign every nested Mach-O, inside-out -------------------------------
+# --- 1. Sparkle.framework: sign nested helpers as bundles, inside-out ------
+# (XPC services + Updater.app + Autoupdate, then the framework). Done before and
+# excluded from the generic sweep so re-signing inner Mach-O can't break seals.
+SPARKLE_FW="$APP/Contents/Frameworks/Sparkle.framework"
+if [[ -d "$SPARKLE_FW" ]]; then
+  log "Signing Sparkle.framework helpers..."
+  for helper in \
+    "$SPARKLE_FW/Versions/B/XPCServices/Downloader.xpc" \
+    "$SPARKLE_FW/Versions/B/XPCServices/Installer.xpc" \
+    "$SPARKLE_FW/Versions/B/Updater.app" \
+    "$SPARKLE_FW/Versions/B/Autoupdate"; do
+    [[ -e "$helper" ]] && codesign --force --options runtime --timestamp --sign "$IDENTITY" "$helper"
+  done
+  codesign --force --options runtime --timestamp --sign "$IDENTITY" "$SPARKLE_FW"
+fi
+
+# --- 2. Sign every other nested Mach-O, inside-out -------------------------
 log "Signing nested libraries (.dylib/.so)..."
 while IFS= read -r lib; do
   codesign --force --options runtime --timestamp --sign "$IDENTITY" "$lib"
-done < <(find "$APP/Contents" -type f \( -name "*.dylib" -o -name "*.so" \) | sort -r)
+done < <(find "$APP/Contents" -type f \( -name "*.dylib" -o -name "*.so" \) ! -path "*/Sparkle.framework/*" | sort -r)
 
 log "Signing nested executables (e.g. bundled python3.12) with entitlements..."
 while IFS= read -r exe; do
   case "$exe" in "$APP/Contents/MacOS/"*) continue ;; esac   # main exe signed via bundle
+  case "$exe" in *"/Sparkle.framework/"*) continue ;; esac   # handled in step 1
   if file "$exe" 2>/dev/null | grep -q "Mach-O"; then
     codesign --force --options runtime --timestamp \
       --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$exe"
   fi
-done < <(find "$APP/Contents" -type f -perm +111 ! -name "*.dylib" ! -name "*.so")
+done < <(find "$APP/Contents" -type f -perm +111 ! -name "*.dylib" ! -name "*.so" ! -path "*/Sparkle.framework/*")
 
-# --- 2. Sign the app bundle (main executable) ------------------------------
+# --- 3. Sign the app bundle (main executable) ------------------------------
 log "Signing app bundle..."
 codesign --force --options runtime --timestamp \
   --entitlements "$ENTITLEMENTS" \
   --identifier "$BUNDLE_ID" \
   --sign "$IDENTITY" "$APP"
 
-# --- 3. Verify -------------------------------------------------------------
+# --- 4. Verify -------------------------------------------------------------
 log "Verifying signature..."
 codesign --verify --strict --deep --verbose=2 "$APP"
 log "Pre-notarization Gatekeeper check (expect 'rejected' until notarized):"
@@ -97,7 +114,7 @@ if [[ "${OMNIVOICE_SKIP_NOTARIZE:-0}" == "1" ]]; then
   exit 0
 fi
 
-# --- 4. Notarize + staple --------------------------------------------------
+# --- 5. Notarize + staple --------------------------------------------------
 notarize() {
   local artifact="$1"
   log "Submitting $(basename "$artifact") to Apple notary service (a few minutes)..."
@@ -132,6 +149,34 @@ notarize "$DMG"
 log "Stapling DMG..."
 xcrun stapler staple "$DMG"
 xcrun stapler validate "$DMG"
+
+# --- 6. Update the Sparkle appcast (the update feed) -----------------------
+SIGN_UPDATE="$ROOT_DIR/.build/artifacts/sparkle/Sparkle/bin/sign_update"
+APPCAST="$ROOT_DIR/dist/appcast.xml"
+VERSION="${OMNIVOICE_APP_VERSION:-3.0.0}"
+DOWNLOAD_BASE="${OMNIVOICE_DOWNLOAD_BASE:-https://github.com/MichaelDanCurtis/OmniVoice/releases/download/v$VERSION}"
+if [[ -x "$SIGN_UPDATE" ]]; then
+  log "EdDSA-signing the DMG and writing $APPCAST..."
+  ED_ATTRS="$("$SIGN_UPDATE" "$DMG")"   # -> sparkle:edSignature="..." length="..."
+  cat >"$APPCAST" <<XML
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>OmniVoice</title>
+    <item>
+      <title>Version $VERSION</title>
+      <sparkle:version>$VERSION</sparkle:version>
+      <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <enclosure url="$DOWNLOAD_BASE/OmniVoice.dmg" type="application/octet-stream" $ED_ATTRS />
+    </item>
+  </channel>
+</rss>
+XML
+  log "Appcast written. Upload BOTH $DMG and $APPCAST to the v$VERSION GitHub release."
+else
+  log "sign_update not found ($SIGN_UPDATE) — skipping appcast. Build the package first."
+fi
 
 log "Done. Final Gatekeeper assessment:"
 spctl -a -vvv -t exec "$APP" 2>&1 || true

@@ -534,15 +534,44 @@ cat >"$INFO_PLIST" <<PLIST
   <string>NSApplication</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>OmniVoice uses the microphone for push-to-talk dictation.</string>
+  <key>SUFeedURL</key>
+  <string>https://github.com/MichaelDanCurtis/OmniVoice/releases/latest/download/appcast.xml</string>
+  <key>SUPublicEDKey</key>
+  <string>weUAjU02WUhH7OGMPaQTT1Nwn4s+2cA496LzavhpTiE=</string>
+  <key>SUEnableAutomaticChecks</key>
+  <true/>
+  <key>SUScheduledCheckInterval</key>
+  <integer>86400</integer>
 </dict>
 </plist>
 PLIST
+
+bundle_sparkle() {
+  # Embed Sparkle.framework (auto-updater) into the app bundle and make the
+  # executable resolve it at @executable_path/../Frameworks. Required on EVERY
+  # build — without it dyld can't satisfy @rpath/Sparkle.framework and the app
+  # crashes on launch.
+  local src
+  src="$(swift build --show-bin-path)/Sparkle.framework"
+  if [[ ! -d "$src" ]]; then
+    echo "Sparkle.framework not found at $src; build the package first." >&2
+    return 1
+  fi
+  mkdir -p "$APP_CONTENTS/Frameworks"
+  rm -rf "$APP_CONTENTS/Frameworks/Sparkle.framework"
+  cp -R "$src" "$APP_CONTENTS/Frameworks/Sparkle.framework"
+  # SwiftPM links with @loader_path only; add the Frameworks rpath if absent.
+  if ! /usr/bin/otool -l "$APP_BINARY" | grep -q "@executable_path/../Frameworks"; then
+    /usr/bin/install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BINARY" 2>/dev/null || true
+  fi
+}
 
 build_icon
 bundle_python_runtime
 bundle_engine
 bundle_engine_wheelhouse
 bundle_support_files
+bundle_sparkle
 
 xattr -dr com.apple.quarantine "$APP_BUNDLE" >/dev/null 2>&1 || true
 protect_python_runtime
