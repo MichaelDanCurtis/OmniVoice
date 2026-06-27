@@ -48,20 +48,16 @@ cd "$ROOT_DIR"
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
 add_local_keychain_to_search_list() {
-  local current_keychains=()
-  local keychain
-  while IFS= read -r keychain; do
-    keychain="${keychain#"${keychain%%[![:space:]]*}"}"
-    keychain="${keychain%"${keychain##*[![:space:]]}"}"
-    keychain="${keychain//\"/}"
-    [[ "$keychain" == /* ]] && current_keychains+=("$keychain")
-  done < <(/usr/bin/security list-keychains -d user)
-
-  for keychain in "${current_keychains[@]}"; do
-    [[ "$keychain" == "$LOCAL_CODESIGN_KEYCHAIN" ]] && return
-  done
-
-  /usr/bin/security list-keychains -d user -s "$LOCAL_CODESIGN_KEYCHAIN" "${current_keychains[@]}"
+  # Set the user keychain search list to exactly [local-codesign, login],
+  # rebuilt from scratch each call. The previous implementation prepended the
+  # local keychain to whatever `security list-keychains` returned and re-fed it;
+  # with a repo path containing a space ("Main External") and concurrent builds
+  # from multiple worktrees, that accumulated/garbled entries and could bury the
+  # real login keychain — hiding the Developer ID certificate from codesign.
+  # An explicit, fixed two-entry list is idempotent and corruption-proof.
+  /usr/bin/security list-keychains -d user -s \
+    "$LOCAL_CODESIGN_KEYCHAIN" \
+    "$HOME/Library/Keychains/login.keychain-db"
 }
 
 run_with_timeout() {
