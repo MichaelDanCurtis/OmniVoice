@@ -651,4 +651,30 @@ final class PreferencesStoreTests: XCTestCase {
 
         XCTAssertEqual(try store.load(), .defaults)
     }
+
+    func testDefaultsHaveNoCustomAgents() {
+        XCTAssertEqual(OmniVoicePreferences.defaults.customAgents, [])
+    }
+
+    func testCustomAgentsRoundTripThroughStore() throws {
+        let suiteName = "OmniVoicePreferencesStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = PreferencesStore(userDefaults: defaults)
+        var prefs = OmniVoicePreferences.defaults
+        prefs.customAgents = [AgentConfiguration(id: "glm", displayName: "GLM",
+            keyword: "glm", binaryPath: "/x")]
+        try store.save(prefs)
+        XCTAssertEqual(try store.load().customAgents, prefs.customAgents)
+    }
+
+    func testOldPreferencesWithoutCustomAgentsDecodeToEmpty() throws {
+        let json = """
+        { "asr_provider": "parakeet-tdt-mlx", "style": "neutral", "dictionary_terms": [],
+          "microphone_id": null, "dictation_hotkey": { "key_code": 49, "modifiers": 2304 },
+          "style_hotkey": { "key_code": 1, "modifiers": 2304 } }
+        """.data(using: .utf8)!
+        let prefs = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: json)
+        XCTAssertEqual(prefs.customAgents, [])
+    }
 }

@@ -46,6 +46,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var textLLMDefaultProvider: TextLLMProviderKind
     public var textLLMProviders: [TextLLMProviderConfiguration]
     public var mcpServers: [MCPServerConfiguration]
+    public var customAgents: [AgentConfiguration]
     public var liveDraftInsertionEnabled: Bool
     public var conversationArchiveFolderPath: String
     public var automaticallyArchiveConversations: Bool
@@ -149,6 +150,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         textLLMDefaultProvider: .custom,
         textLLMProviders: TextLLMProviderConfiguration.defaults,
         mcpServers: [],
+        customAgents: [],
         liveDraftInsertionEnabled: false,
         conversationArchiveFolderPath: ConversationArchive.defaultRootURL().path,
         automaticallyArchiveConversations: true,
@@ -206,6 +208,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         textLLMDefaultProvider: TextLLMProviderKind = .custom,
         textLLMProviders: [TextLLMProviderConfiguration]? = nil,
         mcpServers: [MCPServerConfiguration] = [],
+        customAgents: [AgentConfiguration] = [],
         liveDraftInsertionEnabled: Bool = false,
         conversationArchiveFolderPath: String = ConversationArchive.defaultRootURL().path,
         automaticallyArchiveConversations: Bool = true,
@@ -283,6 +286,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             legacyAPIKey: openAICompatibleAPIKey
         )
         self.mcpServers = mcpServers.map { $0.normalized() }
+        self.customAgents = customAgents
         self.liveDraftInsertionEnabled = liveDraftInsertionEnabled
         self.conversationArchiveFolderPath = conversationArchiveFolderPath
         self.automaticallyArchiveConversations = automaticallyArchiveConversations
@@ -384,6 +388,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
                 ?? .custom,
             textLLMProviders: try container.decodeIfPresent([TextLLMProviderConfiguration].self, forKey: .textLLMProviders),
             mcpServers: try container.decodeIfPresent([MCPServerConfiguration].self, forKey: .mcpServers) ?? [],
+            customAgents: try container.decodeIfPresent([AgentConfiguration].self, forKey: .customAgents) ?? [],
             liveDraftInsertionEnabled: try container.decodeIfPresent(Bool.self, forKey: .liveDraftInsertionEnabled) ?? false,
             conversationArchiveFolderPath: try container.decodeIfPresent(String.self, forKey: .conversationArchiveFolderPath)
                 ?? ConversationArchive.defaultRootURL().path,
@@ -462,6 +467,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
                 ?? .custom,
             textLLMProviders: try container.decodeIfPresent([TextLLMProviderConfiguration].self, forKey: .textLLMProviders),
             mcpServers: try container.decodeIfPresent([MCPServerConfiguration].self, forKey: .mcpServers) ?? [],
+            customAgents: try container.decodeIfPresent([AgentConfiguration].self, forKey: .customAgents) ?? [],
             liveDraftInsertionEnabled: try container.decodeIfPresent(Bool.self, forKey: .liveDraftInsertionEnabled) ?? false,
             conversationArchiveFolderPath: try container.decodeIfPresent(String.self, forKey: .conversationArchiveFolderPath)
                 ?? ConversationArchive.defaultRootURL().path,
@@ -733,6 +739,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case textLLMDefaultProvider = "text_llm_default_provider"
         case textLLMProviders = "text_llm_providers"
         case mcpServers = "mcp_servers"
+        case customAgents = "custom_agents"
         case liveDraftInsertionEnabled = "live_draft_insertion_enabled"
         case conversationArchiveFolderPath = "conversation_archive_folder_path"
         case automaticallyArchiveConversations = "automatically_archive_conversations"
@@ -786,6 +793,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case textLLMDefaultProvider
         case textLLMProviders
         case mcpServers
+        case customAgents
         case liveDraftInsertionEnabled
         case conversationArchiveFolderPath
         case automaticallyArchiveConversations
