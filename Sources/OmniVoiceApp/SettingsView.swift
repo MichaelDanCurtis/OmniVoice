@@ -1320,21 +1320,9 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var integrationsSection: some View {
-        Section("Text LLM Providers") {
-            if visibleTextLLMProviders.isEmpty {
-                Text("No AI providers added yet. Add the provider you want to configure.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Picker("Default Ask AI Provider", selection: textLLMDefaultProviderBinding) {
-                    ForEach(visibleTextLLMProviders) { provider in
-                        Text(model.preferences.textLLMConfiguration(for: provider).displayName).tag(provider)
-                    }
-                }
-            }
-
+        Section("API configurations") {
             HStack {
-                Text("Named commands use their matching provider. Generic \"Ask AI\" uses the default above.")
+                Text("Providers that authenticate with an API key.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -1355,9 +1343,26 @@ struct SettingsView: View {
                 }
             }
 
-            VStack(spacing: 10) {
-                ForEach(visibleTextLLMProviders) { provider in
-                    textLLMProviderCard(provider)
+            let apiProviders = visibleTextLLMProviders.filter {
+                model.preferences.textLLMConfiguration(for: $0).authMode == .apiKey
+            }
+            if apiProviders.isEmpty {
+                Text("No API-key providers yet. Use Add Provider to add one.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(apiProviders) { provider in
+                        textLLMProviderCard(provider)
+                    }
+                }
+            }
+
+            if !visibleTextLLMProviders.isEmpty {
+                Picker("Default \u{201C}Ask AI\u{201D} Provider", selection: textLLMDefaultProviderBinding) {
+                    ForEach(visibleTextLLMProviders) { provider in
+                        Text(model.preferences.textLLMConfiguration(for: provider).displayName).tag(provider)
+                    }
                 }
             }
 
@@ -1367,19 +1372,28 @@ struct SettingsView: View {
                 .textSelection(.enabled)
         }
 
-        Section("Integration Files") {
-            HStack {
-                Button("Open Raycast Folder") {
-                    openProjectResource("integrations/raycast")
-                }
+        Section("OAuth configurations") {
+            Text("Providers that sign in with OAuth (e.g. Claude Pro/Max, Codex). Add a provider above, then set its Auth Mode to OAuth.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
-                Button("Open Integration Notes") {
-                    openProjectResource("docs/INTEGRATIONS.md")
+            let oauthProviders = visibleTextLLMProviders.filter {
+                model.preferences.textLLMConfiguration(for: $0).authMode == .oauth
+            }
+            if oauthProviders.isEmpty {
+                Text("No OAuth providers configured.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(oauthProviders) { provider in
+                        textLLMProviderCard(provider)
+                    }
                 }
             }
         }
 
-        Section("Ask AI agents") {
+        Section("Agent configurations") {
             Text("Say \u{201C}ask <name> …\u{201D} to send a question to a local agent CLI; the answer pops up in a bubble you can insert at the cursor. Built in: Claude, Gemini. Add your own below (e.g. GLM, Kimi).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -1403,10 +1417,62 @@ struct SettingsView: View {
         }
 
         Section("Voice Patterns") {
-            CapabilityMiniRow(title: "Ask Claude", detail: "Say \"Ask Claude\" or \"Hey Claude\" before a prompt, then insert the answer at the cursor.")
-            CapabilityMiniRow(title: "Have AI take a look", detail: "Read selected or foreground text, then respond in the requested tone or language.")
-            CapabilityMiniRow(title: "Custom API", detail: "Say \"Ask AI\" to use the default text LLM provider configured above.")
+            Text("Bind a spoken keyword to a provider. Say \u{201C}ask <keyword> …\u{201D} to route your question to its provider; the answer appears in a bubble you can insert at the cursor.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ForEach(model.preferences.askKeywordBindings) { binding in
+                KeywordBindingRow(
+                    binding: binding,
+                    options: providerOptions,
+                    onChange: { model.updateKeywordBinding($0) },
+                    onRemove: { model.removeKeywordBinding(id: binding.id) }
+                )
+            }
+
+            Button {
+                model.addKeywordBinding(AskKeywordBinding(
+                    id: UUID().uuidString,
+                    keyword: "",
+                    target: providerOptions.first?.target ?? AskTarget(kind: .agent, id: "claude")))
+            } label: {
+                Label("Add keyword", systemImage: "plus.circle")
+            }
         }
+
+        Section("Integration Files") {
+            HStack {
+                Button("Open Raycast Folder") {
+                    openProjectResource("integrations/raycast")
+                }
+
+                Button("Open Integration Notes") {
+                    openProjectResource("docs/INTEGRATIONS.md")
+                }
+            }
+        }
+    }
+
+    private var providerOptions: [ProviderOption] {
+        var options: [ProviderOption] = []
+        for provider in visibleTextLLMProviders {
+            let config = model.preferences.textLLMConfiguration(for: provider)
+            let suffix = config.authMode == .oauth ? "OAuth" : "API"
+            options.append(ProviderOption(
+                label: "\(config.displayName) · \(suffix)",
+                target: AskTarget(kind: .textLLM, id: provider.rawValue)))
+        }
+        for agent in AgentRegistry.defaultBuiltIns {
+            options.append(ProviderOption(
+                label: "\(agent.displayName) · agent",
+                target: AskTarget(kind: .agent, id: agent.id)))
+        }
+        for agent in model.preferences.customAgents {
+            options.append(ProviderOption(
+                label: "\(agent.displayName) · agent",
+                target: AskTarget(kind: .agent, id: agent.id)))
+        }
+        return options
     }
 
     private var visibleTextLLMProviders: [TextLLMProviderKind] {
@@ -3345,23 +3411,6 @@ private struct CapabilityDetailBlock: View {
     }
 }
 
-private struct CapabilityMiniRow: View {
-    let title: String
-    let detail: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.callout.weight(.semibold))
-            Text(detail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-        }
-        .padding(.vertical, 3)
-    }
-}
-
 private enum CapabilityInfo: String, CaseIterable, Identifiable {
     case dictation
     case liveCaptions
@@ -3655,6 +3704,71 @@ private struct ThemePreview: View {
 /// Form to register a custom Ask AI agent: a voice keyword + a CLI binary path, with
 /// an Advanced disclosure for the exact invocation. The prompt is always passed as a
 /// discrete argument (or stdin), never interpolated into a shell string.
+/// One selectable provider in the keyword-binding picker. `id` is stable across renders
+/// so SwiftUI keeps option identity; `target` is what gets persisted onto the binding.
+private struct ProviderOption: Identifiable, Hashable {
+    let label: String
+    let target: AskTarget
+    var id: String { "\(target.kind.rawValue):\(target.id)" }
+}
+
+/// Editor row: a free-form keyword field + a provider picker, both writing the whole
+/// `AskKeywordBinding` back through `onChange`.
+private struct KeywordBindingRow: View {
+    let binding: AskKeywordBinding
+    let options: [ProviderOption]
+    let onChange: (AskKeywordBinding) -> Void
+    let onRemove: () -> Void
+
+    @State private var keyword: String
+
+    init(binding: AskKeywordBinding,
+         options: [ProviderOption],
+         onChange: @escaping (AskKeywordBinding) -> Void,
+         onRemove: @escaping () -> Void) {
+        self.binding = binding
+        self.options = options
+        self.onChange = onChange
+        self.onRemove = onRemove
+        _keyword = State(initialValue: binding.keyword)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField("keyword", text: $keyword)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 160)
+                .onSubmit(commitKeyword)
+
+            Picker("", selection: targetSelection) {
+                ForEach(options) { option in
+                    Text(option.label).tag(option.target)
+                }
+            }
+            .labelsHidden()
+
+            Spacer()
+
+            Button(role: .destructive, action: onRemove) {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .help("Remove keyword")
+        }
+    }
+
+    private var targetSelection: Binding<AskTarget> {
+        Binding(
+            get: { binding.target },
+            set: { onChange(AskKeywordBinding(id: binding.id, keyword: keyword, target: $0)) }
+        )
+    }
+
+    private func commitKeyword() {
+        onChange(AskKeywordBinding(id: binding.id, keyword: keyword, target: binding.target))
+    }
+}
+
 private struct AddCustomAgentForm: View {
     var onAdd: (AgentConfiguration) -> Void
 

@@ -2083,6 +2083,32 @@ final class AppModel {
         statusText = "Agent removed"
     }
 
+    func addKeywordBinding(_ binding: AskKeywordBinding) {
+        preferences.askKeywordBindings.append(binding)
+        guard persistPreferences() else {
+            return
+        }
+        onCustomAgentsChanged?(preferences.customAgents)
+    }
+
+    func updateKeywordBinding(_ binding: AskKeywordBinding) {
+        if let i = preferences.askKeywordBindings.firstIndex(where: { $0.id == binding.id }) {
+            preferences.askKeywordBindings[i] = binding
+        }
+        guard persistPreferences() else {
+            return
+        }
+        onCustomAgentsChanged?(preferences.customAgents)
+    }
+
+    func removeKeywordBinding(id: String) {
+        preferences.askKeywordBindings.removeAll { $0.id == id }
+        guard persistPreferences() else {
+            return
+        }
+        onCustomAgentsChanged?(preferences.customAgents)
+    }
+
     func testTextLLMProvider(_ provider: TextLLMProviderKind) async {
         let configuration = preferences.textLLMConfiguration(for: provider)
         guard configuration.isConfigured else {
