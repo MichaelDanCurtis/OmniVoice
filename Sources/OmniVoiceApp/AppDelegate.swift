@@ -16,7 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let engineClient = EngineClient()
     private let streamingClient = EngineStreamingClient()
     private let insertionService = TextInsertionService()
-    private lazy var askController = AskController(insertion: insertionService)
+    private lazy var askController = AskController(insertion: insertionService, engineClient: engineClient)
     private let recordingCuePlayer = RecordingCuePlayer.shared
     private let dockIconController = DynamicDockIconController()
     private let commandExecutor = DictationCommandExecutor()
@@ -97,9 +97,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func attach(model: AppModel) {
         self.model = model
         updatePermissionStatus()
-        askController.updateAgents(model.preferences.customAgents)
-        model.onCustomAgentsChanged = { [weak self] agents in
-            self?.askController.updateAgents(agents)
+        askController.updateConfiguration(model.preferences)
+        model.onCustomAgentsChanged = { [weak self, weak model] _ in
+            guard let model else { return }
+            self?.askController.updateConfiguration(model.preferences)
         }
 
         hotkeys.onEvent = { [weak self] event in
