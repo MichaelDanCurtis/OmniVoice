@@ -103,22 +103,9 @@ public enum DictationCommandParser {
             return nil
         }
 
-        for target in AIHandoffTarget.allCases {
-            guard target != .custom else {
-                continue
-            }
-
-            for prefix in aiPrefixes(for: target) {
-                if let prompt = prompt(after: prefix, in: text) {
-                    return DictationCommand(
-                        action: .aiHandoff(target: target, prompt: prompt),
-                        displayText: "Asking \(target.displayName)"
-                    )
-                }
-            }
-        }
-
-        for prefix in ["ask ai", "hey ai", "have ai take a look", "have the ai take a look"] {
+        // "ask <name>" is now handled by keyword bindings (AskController); the parser
+        // only recognizes the generic selection-style handoff.
+        for prefix in ["have ai take a look", "have the ai take a look"] {
             if let prompt = prompt(after: prefix, in: text) {
                 return DictationCommand(
                     action: .aiHandoff(target: .custom, prompt: prompt),
@@ -128,23 +115,6 @@ public enum DictationCommandParser {
         }
 
         return nil
-    }
-
-    private static func aiPrefixes(for target: AIHandoffTarget) -> [String] {
-        switch target {
-        case .claude:
-            ["ask claude", "hey claude", "have claude take a look"]
-        case .codex:
-            ["ask codex", "hey codex", "have codex take a look"]
-        case .githubCopilot:
-            ["ask copilot", "ask github copilot", "hey copilot", "hey github copilot", "have copilot take a look", "have github copilot take a look"]
-        case .openRouter:
-            ["ask openrouter", "ask open router", "hey openrouter", "hey open router", "have openrouter take a look", "have open router take a look"]
-        case .openAI:
-            ["ask openai", "ask open ai", "hey openai", "hey open ai", "have openai take a look", "have open ai take a look"]
-        case .custom:
-            []
-        }
     }
 
     private static func prompt(after prefix: String, in text: String) -> String? {
