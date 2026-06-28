@@ -27,19 +27,9 @@ final class ModelsTests: XCTestCase {
     }
 
     func testASRProviderUserSelectableCasesUseProductionLocalModels() {
-        XCTAssertEqual(ASRProviderKind.userSelectableCases, [.parakeetTDT, .whisperLargeV3TurboMLX6Bit, .canaryQwen25B])
+        XCTAssertEqual(ASRProviderKind.userSelectableCases, [.parakeetTDTMLX, .whisperLargeV3TurboMLX6Bit, .canaryQwen25B])
         XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.fake))
-        XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.parakeetTDTMLX))
-    }
-
-    func testASRProviderNormalizationFallsBackToInstalledParakeetTDT() {
-        // Selectable providers are preserved.
-        XCTAssertEqual(ASRProviderKind.parakeetTDT.normalizedForUserSelection, .parakeetTDT)
-        XCTAssertEqual(ASRProviderKind.canaryQwen25B.normalizedForUserSelection, .canaryQwen25B)
-        // Providers that are not deployable in the shipped engine fall back to the
-        // installed sherpa provider so dictation never targets an unknown engine provider.
-        XCTAssertEqual(ASRProviderKind.parakeetTDTMLX.normalizedForUserSelection, .parakeetTDT)
-        XCTAssertEqual(ASRProviderKind.fake.normalizedForUserSelection, .parakeetTDT)
+        XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.parakeetTDT))
     }
 
     func testSpeechModelRecommendationsExposeCuratedASRChoices() {
@@ -75,7 +65,7 @@ final class ModelsTests: XCTestCase {
 
         XCTAssertEqual(
             EngineProviderContract.missingRequiredASRProviderIDs(in: staleProviders),
-            ["parakeet-tdt", "whisper-large-v3-turbo-mlx-6bit"]
+            ["whisper-large-v3-turbo-mlx-6bit"]
         )
 
         let currentProviders = ASRProviderKind.userSelectableCases.map {
