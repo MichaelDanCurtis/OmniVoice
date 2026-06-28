@@ -98,6 +98,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.model = model
         updatePermissionStatus()
         askController.updateAgents(model.preferences.customAgents)
+        model.onCustomAgentsChanged = { [weak self] agents in
+            self?.askController.updateAgents(agents)
+        }
 
         hotkeys.onEvent = { [weak self] event in
             self?.handleHotkey(event)

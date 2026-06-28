@@ -194,6 +194,7 @@ final class AppModel {
     @ObservationIgnored var onHotkeysChanged: ((OmniVoicePreferences) -> Void)?
     @ObservationIgnored var onMouseShortcutsChanged: ((OmniVoicePreferences) -> Void)?
     @ObservationIgnored var onThemeChanged: ((OmniVoiceTheme, AppAppearanceMode) -> Void)?
+    @ObservationIgnored var onCustomAgentsChanged: (([AgentConfiguration]) -> Void)?
 
     init(
         preferences: OmniVoicePreferences? = nil,
@@ -2086,6 +2087,24 @@ final class AppModel {
             return
         }
         statusText = "MCP server removed"
+    }
+
+    func addCustomAgent(_ agent: AgentConfiguration) {
+        preferences.customAgents.append(agent)
+        guard persistPreferences() else {
+            return
+        }
+        onCustomAgentsChanged?(preferences.customAgents)
+        statusText = "\(agent.displayName) agent added"
+    }
+
+    func removeCustomAgent(id: String) {
+        preferences.customAgents.removeAll { $0.id == id }
+        guard persistPreferences() else {
+            return
+        }
+        onCustomAgentsChanged?(preferences.customAgents)
+        statusText = "Agent removed"
     }
 
     func testTextLLMProvider(_ provider: TextLLMProviderKind) async {

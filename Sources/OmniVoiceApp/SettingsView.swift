@@ -1395,6 +1395,29 @@ struct SettingsView: View {
             }
         }
 
+        Section("Ask AI agents") {
+            Text("Say \u{201C}ask <name> …\u{201D} to send a question to a local agent CLI; the answer pops up in a bubble you can insert at the cursor. Built in: Claude, Gemini. Add your own below (e.g. GLM, Kimi).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ForEach(model.preferences.customAgents) { agent in
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(agent.displayName)
+                        Text("say \u{201C}ask \(agent.keyword)\u{201D} · \(agent.binaryPath)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Remove") { model.removeCustomAgent(id: agent.id) }
+                }
+            }
+
+            DisclosureGroup("Add a custom agent") {
+                AddCustomAgentForm { model.addCustomAgent($0) }
+            }
+        }
+
         Section("Voice Patterns") {
             CapabilityMiniRow(title: "Ask Claude", detail: "Say \"Ask Claude\" or \"Hey Claude\" before a prompt, then insert the answer at the cursor.")
             CapabilityMiniRow(title: "Have AI take a look", detail: "Read selected or foreground text, then respond in the requested tone or language.")
@@ -3826,5 +3849,76 @@ private struct ThemePreview: View {
         .padding(.vertical, 8)
         .padding(.horizontal, 10)
         .themeSurface(theme, cornerRadius: 8, strong: true)
+    }
+}
+
+/// Form to register a custom Ask AI agent: a voice keyword + a CLI binary path, with
+/// an Advanced disclosure for the exact invocation. The prompt is always passed as a
+/// discrete argument (or stdin), never interpolated into a shell string.
+private struct AddCustomAgentForm: View {
+    var onAdd: (AgentConfiguration) -> Void
+
+    @State private var name = ""
+    @State private var keyword = ""
+    @State private var binaryPath = ""
+    @State private var argsTemplate = "{prompt}"
+    @State private var usesStdin = false
+
+    private var canAdd: Bool {
+        !name.trimmingCharacters(in: .whitespaces).isEmpty
+            && !binaryPath.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Name (e.g. GLM)", text: $name)
+            TextField("Voice keyword (defaults to the name)", text: $keyword)
+            HStack {
+                TextField("CLI path (e.g. /Users/you/.glm/bin/glm)", text: $binaryPath)
+                Button("Browse…") { browse() }
+            }
+            DisclosureGroup("Advanced") {
+                VStack(alignment: .leading, spacing: 6) {
+                    TextField("Command arguments — use {prompt}", text: $argsTemplate)
+                    Toggle("Send the prompt on stdin instead of an argument", isOn: $usesStdin)
+                        .font(.caption)
+                }
+            }
+            Button("Add agent") { add() }
+                .disabled(!canAdd)
+        }
+        .textFieldStyle(.roundedBorder)
+        .padding(.vertical, 4)
+    }
+
+    private func browse() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose the agent CLI binary"
+        if panel.runModal() == .OK, let url = panel.url {
+            binaryPath = url.path
+        }
+    }
+
+    private func add() {
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        let resolvedKeyword = keyword.trimmingCharacters(in: .whitespaces).isEmpty
+            ? trimmedName : keyword
+        let tokens = argsTemplate.split(separator: " ").map(String.init)
+        let argsForMode = usesStdin ? tokens.filter { $0 != "{prompt}" }
+                                    : (tokens.isEmpty ? ["{prompt}"] : tokens)
+        let agent = AgentConfiguration(
+            id: UUID().uuidString,
+            displayName: trimmedName,
+            keyword: resolvedKeyword.lowercased(),
+            binaryPath: binaryPath.trimmingCharacters(in: .whitespaces),
+            argsTemplate: argsForMode,
+            usesStdin: usesStdin,
+            streamFormat: .plainText
+        )
+        onAdd(agent)
+        name = ""; keyword = ""; binaryPath = ""; argsTemplate = "{prompt}"; usesStdin = false
     }
 }
