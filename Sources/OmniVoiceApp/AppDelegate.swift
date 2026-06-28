@@ -37,8 +37,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var onOpenAskAI: (() -> Void)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApplication.shared.setActivationPolicy(.regular)
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        // Menu-bar-only by default: no Dock icon while OmniVoice is just listening
+        // in the status bar. A Dock icon (and Cmd-Tab entry) appears only while a
+        // real window is open, and disappears when every window is closed or
+        // minimized. The caption / hot-menu / transcript overlays are borderless
+        // floating panels (not `.titled`) so they never count as an open window.
+        NSApplication.shared.setActivationPolicy(.accessory)
+        observeWindowPresence()
+        syncActivationPolicy()
+    }
+
+    private func observeWindowPresence() {
+        let names: [Notification.Name] = [
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.willCloseNotification,
+            NSWindow.didMiniaturizeNotification,
+            NSWindow.didDeminiaturizeNotification,
+        ]
+        for name in names {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                // willClose fires before the window leaves the list; recompute next tick.
+                DispatchQueue.main.async { self?.syncActivationPolicy() }
+            }
+        }
+    }
+
+    private func syncActivationPolicy() {
+        let hasVisibleWindow = NSApplication.shared.windows.contains { window in
+            window.styleMask.contains(.titled) && window.isVisible && !window.isMiniaturized
+        }
+        let desired: NSApplication.ActivationPolicy = hasVisibleWindow ? .regular : .accessory
+        guard NSApplication.shared.activationPolicy() != desired else { return }
+        NSApplication.shared.setActivationPolicy(desired)
+        if desired == .regular {
+            if let model {
+                dockIconController.apply(theme: model.activeTheme, appearanceMode: model.preferences.appearanceMode)
+            }
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
