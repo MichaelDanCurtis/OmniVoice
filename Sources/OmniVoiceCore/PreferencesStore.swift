@@ -47,6 +47,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var textLLMProviders: [TextLLMProviderConfiguration]
     public var mcpServers: [MCPServerConfiguration]
     public var customAgents: [AgentConfiguration]
+    public var askKeywordBindings: [AskKeywordBinding]
     public var liveDraftInsertionEnabled: Bool
     public var conversationArchiveFolderPath: String
     public var automaticallyArchiveConversations: Bool
@@ -108,6 +109,15 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         }
     }
 
+    public static let defaultAskKeywordBindings: [AskKeywordBinding] = [
+        AskKeywordBinding(id: "seed-ai", keyword: "ai",
+            target: AskTarget(kind: .textLLM, id: TextLLMProviderKind.custom.rawValue)),
+        AskKeywordBinding(id: "seed-claude", keyword: "claude",
+            target: AskTarget(kind: .agent, id: "claude")),
+        AskKeywordBinding(id: "seed-gemini", keyword: "gemini",
+            target: AskTarget(kind: .agent, id: "gemini")),
+    ]
+
     public static let defaults = OmniVoicePreferences(
         asrProvider: .parakeetTDTMLX,
         style: .neutral,
@@ -151,6 +161,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         textLLMProviders: TextLLMProviderConfiguration.defaults,
         mcpServers: [],
         customAgents: [],
+        askKeywordBindings: OmniVoicePreferences.defaultAskKeywordBindings,
         liveDraftInsertionEnabled: false,
         conversationArchiveFolderPath: ConversationArchive.defaultRootURL().path,
         automaticallyArchiveConversations: true,
@@ -209,6 +220,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         textLLMProviders: [TextLLMProviderConfiguration]? = nil,
         mcpServers: [MCPServerConfiguration] = [],
         customAgents: [AgentConfiguration] = [],
+        askKeywordBindings: [AskKeywordBinding] = OmniVoicePreferences.defaultAskKeywordBindings,
         liveDraftInsertionEnabled: Bool = false,
         conversationArchiveFolderPath: String = ConversationArchive.defaultRootURL().path,
         automaticallyArchiveConversations: Bool = true,
@@ -287,6 +299,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         )
         self.mcpServers = mcpServers.map { $0.normalized() }
         self.customAgents = customAgents
+        self.askKeywordBindings = askKeywordBindings
         self.liveDraftInsertionEnabled = liveDraftInsertionEnabled
         self.conversationArchiveFolderPath = conversationArchiveFolderPath
         self.automaticallyArchiveConversations = automaticallyArchiveConversations
@@ -389,6 +402,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             textLLMProviders: try container.decodeIfPresent([TextLLMProviderConfiguration].self, forKey: .textLLMProviders),
             mcpServers: try container.decodeIfPresent([MCPServerConfiguration].self, forKey: .mcpServers) ?? [],
             customAgents: try container.decodeIfPresent([AgentConfiguration].self, forKey: .customAgents) ?? [],
+            askKeywordBindings: try container.decodeIfPresent([AskKeywordBinding].self, forKey: .askKeywordBindings) ?? OmniVoicePreferences.defaultAskKeywordBindings,
             liveDraftInsertionEnabled: try container.decodeIfPresent(Bool.self, forKey: .liveDraftInsertionEnabled) ?? false,
             conversationArchiveFolderPath: try container.decodeIfPresent(String.self, forKey: .conversationArchiveFolderPath)
                 ?? ConversationArchive.defaultRootURL().path,
@@ -468,6 +482,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             textLLMProviders: try container.decodeIfPresent([TextLLMProviderConfiguration].self, forKey: .textLLMProviders),
             mcpServers: try container.decodeIfPresent([MCPServerConfiguration].self, forKey: .mcpServers) ?? [],
             customAgents: try container.decodeIfPresent([AgentConfiguration].self, forKey: .customAgents) ?? [],
+            askKeywordBindings: try container.decodeIfPresent([AskKeywordBinding].self, forKey: .askKeywordBindings) ?? OmniVoicePreferences.defaultAskKeywordBindings,
             liveDraftInsertionEnabled: try container.decodeIfPresent(Bool.self, forKey: .liveDraftInsertionEnabled) ?? false,
             conversationArchiveFolderPath: try container.decodeIfPresent(String.self, forKey: .conversationArchiveFolderPath)
                 ?? ConversationArchive.defaultRootURL().path,
@@ -740,6 +755,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case textLLMProviders = "text_llm_providers"
         case mcpServers = "mcp_servers"
         case customAgents = "custom_agents"
+        case askKeywordBindings = "ask_keyword_bindings"
         case liveDraftInsertionEnabled = "live_draft_insertion_enabled"
         case conversationArchiveFolderPath = "conversation_archive_folder_path"
         case automaticallyArchiveConversations = "automatically_archive_conversations"
@@ -794,6 +810,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case textLLMProviders
         case mcpServers
         case customAgents
+        case askKeywordBindings
         case liveDraftInsertionEnabled
         case conversationArchiveFolderPath
         case automaticallyArchiveConversations

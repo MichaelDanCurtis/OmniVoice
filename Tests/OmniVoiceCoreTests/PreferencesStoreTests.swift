@@ -2,6 +2,25 @@ import XCTest
 @testable import OmniVoiceCore
 
 final class PreferencesStoreTests: XCTestCase {
+    func testDefaultsSeedAskKeywordBindings() {
+        let kws = OmniVoicePreferences.defaults.askKeywordBindings.map(\.keyword)
+        XCTAssertEqual(kws, ["ai", "claude", "gemini"])
+        let ai = OmniVoicePreferences.defaults.askKeywordBindings.first { $0.keyword == "ai" }
+        XCTAssertEqual(ai?.target.kind, .textLLM)
+        let claude = OmniVoicePreferences.defaults.askKeywordBindings.first { $0.keyword == "claude" }
+        XCTAssertEqual(claude?.target, AskTarget(kind: .agent, id: "claude"))
+    }
+
+    func testOldPreferencesWithoutBindingsDecodeToSeededDefaults() throws {
+        let json = """
+        { "asr_provider": "parakeet-tdt-mlx", "style": "neutral", "dictionary_terms": [],
+          "microphone_id": null, "dictation_hotkey": { "key_code": 49, "modifiers": 2304 },
+          "style_hotkey": { "key_code": 1, "modifiers": 2304 } }
+        """.data(using: .utf8)!
+        let prefs = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: json)
+        XCTAssertEqual(prefs.askKeywordBindings.map(\.keyword), ["ai", "claude", "gemini"])
+    }
+
     func testDefaultsUseParakeetMLXAndNeutralStyle() {
         let preferences = OmniVoicePreferences.defaults
 
