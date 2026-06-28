@@ -91,7 +91,6 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.textLLMConfiguration(for: TextLLMProviderKind.claude).transport, .anthropic)
         XCTAssertFalse(preferences.textLLMConfiguration(for: TextLLMProviderKind.claude).enabled)
         XCTAssertFalse(preferences.textLLMConfiguration(for: TextLLMProviderKind.openAI).isConfigured)
-        XCTAssertEqual(preferences.mcpServers, [])
         XCTAssertFalse(preferences.liveDraftInsertionEnabled)
         XCTAssertEqual(preferences.conversationArchiveFolderPath, ConversationArchive.defaultRootURL().path)
         XCTAssertTrue(preferences.automaticallyArchiveConversations)
@@ -186,7 +185,6 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertNotNil(object["open_ai_compatible_api_key"])
         XCTAssertNotNil(object["text_llm_default_provider"])
         XCTAssertNotNil(object["text_llm_providers"])
-        XCTAssertNotNil(object["mcp_servers"])
         XCTAssertNotNil(object["live_draft_insertion_enabled"])
         XCTAssertNotNil(object["conversation_archive_folder_path"])
         XCTAssertNotNil(object["automatically_archive_conversations"])
@@ -293,35 +291,6 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(custom.apiKey, "local-key")
         XCTAssertTrue(custom.enabled)
         XCTAssertTrue(custom.isConfigured)
-    }
-
-    func testMCPServersRoundTripThroughPreferences() throws {
-        var preferences = OmniVoicePreferences.defaults
-        let serverID = UUID(uuidString: "00000000-0000-0000-0000-000000000123")!
-        let variableID = UUID(uuidString: "00000000-0000-0000-0000-000000000456")!
-
-        preferences.setMCPServer(
-            MCPServerConfiguration(
-                id: serverID,
-                name: "  Obsidian  ",
-                command: "  npx  ",
-                arguments: "-y obsidian-mcp",
-                environment: [
-                    MCPEnvironmentVariable(id: variableID, name: "  OBSIDIAN_PATH  ", value: "  ~/Documents/Vault  ")
-                ],
-                enabled: true
-            )
-        )
-
-        let data = try EngineCoding.encoder.encode(preferences)
-        let decoded = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: data)
-
-        XCTAssertEqual(decoded.mcpServers.count, 1)
-        XCTAssertEqual(decoded.mcpServers[0].id, serverID)
-        XCTAssertEqual(decoded.mcpServers[0].name, "Obsidian")
-        XCTAssertEqual(decoded.mcpServers[0].command, "npx")
-        XCTAssertEqual(decoded.mcpServers[0].environment[0].name, "OBSIDIAN_PATH")
-        XCTAssertEqual(decoded.mcpServers[0].environment[0].value, "~/Documents/Vault")
     }
 
     func testLegacySingleHotMenuActionsDecodeIntoActionCycles() throws {

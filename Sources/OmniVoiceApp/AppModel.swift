@@ -2065,30 +2065,6 @@ final class AppModel {
         }
     }
 
-    func addMCPServer() {
-        preferences.setMCPServer(MCPServerConfiguration())
-        guard persistPreferences() else {
-            return
-        }
-        statusText = "MCP server added"
-    }
-
-    func setMCPServer(_ server: MCPServerConfiguration) {
-        preferences.setMCPServer(server)
-        guard persistPreferences() else {
-            return
-        }
-        statusText = "\(server.displayName) MCP settings updated"
-    }
-
-    func removeMCPServer(id: UUID) {
-        preferences.removeMCPServer(id: id)
-        guard persistPreferences() else {
-            return
-        }
-        statusText = "MCP server removed"
-    }
-
     func addCustomAgent(_ agent: AgentConfiguration) {
         preferences.customAgents.append(agent)
         guard persistPreferences() else {

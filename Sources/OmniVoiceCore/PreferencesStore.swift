@@ -45,7 +45,6 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var openAICompatibleAPIKey: String
     public var textLLMDefaultProvider: TextLLMProviderKind
     public var textLLMProviders: [TextLLMProviderConfiguration]
-    public var mcpServers: [MCPServerConfiguration]
     public var customAgents: [AgentConfiguration]
     public var askKeywordBindings: [AskKeywordBinding]
     public var liveDraftInsertionEnabled: Bool
@@ -159,7 +158,6 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         openAICompatibleAPIKey: "",
         textLLMDefaultProvider: .custom,
         textLLMProviders: TextLLMProviderConfiguration.defaults,
-        mcpServers: [],
         customAgents: [],
         askKeywordBindings: OmniVoicePreferences.defaultAskKeywordBindings,
         liveDraftInsertionEnabled: false,
@@ -218,7 +216,6 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         openAICompatibleAPIKey: String = "",
         textLLMDefaultProvider: TextLLMProviderKind = .custom,
         textLLMProviders: [TextLLMProviderConfiguration]? = nil,
-        mcpServers: [MCPServerConfiguration] = [],
         customAgents: [AgentConfiguration] = [],
         askKeywordBindings: [AskKeywordBinding] = OmniVoicePreferences.defaultAskKeywordBindings,
         liveDraftInsertionEnabled: Bool = false,
@@ -297,7 +294,6 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             legacyModel: openAICompatibleModel,
             legacyAPIKey: openAICompatibleAPIKey
         )
-        self.mcpServers = mcpServers.map { $0.normalized() }
         self.customAgents = customAgents
         self.askKeywordBindings = askKeywordBindings
         self.liveDraftInsertionEnabled = liveDraftInsertionEnabled
@@ -400,7 +396,6 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             textLLMDefaultProvider: try container.decodeIfPresent(TextLLMProviderKind.self, forKey: .textLLMDefaultProvider)
                 ?? .custom,
             textLLMProviders: try container.decodeIfPresent([TextLLMProviderConfiguration].self, forKey: .textLLMProviders),
-            mcpServers: try container.decodeIfPresent([MCPServerConfiguration].self, forKey: .mcpServers) ?? [],
             customAgents: try container.decodeIfPresent([AgentConfiguration].self, forKey: .customAgents) ?? [],
             askKeywordBindings: try container.decodeIfPresent([AskKeywordBinding].self, forKey: .askKeywordBindings) ?? OmniVoicePreferences.defaultAskKeywordBindings,
             liveDraftInsertionEnabled: try container.decodeIfPresent(Bool.self, forKey: .liveDraftInsertionEnabled) ?? false,
@@ -480,7 +475,6 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             textLLMDefaultProvider: try container.decodeIfPresent(TextLLMProviderKind.self, forKey: .textLLMDefaultProvider)
                 ?? .custom,
             textLLMProviders: try container.decodeIfPresent([TextLLMProviderConfiguration].self, forKey: .textLLMProviders),
-            mcpServers: try container.decodeIfPresent([MCPServerConfiguration].self, forKey: .mcpServers) ?? [],
             customAgents: try container.decodeIfPresent([AgentConfiguration].self, forKey: .customAgents) ?? [],
             askKeywordBindings: try container.decodeIfPresent([AskKeywordBinding].self, forKey: .askKeywordBindings) ?? OmniVoicePreferences.defaultAskKeywordBindings,
             liveDraftInsertionEnabled: try container.decodeIfPresent(Bool.self, forKey: .liveDraftInsertionEnabled) ?? false,
@@ -672,19 +666,6 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         }
     }
 
-    public mutating func setMCPServer(_ server: MCPServerConfiguration) {
-        let normalized = server.normalized()
-        if let index = mcpServers.firstIndex(where: { $0.id == normalized.id }) {
-            mcpServers[index] = normalized
-        } else {
-            mcpServers.append(normalized)
-        }
-    }
-
-    public mutating func removeMCPServer(id: UUID) {
-        mcpServers.removeAll { $0.id == id }
-    }
-
     public static func clampedHandlePosition(_ value: Double) -> Double {
         min(max(value, 0.08), 0.92)
     }
@@ -753,7 +734,6 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case openAICompatibleAPIKey = "open_ai_compatible_api_key"
         case textLLMDefaultProvider = "text_llm_default_provider"
         case textLLMProviders = "text_llm_providers"
-        case mcpServers = "mcp_servers"
         case customAgents = "custom_agents"
         case askKeywordBindings = "ask_keyword_bindings"
         case liveDraftInsertionEnabled = "live_draft_insertion_enabled"
@@ -808,7 +788,6 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case openAICompatibleAPIKey = "openAiCompatibleApiKey"
         case textLLMDefaultProvider
         case textLLMProviders
-        case mcpServers
         case customAgents
         case askKeywordBindings
         case liveDraftInsertionEnabled
