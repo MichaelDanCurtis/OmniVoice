@@ -37,13 +37,13 @@ public enum ASRProviderKind: String, CaseIterable, Codable, Equatable, Sendable 
     case canaryQwen25B = "canary-qwen-2.5b"
 
     public static let userSelectableCases: [ASRProviderKind] = [
-        .parakeetTDTMLX,
+        .parakeetTDT,
         .whisperLargeV3TurboMLX6Bit,
         .canaryQwen25B,
     ]
 
     public var normalizedForUserSelection: ASRProviderKind {
-        Self.userSelectableCases.contains(self) ? self : .parakeetTDTMLX
+        Self.userSelectableCases.contains(self) ? self : .parakeetTDT
     }
 
     public var displayName: String {
