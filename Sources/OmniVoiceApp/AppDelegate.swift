@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let engineClient = EngineClient()
     private let streamingClient = EngineStreamingClient()
     private let insertionService = TextInsertionService()
+    private lazy var askController = AskController(insertion: insertionService)
     private let recordingCuePlayer = RecordingCuePlayer.shared
     private let dockIconController = DynamicDockIconController()
     private let commandExecutor = DictationCommandExecutor()
@@ -96,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func attach(model: AppModel) {
         self.model = model
         updatePermissionStatus()
+        askController.updateAgents(model.preferences.customAgents)
 
         hotkeys.onEvent = { [weak self] event in
             self?.handleHotkey(event)
@@ -778,6 +780,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 level: 0,
                 anchorFrame: activeOverlayAnchor
             )
+            return
+        }
+
+        // Route "ask <agent> …" (and follow-ups / actions while the bubble is open)
+        // to Ask AI instead of typing the transcript.
+        if askController.handle(transcript: rawTranscript, captureTarget: insertionTarget) {
+            model.session.reset()
+            streamingClient.cancel()
+            cancelLiveDraftIfNeeded()
+            hideOverlay()
             return
         }
 
