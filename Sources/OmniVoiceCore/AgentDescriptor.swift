@@ -35,3 +35,30 @@ public struct AgentDescriptor: Identifiable, Equatable, Sendable {
         }
     }
 }
+
+public struct AgentConfiguration: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var displayName: String
+    public var keyword: String
+    public var binaryPath: String
+    public var argsTemplate: [String]   // contains "{prompt}" unless usesStdin
+    public var usesStdin: Bool
+    public var streamFormat: AgentStreamFormat
+
+    public init(id: String, displayName: String, keyword: String, binaryPath: String,
+                argsTemplate: [String] = ["{prompt}"], usesStdin: Bool = false,
+                streamFormat: AgentStreamFormat = .plainText) {
+        self.id = id; self.displayName = displayName; self.keyword = keyword
+        self.binaryPath = binaryPath; self.argsTemplate = argsTemplate
+        self.usesStdin = usesStdin; self.streamFormat = streamFormat
+    }
+
+    public func descriptor() -> AgentDescriptor {
+        AgentDescriptor(
+            id: id, displayName: displayName, keywords: [keyword.lowercased()],
+            binaryName: (binaryPath as NSString).lastPathComponent, binaryPath: binaryPath,
+            invocation: usesStdin ? .stdin(argsTemplate) : .args(argsTemplate),
+            streamFormat: streamFormat
+        )
+    }
+}
