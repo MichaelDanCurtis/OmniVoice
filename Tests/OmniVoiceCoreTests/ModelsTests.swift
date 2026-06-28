@@ -75,7 +75,7 @@ final class ModelsTests: XCTestCase {
 
         XCTAssertEqual(
             EngineProviderContract.missingRequiredASRProviderIDs(in: staleProviders),
-            ["whisper-large-v3-turbo-mlx-6bit"]
+            ["parakeet-tdt", "whisper-large-v3-turbo-mlx-6bit"]
         )
 
         let currentProviders = ASRProviderKind.userSelectableCases.map {
