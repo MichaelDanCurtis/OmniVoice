@@ -18,6 +18,9 @@ final class AskBubbleWindow {
 
     private var panel: AskKeyPanel?
     private let model = AskBubbleViewModel()
+    private var lastHeight: CGFloat = 200
+    /// The answer scroll caps here so the whole bubble stays near a third of the screen.
+    private let maxAnswerHeight: CGFloat = max(160, ((NSScreen.main?.visibleFrame.height ?? 900) / 3) - 120)
 
     var isVisible: Bool { panel?.isVisible ?? false }
 
@@ -27,9 +30,10 @@ final class AskBubbleWindow {
         model.answer = ""
         model.streaming = true
         model.error = nil
+        model.statusNote = nil
         let panel = self.panel ?? makePanel()
         self.panel = panel
-        position(panel)
+        layout(height: lastHeight)
         panel.makeKeyAndOrderFront(nil)
     }
 
@@ -61,16 +65,25 @@ final class AskBubbleWindow {
         model.onInsert = { [weak self] in self?.onInsert?() }
         model.onCopy = { [weak self] in self?.onCopy?() }
         model.onDismiss = { [weak self] in self?.onDismiss?() }
-        panel.contentView = FirstMouseHostingView(rootView: AskBubbleView(model: model))
+        model.onHeightChange = { [weak self] height in self?.layout(height: height) }
+        panel.contentView = FirstMouseHostingView(
+            rootView: AskBubbleView(model: model, maxAnswerHeight: maxAnswerHeight)
+        )
         return panel
     }
 
-    private func position(_ panel: NSPanel) {
-        guard let screen = NSScreen.main else { return }
-        let visible = screen.visibleFrame
-        let size = panel.frame.size
-        panel.setFrameOrigin(NSPoint(x: visible.midX - size.width / 2,
-                                     y: visible.maxY - size.height - 90))
+    /// Size the panel to the measured content height (clamped) and keep its TOP edge
+    /// pinned ~90pt below the screen top, horizontally centered, so it grows downward.
+    private func layout(height: CGFloat) {
+        guard let panel else { return }
+        let visible = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let width: CGFloat = 440
+        let clamped = max(120, height)
+        guard abs(clamped - panel.frame.height) > 0.5 || panel.frame.width != width else { return }
+        lastHeight = clamped
+        let topY = visible.maxY - 90
+        let frame = NSRect(x: visible.midX - width / 2, y: topY - clamped, width: width, height: clamped)
+        panel.setFrame(frame, display: true, animate: false)
     }
 }
 
@@ -110,6 +123,18 @@ final class AskBubbleViewModel: ObservableObject {
     var onInsert: (() -> Void)?
     var onCopy: (() -> Void)?
     var onDismiss: (() -> Void)?
+    // Reports the bubble's measured total height so the window can resize to fit.
+    var onHeightChange: ((CGFloat) -> Void)?
+}
+
+private struct BubbleHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat { 0 }
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+private struct AnswerHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat { 0 }
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 /// Hosting view that accepts the first click even when the panel isn't key, so the
@@ -120,6 +145,8 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
 
 struct AskBubbleView: View {
     @ObservedObject var model: AskBubbleViewModel
+    let maxAnswerHeight: CGFloat
+    @State private var answerContentHeight: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -130,16 +157,7 @@ struct AskBubbleView: View {
             }
             Text(model.question).font(.callout).opacity(0.85).lineLimit(2)
 
-            Group {
-                if let error = model.error {
-                    Text(error).foregroundStyle(.red).font(.callout)
-                } else if model.answer.isEmpty && model.streaming {
-                    Text("Thinking…").italic().opacity(0.6)
-                } else {
-                    Text(model.answer).font(.body).textSelection(.enabled)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            answerArea
 
             HStack(spacing: 12) {
                 actionButton("Insert", "I") { model.onInsert?() }
@@ -156,6 +174,41 @@ struct AskBubbleView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(.white.opacity(0.08), lineWidth: 1)
         )
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: BubbleHeightKey.self, value: geo.size.height)
+            }
+        )
+        .onPreferenceChange(BubbleHeightKey.self) { height in
+            model.onHeightChange?(height)
+        }
+    }
+
+    /// Scrolls only the answer, growing up to `maxAnswerHeight` then scrolling.
+    private var answerArea: some View {
+        ScrollView {
+            answerText
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: AnswerHeightKey.self, value: geo.size.height)
+                    }
+                )
+        }
+        .frame(height: min(max(answerContentHeight, 22), maxAnswerHeight))
+        .scrollBounceBehavior(.basedOnSize)
+        .onPreferenceChange(AnswerHeightKey.self) { answerContentHeight = $0 }
+    }
+
+    @ViewBuilder
+    private var answerText: some View {
+        if let error = model.error {
+            Text(error).foregroundStyle(.red).font(.callout)
+        } else if model.answer.isEmpty && model.streaming {
+            Text("Thinking…").italic().opacity(0.6)
+        } else {
+            Text(model.answer).font(.body).textSelection(.enabled)
+        }
     }
 
     private func actionButton(_ title: String, _ key: String, _ action: @escaping () -> Void) -> some View {
