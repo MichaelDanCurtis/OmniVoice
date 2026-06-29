@@ -174,6 +174,8 @@ struct AskBubbleView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(.white.opacity(0.08), lineWidth: 1)
         )
+        .overlay(answerMeasuringView, alignment: .topLeading)
+        .onPreferenceChange(AnswerHeightKey.self) { answerContentHeight = $0 }
         .background(
             GeometryReader { geo in
                 Color.clear.preference(key: BubbleHeightKey.self, value: geo.size.height)
@@ -184,20 +186,32 @@ struct AskBubbleView: View {
         }
     }
 
-    /// Scrolls only the answer, growing up to `maxAnswerHeight` then scrolling.
+    /// Scrolls only the answer. Its height is a FIXED value (not a flexible max) so the
+    /// surrounding stack never compresses it — `answerContentHeight` comes from
+    /// `answerMeasuringView`, not from inside the scroll view.
     private var answerArea: some View {
         ScrollView {
             answerText
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.preference(key: AnswerHeightKey.self, value: geo.size.height)
-                    }
-                )
         }
         .frame(height: min(max(answerContentHeight, 22), maxAnswerHeight))
         .scrollBounceBehavior(.basedOnSize)
-        .onPreferenceChange(AnswerHeightKey.self) { answerContentHeight = $0 }
+    }
+
+    /// Invisible copy of the answer at the real content width (440 − 2×18 padding),
+    /// laid out at its natural unconstrained height. Preferences set inside a ScrollView
+    /// don't propagate out reliably, so the scroll frame is driven from this instead.
+    private var answerMeasuringView: some View {
+        answerText
+            .frame(width: 404, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .hidden()
+            .allowsHitTesting(false)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: AnswerHeightKey.self, value: geo.size.height)
+                }
+            )
     }
 
     @ViewBuilder
