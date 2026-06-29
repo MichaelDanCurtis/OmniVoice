@@ -21,6 +21,8 @@ final class AskBubbleWindow {
     private var lastHeight: CGFloat = 200
     /// The answer scroll caps here so the whole bubble stays near a third of the screen.
     private let maxAnswerHeight: CGFloat = max(160, ((NSScreen.main?.visibleFrame.height ?? 900) / 3) - 120)
+    /// ~Half the screen width (clamped), centered — the bubble grows downward, not sideways.
+    private let bubbleWidth: CGFloat = min(max((NSScreen.main?.visibleFrame.width ?? 1440) * 0.5, 380), 900)
 
     var isVisible: Bool { panel?.isVisible ?? false }
 
@@ -45,7 +47,7 @@ final class AskBubbleWindow {
 
     private func makePanel() -> AskKeyPanel {
         let panel = AskKeyPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 220),
+            contentRect: NSRect(x: 0, y: 0, width: bubbleWidth, height: 220),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false
         )
@@ -67,7 +69,7 @@ final class AskBubbleWindow {
         model.onDismiss = { [weak self] in self?.onDismiss?() }
         model.onHeightChange = { [weak self] height in self?.layout(height: height) }
         panel.contentView = FirstMouseHostingView(
-            rootView: AskBubbleView(model: model, maxAnswerHeight: maxAnswerHeight)
+            rootView: AskBubbleView(model: model, maxAnswerHeight: maxAnswerHeight, bubbleWidth: bubbleWidth)
         )
         return panel
     }
@@ -77,7 +79,7 @@ final class AskBubbleWindow {
     private func layout(height: CGFloat) {
         guard let panel else { return }
         let visible = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let width: CGFloat = 440
+        let width = bubbleWidth
         let clamped = max(120, height)
         guard abs(clamped - panel.frame.height) > 0.5 || panel.frame.width != width else { return }
         lastHeight = clamped
@@ -146,6 +148,7 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
 struct AskBubbleView: View {
     @ObservedObject var model: AskBubbleViewModel
     let maxAnswerHeight: CGFloat
+    let bubbleWidth: CGFloat
     @State private var answerContentHeight: CGFloat = 0
 
     var body: some View {
@@ -168,7 +171,7 @@ struct AskBubbleView: View {
             .font(.caption)
         }
         .padding(18)
-        .frame(width: 440, alignment: .leading)
+        .frame(width: bubbleWidth, alignment: .leading)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -198,12 +201,12 @@ struct AskBubbleView: View {
         .scrollBounceBehavior(.basedOnSize)
     }
 
-    /// Invisible copy of the answer at the real content width (440 − 2×18 padding),
+    /// Invisible copy of the answer at the real content width (bubbleWidth − 2×18 padding),
     /// laid out at its natural unconstrained height. Preferences set inside a ScrollView
     /// don't propagate out reliably, so the scroll frame is driven from this instead.
     private var answerMeasuringView: some View {
         answerText
-            .frame(width: 404, alignment: .leading)
+            .frame(width: bubbleWidth - 36, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
             .hidden()
             .allowsHitTesting(false)
