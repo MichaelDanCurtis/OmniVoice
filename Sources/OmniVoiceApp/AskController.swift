@@ -20,7 +20,15 @@ final class AskController {
     private var lastAnswer = ""
     private var runToken = 0
 
-    private(set) var bubbleOpen = false
+    /// Fires when the bubble opens (true) or closes (false). AppDelegate uses this to
+    /// register/unregister the global Insert/Copy/Dismiss hotkeys only while it's up.
+    var onBubbleVisibilityChanged: ((Bool) -> Void)?
+
+    private(set) var bubbleOpen = false {
+        didSet {
+            if oldValue != bubbleOpen { onBubbleVisibilityChanged?(bubbleOpen) }
+        }
+    }
 
     init(insertion: TextInsertionService, engineClient: EngineClient) {
         self.insertion = insertion
@@ -58,6 +66,11 @@ final class AskController {
             return false
         }
     }
+
+    // Entry points for the global Insert/Copy/Dismiss hotkeys (no-op unless the bubble is up).
+    func bubbleInsert() { guard bubbleOpen else { return }; insertAnswer() }
+    func bubbleCopy() { guard bubbleOpen else { return }; copyAnswer() }
+    func bubbleDismiss() { guard bubbleOpen else { return }; dismiss() }
 
     private func ask(target: AskTarget, question: String) {
         switch target.kind {

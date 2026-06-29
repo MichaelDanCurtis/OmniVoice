@@ -12,6 +12,9 @@ final class HotkeyController {
         case hotMenuPressed
         case hotMenuReleased
         case transcriptCachePressed
+        case bubbleInsert
+        case bubbleCopy
+        case bubbleDismiss
     }
 
     enum HotkeyError: Error {
@@ -26,6 +29,9 @@ final class HotkeyController {
     private var styleHotkey: EventHotKeyRef?
     private var hotMenuHotkey: EventHotKeyRef?
     private var transcriptCacheHotkey: EventHotKeyRef?
+    private var bubbleInsertHotkey: EventHotKeyRef?
+    private var bubbleCopyHotkey: EventHotKeyRef?
+    private var bubbleDismissHotkey: EventHotKeyRef?
     private var eventHandler: EventHandlerRef?
     private var dictationModifierChords: [HotkeyBinding] = []
     private var styleModifierChord: HotkeyBinding?
@@ -189,6 +195,7 @@ final class HotkeyController {
         if let transcriptCacheHotkey {
             UnregisterEventHotKey(transcriptCacheHotkey)
         }
+        unregisterBubbleActions()
         if let eventHandler {
             RemoveEventHandler(eventHandler)
         }
@@ -226,7 +233,49 @@ final class HotkeyController {
             onEvent?(kind == UInt32(kEventHotKeyPressed) ? .hotMenuPressed : .hotMenuReleased)
         } else if hotkeyID.id == 4, kind == UInt32(kEventHotKeyPressed) {
             onEvent?(.transcriptCachePressed)
+        } else if hotkeyID.id == 5, kind == UInt32(kEventHotKeyPressed) {
+            onEvent?(.bubbleInsert)
+        } else if hotkeyID.id == 6, kind == UInt32(kEventHotKeyPressed) {
+            onEvent?(.bubbleCopy)
+        } else if hotkeyID.id == 7, kind == UInt32(kEventHotKeyPressed) {
+            onEvent?(.bubbleDismiss)
         }
+    }
+
+    /// Registers ⟨modifiers⟩+I / +C / +D as global, exclusive hotkeys for the Ask
+    /// bubble's Insert / Copy / Dismiss actions. Call when the bubble opens; pair with
+    /// `unregisterBubbleActions()` on close so the combos aren't swallowed app-wide.
+    /// Reuses the InstallEventHandler from `register(...)`, so that must run first.
+    func registerBubbleActions(modifiers: UInt32) {
+        unregisterBubbleActions()
+        bubbleInsertHotkey = registerActionHotkey(keyCode: 34, modifiers: modifiers, id: 5)   // I
+        bubbleCopyHotkey = registerActionHotkey(keyCode: 8, modifiers: modifiers, id: 6)      // C
+        bubbleDismissHotkey = registerActionHotkey(keyCode: 2, modifiers: modifiers, id: 7)   // D
+    }
+
+    func unregisterBubbleActions() {
+        for hotkey in [bubbleInsertHotkey, bubbleCopyHotkey, bubbleDismissHotkey] {
+            if let hotkey {
+                UnregisterEventHotKey(hotkey)
+            }
+        }
+        bubbleInsertHotkey = nil
+        bubbleCopyHotkey = nil
+        bubbleDismissHotkey = nil
+    }
+
+    private func registerActionHotkey(keyCode: UInt32, modifiers: UInt32, id: UInt32) -> EventHotKeyRef? {
+        let hotkeyID = EventHotKeyID(signature: OSType(0x4F4D4E49), id: id)
+        var hotkeyRef: EventHotKeyRef?
+        let status = RegisterEventHotKey(
+            keyCode,
+            modifiers,
+            hotkeyID,
+            GetApplicationEventTarget(),
+            UInt32(kEventHotKeyExclusive),
+            &hotkeyRef
+        )
+        return status == noErr ? hotkeyRef : nil
     }
 
     private func installModifierMonitors() {

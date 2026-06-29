@@ -58,7 +58,10 @@ final class AskBubbleWindow {
             case .dismiss: self?.onDismiss?()
             }
         }
-        panel.contentView = NSHostingView(rootView: AskBubbleView(model: model))
+        model.onInsert = { [weak self] in self?.onInsert?() }
+        model.onCopy = { [weak self] in self?.onCopy?() }
+        model.onDismiss = { [weak self] in self?.onDismiss?() }
+        panel.contentView = FirstMouseHostingView(rootView: AskBubbleView(model: model))
         return panel
     }
 
@@ -102,6 +105,17 @@ final class AskBubbleViewModel: ObservableObject {
     @Published var streaming = false
     @Published var error: String?
     @Published var statusNote: String?
+
+    // Button actions (wired by AskBubbleWindow to the controller). Not @Published — set once.
+    var onInsert: (() -> Void)?
+    var onCopy: (() -> Void)?
+    var onDismiss: (() -> Void)?
+}
+
+/// Hosting view that accepts the first click even when the panel isn't key, so the
+/// bubble's buttons fire on a single click instead of just focusing the window.
+final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 struct AskBubbleView: View {
@@ -128,13 +142,12 @@ struct AskBubbleView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 12) {
-                actionLabel("Insert", "I")
-                actionLabel("Copy", "C")
-                actionLabel("Dismiss", "D")
+                actionButton("Insert", "I") { model.onInsert?() }
+                actionButton("Copy", "C") { model.onCopy?() }
+                actionButton("Dismiss", "D") { model.onDismiss?() }
                 Spacer()
             }
             .font(.caption)
-            .opacity(0.75)
         }
         .padding(18)
         .frame(width: 440, alignment: .leading)
@@ -145,13 +158,17 @@ struct AskBubbleView: View {
         )
     }
 
-    private func actionLabel(_ title: String, _ key: String) -> some View {
-        HStack(spacing: 4) {
-            Text(key)
-                .font(.caption2.weight(.medium))
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
-            Text(title)
+    private func actionButton(_ title: String, _ key: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Text(key)
+                    .font(.caption2.weight(.medium))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+                Text(title)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 }

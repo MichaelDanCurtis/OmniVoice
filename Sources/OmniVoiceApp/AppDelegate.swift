@@ -102,6 +102,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let model else { return }
             self?.askController.updateConfiguration(model.preferences)
         }
+        askController.onBubbleVisibilityChanged = { [weak self, weak model] isOpen in
+            guard let self, let model else { return }
+            if isOpen {
+                let base = model.preferences.dictationHotkey.modifiers & HotkeyBinding.modifierMask
+                let modifiers = base != 0 ? base : HotkeyBinding.carbonModifiers(command: true, option: true)
+                self.hotkeys.registerBubbleActions(modifiers: modifiers)
+            } else {
+                self.hotkeys.unregisterBubbleActions()
+            }
+        }
 
         hotkeys.onEvent = { [weak self] event in
             self?.handleHotkey(event)
@@ -342,7 +352,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             releaseHotMenu(model: model)
         case .transcriptCachePressed:
             showTranscriptCache(model: model)
+        case .bubbleInsert:
+            abortDictationForBubbleAction(model: model)
+            askController.bubbleInsert()
+        case .bubbleCopy:
+            abortDictationForBubbleAction(model: model)
+            askController.bubbleCopy()
+        case .bubbleDismiss:
+            abortDictationForBubbleAction(model: model)
+            askController.bubbleDismiss()
         }
+    }
+
+    /// The bubble action hotkeys share the push-to-talk modifiers, so if PTT is
+    /// modifier-only the chord also started a recording. Discard it (no transcript)
+    /// when an action fires. No-op when nothing is recording (e.g. key-chord PTT).
+    private func abortDictationForBubbleAction(model: AppModel) {
+        guard model.session.state == .listening else { return }
+        pendingDictationFinishTask?.cancel()
+        pendingDictationFinishTask = nil
+        dictationTriggerState.cancel()
+        _ = try? audioCapture.stopWAVData()   // stop capture, drop the audio
+        streamingClient.cancel()
+        cancelLiveDraftIfNeeded()
+        model.session.reset()
+        insertionTarget = nil
+        hideOverlay()
     }
 
     private func handleDictationPressed(model: AppModel) {
