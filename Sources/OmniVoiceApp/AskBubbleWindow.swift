@@ -17,10 +17,11 @@ final class AskBubbleWindow {
     var onDismiss: (() -> Void)?
 
     private var panel: AskKeyPanel?
+    private var hostingView: NSView?
     private let model = AskBubbleViewModel()
     private var lastHeight: CGFloat = 200
-    /// The answer scroll caps here so the whole bubble stays near a third of the screen.
-    private let maxAnswerHeight: CGFloat = max(160, ((NSScreen.main?.visibleFrame.height ?? 900) / 3) - 120)
+    /// The answer scroll caps here so the whole bubble stays within ~two-thirds of the screen.
+    private let maxAnswerHeight: CGFloat = max(220, ((NSScreen.main?.visibleFrame.height ?? 900) * 2 / 3) - 120)
     /// ~Half the screen width (clamped), centered — the bubble grows downward, not sideways.
     private let bubbleWidth: CGFloat = min(max((NSScreen.main?.visibleFrame.width ?? 1440) * 0.5, 380), 900)
 
@@ -36,13 +37,14 @@ final class AskBubbleWindow {
         let panel = self.panel ?? makePanel()
         self.panel = panel
         layout(height: lastHeight)
+        relayout()
         panel.makeKeyAndOrderFront(nil)
     }
 
-    func appendAnswer(_ chunk: String) { model.answer += chunk }
-    func setStreaming(_ streaming: Bool) { model.streaming = streaming }
+    func appendAnswer(_ chunk: String) { model.answer += chunk; relayout() }
+    func setStreaming(_ streaming: Bool) { model.streaming = streaming; relayout() }
     func markInserted() { model.streaming = false; model.statusNote = "Inserted" }
-    func showError(_ message: String) { model.streaming = false; model.error = message }
+    func showError(_ message: String) { model.streaming = false; model.error = message; relayout() }
     func hide() { panel?.orderOut(nil) }
 
     private func makePanel() -> AskKeyPanel {
@@ -67,10 +69,9 @@ final class AskBubbleWindow {
         model.onInsert = { [weak self] in self?.onInsert?() }
         model.onCopy = { [weak self] in self?.onCopy?() }
         model.onDismiss = { [weak self] in self?.onDismiss?() }
-        model.onHeightChange = { [weak self] height in self?.layout(height: height) }
-        panel.contentView = FirstMouseHostingView(
-            rootView: AskBubbleView(model: model, maxAnswerHeight: maxAnswerHeight, bubbleWidth: bubbleWidth)
-        )
+        let hosting = FirstMouseHostingView(rootView: AskBubbleView(model: model, bubbleWidth: bubbleWidth))
+        hostingView = hosting
+        panel.contentView = hosting
         return panel
     }
 
@@ -86,6 +87,38 @@ final class AskBubbleWindow {
         let topY = visible.maxY - 90
         let frame = NSRect(x: visible.midX - width / 2, y: topY - clamped, width: width, height: clamped)
         panel.setFrame(frame, display: true, animate: false)
+    }
+
+    /// Measure the answer height in AppKit (reliable, unlike SwiftUI preferences inside a
+    /// ScrollView), cap it, push it into the view, then size the panel to the hosting
+    /// view's real fitting height on the next runloop — after SwiftUI applies the change.
+    private func relayout() {
+        let contentWidth = bubbleWidth - 36
+        let text: String
+        if let error = model.error {
+            text = error
+        } else if model.answer.isEmpty && model.streaming {
+            text = "Thinking…"
+        } else {
+            text = model.answer
+        }
+        let natural = measuredAnswerHeight(text, width: contentWidth)
+        model.answerAreaHeight = min(max(natural + 6, 22), maxAnswerHeight)
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let hosting = self.hostingView else { return }
+            self.layout(height: hosting.fittingSize.height)
+        }
+    }
+
+    private func measuredAnswerHeight(_ text: String, width: CGFloat) -> CGFloat {
+        let font = NSFont.preferredFont(forTextStyle: .body)
+        let string = text.isEmpty ? " " : text
+        let rect = (string as NSString).boundingRect(
+            with: NSSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        )
+        return ceil(rect.height)
     }
 }
 
@@ -120,23 +153,13 @@ final class AskBubbleViewModel: ObservableObject {
     @Published var streaming = false
     @Published var error: String?
     @Published var statusNote: String?
+    /// Fixed height of the scrollable answer area, computed by AskBubbleWindow.
+    @Published var answerAreaHeight: CGFloat = 60
 
     // Button actions (wired by AskBubbleWindow to the controller). Not @Published — set once.
     var onInsert: (() -> Void)?
     var onCopy: (() -> Void)?
     var onDismiss: (() -> Void)?
-    // Reports the bubble's measured total height so the window can resize to fit.
-    var onHeightChange: ((CGFloat) -> Void)?
-}
-
-private struct BubbleHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat { 0 }
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
-private struct AnswerHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat { 0 }
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 /// Hosting view that accepts the first click even when the panel isn't key, so the
@@ -147,9 +170,7 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
 
 struct AskBubbleView: View {
     @ObservedObject var model: AskBubbleViewModel
-    let maxAnswerHeight: CGFloat
     let bubbleWidth: CGFloat
-    @State private var answerContentHeight: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -177,44 +198,17 @@ struct AskBubbleView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(.white.opacity(0.08), lineWidth: 1)
         )
-        .overlay(answerMeasuringView, alignment: .topLeading)
-        .onPreferenceChange(AnswerHeightKey.self) { answerContentHeight = $0 }
-        .background(
-            GeometryReader { geo in
-                Color.clear.preference(key: BubbleHeightKey.self, value: geo.size.height)
-            }
-        )
-        .onPreferenceChange(BubbleHeightKey.self) { height in
-            model.onHeightChange?(height)
-        }
     }
 
-    /// Scrolls only the answer. Its height is a FIXED value (not a flexible max) so the
-    /// surrounding stack never compresses it — `answerContentHeight` comes from
-    /// `answerMeasuringView`, not from inside the scroll view.
+    /// Scrolls only the answer. Its height is a fixed value computed by AskBubbleWindow
+    /// (AppKit text measurement), so the surrounding stack never compresses or clips it.
     private var answerArea: some View {
         ScrollView {
             answerText
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(height: min(max(answerContentHeight, 22), maxAnswerHeight))
+        .frame(height: model.answerAreaHeight)
         .scrollBounceBehavior(.basedOnSize)
-    }
-
-    /// Invisible copy of the answer at the real content width (bubbleWidth − 2×18 padding),
-    /// laid out at its natural unconstrained height. Preferences set inside a ScrollView
-    /// don't propagate out reliably, so the scroll frame is driven from this instead.
-    private var answerMeasuringView: some View {
-        answerText
-            .frame(width: bubbleWidth - 36, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .hidden()
-            .allowsHitTesting(false)
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(key: AnswerHeightKey.self, value: geo.size.height)
-                }
-            )
     }
 
     @ViewBuilder
