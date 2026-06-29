@@ -185,13 +185,16 @@ final class AppModel {
     @ObservationIgnored private let workspaceStore: OmniWorkspaceStore
     @ObservationIgnored private let huggingFaceTokenStore = HuggingFaceTokenStore()
     @ObservationIgnored private let conversationRecorder = ConversationRecorderService()
+    @ObservationIgnored private let recordingCuePlayer = RecordingCuePlayer.shared
     @ObservationIgnored private var isConversationStartInFlight = false
     @ObservationIgnored private var isConversationStopInFlight = false
     @ObservationIgnored private var deferredConversationAction: DeferredConversationAction?
     @ObservationIgnored private var liveDiarizationPreviewGeneration = 0
     @ObservationIgnored private var conversationAIContextSessionID: String?
     @ObservationIgnored var onHotkeysChanged: ((OmniVoicePreferences) -> Void)?
+    @ObservationIgnored var onMouseShortcutsChanged: ((OmniVoicePreferences) -> Void)?
     @ObservationIgnored var onThemeChanged: ((OmniVoiceTheme, AppAppearanceMode) -> Void)?
+    @ObservationIgnored var onCustomAgentsChanged: (([AgentConfiguration]) -> Void)?
 
     init(
         preferences: OmniVoicePreferences? = nil,
@@ -1147,13 +1150,73 @@ final class AppModel {
         statusText = "Style: \(style.displayName)"
     }
 
+    func setRecordingSoundCuesEnabled(_ enabled: Bool) {
+        guard preferences.recordingSoundCuesEnabled != enabled else { return }
+
+        preferences.recordingSoundCuesEnabled = enabled
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = enabled ? "Recording sound cues enabled" : "Recording sound cues disabled"
+    }
+
+    func setRecordingCueTiming(_ timing: RecordingCueTiming) {
+        guard preferences.recordingCueTiming != timing else { return }
+
+        preferences.recordingCueTiming = timing
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = "Recording cues: \(timing.displayName)"
+    }
+
+    func setRecordingCueSet(_ cueSet: RecordingCueSet) {
+        guard preferences.recordingCueSet != cueSet else { return }
+
+        preferences.recordingCueSet = cueSet
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = "Recording cue: \(cueSet.displayName)"
+    }
+
+    func setRecordingCueVolume(_ volume: Double) {
+        let clampedVolume = OmniVoicePreferences.clampedRecordingCueVolume(volume)
+        guard preferences.recordingCueVolume != clampedVolume else { return }
+
+        preferences.recordingCueVolume = clampedVolume
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = "Recording cue volume: \(Int((clampedVolume * 100).rounded()))%"
+    }
+
+    func previewRecordingCue(_ kind: RecordingCuePlayer.CueKind) {
+        switch kind {
+        case .start:
+            recordingCuePlayer.preview(.start, preferences: preferences)
+            statusText = "Previewing start cue"
+        case .stop:
+            recordingCuePlayer.preview(.stop, preferences: preferences)
+            statusText = "Previewing stop cue"
+        }
+    }
+
     func setASRProvider(_ provider: ASRProviderKind) {
         let normalizedProvider = provider.normalizedForUserSelection
         preferences.asrProvider = normalizedProvider
         persistPreferences()
         modelUpdateInfo = nil
         modelDownloadStatus = nil
+        translationCapabilities = nil
         statusText = "ASR: \(normalizedProvider.rawValue)"
+        Task {
+            await refreshTranslationCapabilities()
+        }
     }
 
     func completeFirstRunSetup() {
@@ -2002,28 +2065,48 @@ final class AppModel {
         }
     }
 
-    func addMCPServer() {
-        preferences.setMCPServer(MCPServerConfiguration())
+    func addCustomAgent(_ agent: AgentConfiguration) {
+        preferences.customAgents.append(agent)
         guard persistPreferences() else {
             return
         }
-        statusText = "MCP server added"
+        onCustomAgentsChanged?(preferences.customAgents)
+        statusText = "\(agent.displayName) agent added"
     }
 
-    func setMCPServer(_ server: MCPServerConfiguration) {
-        preferences.setMCPServer(server)
+    func removeCustomAgent(id: String) {
+        preferences.customAgents.removeAll { $0.id == id }
         guard persistPreferences() else {
             return
         }
-        statusText = "\(server.displayName) MCP settings updated"
+        onCustomAgentsChanged?(preferences.customAgents)
+        statusText = "Agent removed"
     }
 
-    func removeMCPServer(id: UUID) {
-        preferences.removeMCPServer(id: id)
+    func addKeywordBinding(_ binding: AskKeywordBinding) {
+        preferences.askKeywordBindings.append(binding)
         guard persistPreferences() else {
             return
         }
-        statusText = "MCP server removed"
+        onCustomAgentsChanged?(preferences.customAgents)
+    }
+
+    func updateKeywordBinding(_ binding: AskKeywordBinding) {
+        if let i = preferences.askKeywordBindings.firstIndex(where: { $0.id == binding.id }) {
+            preferences.askKeywordBindings[i] = binding
+        }
+        guard persistPreferences() else {
+            return
+        }
+        onCustomAgentsChanged?(preferences.customAgents)
+    }
+
+    func removeKeywordBinding(id: String) {
+        preferences.askKeywordBindings.removeAll { $0.id == id }
+        guard persistPreferences() else {
+            return
+        }
+        onCustomAgentsChanged?(preferences.customAgents)
     }
 
     func testTextLLMProvider(_ provider: TextLLMProviderKind) async {
@@ -2056,18 +2139,28 @@ final class AppModel {
     }
 
     func setDictationHotkey(_ binding: HotkeyBinding) {
-        guard binding != preferences.styleHotkey, binding != preferences.hotMenuHotkey else {
+        guard binding != preferences.styleHotkey,
+              binding != preferences.hotMenuHotkey,
+              binding != preferences.transcriptCacheHotkey,
+              !preferences.additionalDictationHotkeys.contains(binding) else {
             statusText = "Hotkeys must be different"
             return
         }
         preferences.dictationHotkey = binding
+        preferences.additionalDictationHotkeys = OmniVoicePreferences.normalizedAdditionalDictationHotkeys(
+            preferences.additionalDictationHotkeys,
+            primary: binding
+        )
         persistPreferences()
         onHotkeysChanged?(preferences)
         statusText = "Dictation hotkey: \(binding.displayName)"
     }
 
     func setStyleHotkey(_ binding: HotkeyBinding) {
-        guard binding != preferences.dictationHotkey, binding != preferences.hotMenuHotkey else {
+        guard binding != preferences.dictationHotkey,
+              binding != preferences.hotMenuHotkey,
+              binding != preferences.transcriptCacheHotkey,
+              !preferences.additionalDictationHotkeys.contains(binding) else {
             statusText = "Hotkeys must be different"
             return
         }
@@ -2078,7 +2171,10 @@ final class AppModel {
     }
 
     func setHotMenuHotkey(_ binding: HotkeyBinding) {
-        guard binding != preferences.dictationHotkey, binding != preferences.styleHotkey else {
+        guard binding != preferences.dictationHotkey,
+              binding != preferences.styleHotkey,
+              binding != preferences.transcriptCacheHotkey,
+              !preferences.additionalDictationHotkeys.contains(binding) else {
             statusText = "Hotkeys must be different"
             return
         }
@@ -2086,6 +2182,143 @@ final class AppModel {
         persistPreferences()
         onHotkeysChanged?(preferences)
         statusText = "Hot menu: \(binding.displayName)"
+    }
+
+    func setTranscriptCacheHotkey(_ binding: HotkeyBinding) {
+        guard binding != preferences.dictationHotkey,
+              !preferences.additionalDictationHotkeys.contains(binding),
+              binding != preferences.styleHotkey,
+              binding != preferences.hotMenuHotkey else {
+            statusText = "Hotkeys must be different"
+            return
+        }
+
+        preferences.transcriptCacheHotkey = binding
+        persistPreferences()
+        onHotkeysChanged?(preferences)
+        statusText = "Transcript cache hotkey: \(binding.displayName)"
+    }
+
+    func addAdditionalDictationHotkey() {
+        guard preferences.additionalDictationHotkeys.count < OmniVoicePreferences.maxAdditionalDictationHotkeys else {
+            statusText = "Dictation hotkey limit reached"
+            return
+        }
+        guard let candidate = nextAdditionalDictationHotkeyCandidate() else {
+            statusText = "No available dictation shortcut preset"
+            return
+        }
+
+        preferences.additionalDictationHotkeys.append(candidate)
+        preferences.additionalDictationHotkeys = OmniVoicePreferences.normalizedAdditionalDictationHotkeys(
+            preferences.additionalDictationHotkeys,
+            primary: preferences.dictationHotkey
+        )
+        persistPreferences()
+        onHotkeysChanged?(preferences)
+        statusText = "Added dictation hotkey: \(candidate.displayName)"
+    }
+
+    func setAdditionalDictationHotkey(_ binding: HotkeyBinding, at index: Int) {
+        guard preferences.additionalDictationHotkeys.indices.contains(index) else { return }
+        guard binding != preferences.dictationHotkey,
+              binding != preferences.styleHotkey,
+              binding != preferences.hotMenuHotkey,
+              binding != preferences.transcriptCacheHotkey else {
+            statusText = "Hotkeys must be different"
+            return
+        }
+        guard !preferences.additionalDictationHotkeys.enumerated().contains(where: { offset, existing in
+            offset != index && existing == binding
+        }) else {
+            statusText = "Dictation hotkeys must be different"
+            return
+        }
+
+        preferences.additionalDictationHotkeys[index] = binding
+        preferences.additionalDictationHotkeys = OmniVoicePreferences.normalizedAdditionalDictationHotkeys(
+            preferences.additionalDictationHotkeys,
+            primary: preferences.dictationHotkey
+        )
+        persistPreferences()
+        onHotkeysChanged?(preferences)
+        statusText = "Dictation hotkey \(index + 2): \(binding.displayName)"
+    }
+
+    func removeAdditionalDictationHotkey(at index: Int) {
+        guard preferences.additionalDictationHotkeys.indices.contains(index) else { return }
+
+        let removed = preferences.additionalDictationHotkeys.remove(at: index)
+        persistPreferences()
+        onHotkeysChanged?(preferences)
+        statusText = "Removed dictation hotkey: \(removed.displayName)"
+    }
+
+    private func nextAdditionalDictationHotkeyCandidate() -> HotkeyBinding? {
+        let candidates = Array(HotkeyBinding.dictationPresets.dropFirst()) + [
+            HotkeyBinding(keyCode: 46, modifiers: 2_304),
+            HotkeyBinding(keyCode: 31, modifiers: 2_304),
+            HotkeyBinding(keyCode: 49, modifiers: HotkeyBinding.carbonModifiers(command: true, shift: true)),
+        ]
+        return candidates.first { isHotkeyAvailableForAdditionalDictation($0) }
+    }
+
+    private func isHotkeyAvailableForAdditionalDictation(_ binding: HotkeyBinding) -> Bool {
+        binding != preferences.dictationHotkey
+            && binding != preferences.styleHotkey
+            && binding != preferences.hotMenuHotkey
+            && binding != preferences.transcriptCacheHotkey
+            && !preferences.additionalDictationHotkeys.contains(binding)
+    }
+
+    func setMousePushToTalkEnabled(_ enabled: Bool) {
+        guard preferences.mousePushToTalkEnabled != enabled else { return }
+
+        preferences.mousePushToTalkEnabled = enabled
+        persistPreferences()
+        onMouseShortcutsChanged?(preferences)
+        statusText = enabled ? "Mouse push-to-talk enabled" : "Mouse push-to-talk disabled"
+    }
+
+    func setMousePushToTalkButton(_ binding: MouseButtonBinding) {
+        guard binding.isUsableShortcut else {
+            statusText = "Use an extra mouse button"
+            return
+        }
+        guard binding != preferences.transcriptCacheMouseButton else {
+            statusText = "Mouse shortcuts must be different"
+            return
+        }
+
+        preferences.mousePushToTalkButton = binding
+        persistPreferences()
+        onMouseShortcutsChanged?(preferences)
+        statusText = "Mouse push-to-talk: \(binding.displayName)"
+    }
+
+    func setTranscriptCacheMouseEnabled(_ enabled: Bool) {
+        guard preferences.transcriptCacheMouseEnabled != enabled else { return }
+
+        preferences.transcriptCacheMouseEnabled = enabled
+        persistPreferences()
+        onMouseShortcutsChanged?(preferences)
+        statusText = enabled ? "Transcript cache mouse picker enabled" : "Transcript cache mouse picker disabled"
+    }
+
+    func setTranscriptCacheMouseButton(_ binding: MouseButtonBinding) {
+        guard binding.isUsableShortcut else {
+            statusText = "Use an extra mouse button"
+            return
+        }
+        guard binding != preferences.mousePushToTalkButton else {
+            statusText = "Mouse shortcuts must be different"
+            return
+        }
+
+        preferences.transcriptCacheMouseButton = binding
+        persistPreferences()
+        onMouseShortcutsChanged?(preferences)
+        statusText = "Transcript cache: \(binding.displayName)"
     }
 
     func setHotMenuAction(_ action: HotMenuAction, for direction: HotMenuDirection) {
@@ -2281,7 +2514,40 @@ final class AppModel {
     private func loadEngineStatus(startEngineIfOffline: Bool) async {
         do {
             _ = try await engineClient.health()
-            providerStatuses = try await engineClient.providers()
+            let fetchedProviderStatuses = try await engineClient.providers()
+            let missingProviderIDs = EngineProviderContract.missingRequiredASRProviderIDs(in: fetchedProviderStatuses)
+            if !missingProviderIDs.isEmpty {
+                if startEngineIfOffline {
+                    statusText = "Restarting outdated engine"
+                    let startResult = await EngineSupervisor.shared.restart(forceExternal: true)
+                    switch startResult {
+                    case .alreadyOnline, .started:
+                        await loadEngineStatus(startEngineIfOffline: false)
+                        return
+                    case .stillStarting, .unavailable, .failed:
+                        providerStatuses = []
+                        diarizationProviderStatuses = []
+                        translationProviderStatuses = []
+                        modelStatuses = []
+                        transcripts = []
+                        engineState = .offline(startResult.detail)
+                        statusText = startResult.detail
+                        return
+                    }
+                }
+
+                providerStatuses = fetchedProviderStatuses
+                diarizationProviderStatuses = []
+                translationProviderStatuses = []
+                modelStatuses = []
+                transcripts = []
+                let missing = missingProviderIDs.joined(separator: ", ")
+                engineState = .offline("Engine is outdated. Missing providers: \(missing)")
+                statusText = "Engine restart required"
+                return
+            }
+
+            providerStatuses = fetchedProviderStatuses
             diarizationProviderStatuses = try await engineClient.diarizationProviders()
             translationProviderStatuses = try await engineClient.translationProviders()
             modelStatuses = try await engineClient.models()
@@ -2317,12 +2583,16 @@ final class AppModel {
         }
     }
 
-    func refreshTranscripts() async {
+    func refreshTranscripts(updateStatus: Bool = true) async {
         do {
             transcripts = try await engineClient.transcripts(limit: 100)
-            statusText = "Conversation history refreshed"
+            if updateStatus {
+                statusText = "Conversation history refreshed"
+            }
         } catch {
-            statusText = "Conversation history unavailable"
+            if updateStatus {
+                statusText = "Conversation history unavailable"
+            }
         }
     }
 
@@ -2709,6 +2979,9 @@ final class AppModel {
                 provider: preferences.asrProvider,
                 microphoneID: preferences.microphoneID,
                 liveDiarizationEnabled: usesLiveConversationDiarizationStream,
+                onBeforeAudioStart: { [recordingCuePlayer, preferences] in
+                    recordingCuePlayer.playStartCue(preferences: preferences)
+                },
                 onSegment: { [weak self] request in
                     await self?.appendConversationSegment(request)
                 },
@@ -2755,6 +3028,7 @@ final class AppModel {
         } catch {
             recorderError = error
         }
+        recordingCuePlayer.playStopCue(preferences: preferences)
 
         await stopConversationSession()
         if let recorderError {
@@ -2773,6 +3047,7 @@ final class AppModel {
         let sessionID = activeConversation?.id
         liveDiarizationPreviewGeneration += 1
         conversationRecorder.cancel()
+        recordingCuePlayer.playStopCue(preferences: preferences)
         activeConversation = nil
         isConversationRecording = false
         isConversationFinalizing = false
@@ -2807,6 +3082,7 @@ final class AppModel {
                 } catch {
                     recorderError = error
                 }
+                recordingCuePlayer.playStopCue(preferences: preferences)
             }
             await stopConversationSession()
             if let recorderError {
@@ -2815,6 +3091,7 @@ final class AppModel {
         case .cancel:
             if recorderStarted {
                 conversationRecorder.cancel()
+                recordingCuePlayer.playStopCue(preferences: preferences)
             }
             _ = try? await engineClient.stopConversation(sessionID: sessionID)
             activeConversation = nil
@@ -3116,7 +3393,8 @@ final class AppModel {
             let capabilities = try await engineClient.translationCapabilities(
                 providerID: preferences.translationProvider.rawValue,
                 modelProviderID: selectedTranslationModelProviderID(),
-                modelPath: effectiveTranslationModelPath()
+                modelPath: effectiveTranslationModelPath(),
+                asrProviderID: preferences.asrProvider.rawValue
             )
             translationCapabilities = capabilities
             reconcileTranslationLanguages(with: capabilities)
@@ -3137,15 +3415,20 @@ final class AppModel {
     }
 
     func checkSelectedModelUpdate() async {
-        guard preferences.asrProvider != .fake else {
+        await checkModelUpdate(providerID: preferences.asrProvider.rawValue)
+    }
+
+    func checkModelUpdate(providerID: String) async {
+        guard providerID != ASRProviderKind.fake.rawValue else {
             statusText = "Fake ASR has no model download"
             return
         }
 
         do {
-            let update = try await engineClient.checkModelUpdate(provider: preferences.asrProvider)
+            let update = try await engineClient.checkModelUpdate(providerID: providerID)
             modelUpdateInfo = update
-            statusText = update.updateAvailable ? "Model update available" : "Model is current"
+            let label = modelLabel(forProviderID: providerID)
+            statusText = update.updateAvailable ? "\(label) update available" : "\(label) is current"
         } catch {
             statusText = "Model update check failed"
         }
@@ -3180,18 +3463,60 @@ final class AppModel {
     }
 
     func downloadSelectedModel() async {
-        guard preferences.asrProvider != .fake else {
+        await downloadModel(providerID: preferences.asrProvider.rawValue)
+    }
+
+    func installSelectedProviderRuntime() async {
+        guard preferences.asrProvider == .canaryQwen25B else {
+            statusText = "No runtime installer for selected model"
+            return
+        }
+
+        engineState = .checking
+        statusText = "Installing Canary runtime"
+        let startResult = await EngineSupervisor.shared.installCanaryRuntime()
+        switch startResult {
+        case .alreadyOnline, .started:
+            await loadEngineStatus(startEngineIfOffline: false)
+            statusText = "Canary runtime install finished"
+        case .stillStarting, .unavailable, .failed:
+            providerStatuses = []
+            modelStatuses = []
+            diarizationProviderStatuses = []
+            translationProviderStatuses = []
+            transcripts = []
+            engineState = .offline(startResult.detail)
+            statusText = startResult.detail
+        }
+        await refreshStartupChecks()
+    }
+
+    func downloadModel(providerID: String) async {
+        guard providerID != ASRProviderKind.fake.rawValue else {
             statusText = "Fake ASR has no model download"
             return
         }
 
         do {
-            let download = try await engineClient.downloadModel(provider: preferences.asrProvider)
+            let download = try await engineClient.downloadModel(providerID: providerID)
             modelDownloadStatus = download
             statusText = download.message ?? "Model download queued"
-            await pollModelDownload(provider: preferences.asrProvider)
+            await pollModelDownload(providerID: providerID)
         } catch {
             statusText = "Model download failed"
+        }
+    }
+
+    func deleteModel(providerID: String) async {
+        do {
+            let status = try await engineClient.deleteModel(providerID: providerID)
+            upsertModelStatus(status)
+            modelDownloadStatus = nil
+            modelUpdateInfo = nil
+            statusText = "\(status.label) deleted"
+            await refreshProviderAndModelStatus()
+        } catch {
+            statusText = "Model delete failed"
         }
     }
 
@@ -3328,6 +3653,20 @@ final class AppModel {
         modelStatuses.first { $0.providerID == providerID }
     }
 
+    func modelLabel(forProviderID providerID: String) -> String {
+        modelStatus(forProviderID: providerID)?.label
+            ?? ASRProviderKind(rawValue: providerID)?.displayName
+            ?? SpeechModelRecommendation(providerID: providerID).displayName
+    }
+
+    private func upsertModelStatus(_ status: EngineModelStatus) {
+        if let index = modelStatuses.firstIndex(where: { $0.providerID == status.providerID }) {
+            modelStatuses[index] = status
+        } else {
+            modelStatuses.append(status)
+        }
+    }
+
     func diarizationLabel(for providerID: String) -> String {
         diarizationProviderInfo(for: providerID)?.label
             ?? modelStatus(forProviderID: providerID)?.label
@@ -3383,6 +3722,20 @@ final class AppModel {
         providerIssue(for: preferences.asrProvider)
     }
 
+    var selectedProviderRuntimeInstallAvailable: Bool {
+        providerRuntimeInstallAvailable(for: preferences.asrProvider)
+    }
+
+    func providerRuntimeInstallAvailable(for provider: ASRProviderKind) -> Bool {
+        guard provider == .canaryQwen25B,
+              modelStatus(for: provider)?.installed == true,
+              let info = providerInfo(for: provider),
+              !info.available else {
+            return false
+        }
+        return (info.reason ?? "").localizedCaseInsensitiveContains("runtime")
+    }
+
     func providerIssue(for provider: ASRProviderKind) -> ProviderRecoveryIssue? {
         if let info = providerInfo(for: provider), !info.available {
             return ProviderRecoveryIssue(
@@ -3418,7 +3771,7 @@ final class AppModel {
     }
 
     func label(for provider: ASRProviderKind) -> String {
-        providerInfo(for: provider)?.label ?? provider.rawValue
+        providerInfo(for: provider)?.label ?? provider.displayName
     }
 
     func microphoneLabel(for microphoneID: String?) -> String {

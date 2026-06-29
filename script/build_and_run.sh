@@ -6,7 +6,7 @@ APP_NAME="OmniVoiceApp"
 APP_DISPLAY_NAME="OmniVoice"
 BUNDLE_ID="com.omnivoice.OmniVoiceApp"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${OMNIVOICE_APP_VERSION:-2.0.3}"
+APP_VERSION="${OMNIVOICE_APP_VERSION:-3.0.0}"
 APP_BUILD="${OMNIVOICE_APP_BUILD:-1}"
 DMG_VOLUME_NAME="${OMNIVOICE_DMG_VOLUME_NAME:-OmniVoice}"
 
@@ -19,6 +19,7 @@ APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 ENGINE_BUNDLE_DIR="$APP_RESOURCES/Engine"
+ENGINE_WHEELHOUSE_DIR="$ENGINE_BUNDLE_DIR/wheelhouse"
 PYTHON_RUNTIME_DIR="$APP_RESOURCES/Python"
 PYTHON_RUNTIME_VERSION="${OMNIVOICE_PYTHON_RUNTIME_VERSION:-3.12}"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
@@ -27,6 +28,8 @@ ICON_SOURCE="$ROOT_DIR/Assets/AppIcon/OmniVoiceIcon.svg"
 ICONSET_DIR="$DIST_DIR/OmniVoice.iconset"
 ICON_DIST_FILE="$DIST_DIR/OmniVoice.icns"
 ICON_BUNDLE_FILE="$APP_RESOURCES/OmniVoice.icns"
+DOCS_BUNDLE_DIR="$APP_RESOURCES/Docs"
+INTEGRATIONS_BUNDLE_DIR="$APP_RESOURCES/Integrations"
 DMG_STAGING="$DIST_DIR/dmg-staging"
 DMG_PATH="$DIST_DIR/OmniVoice.dmg"
 ENGINE_PID_FILE="$DIST_DIR/engine.pid"
@@ -45,20 +48,16 @@ cd "$ROOT_DIR"
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
 add_local_keychain_to_search_list() {
-  local current_keychains=()
-  local keychain
-  while IFS= read -r keychain; do
-    keychain="${keychain#"${keychain%%[![:space:]]*}"}"
-    keychain="${keychain%"${keychain##*[![:space:]]}"}"
-    keychain="${keychain//\"/}"
-    [[ "$keychain" == /* ]] && current_keychains+=("$keychain")
-  done < <(/usr/bin/security list-keychains -d user)
-
-  for keychain in "${current_keychains[@]}"; do
-    [[ "$keychain" == "$LOCAL_CODESIGN_KEYCHAIN" ]] && return
-  done
-
-  /usr/bin/security list-keychains -d user -s "$LOCAL_CODESIGN_KEYCHAIN" "${current_keychains[@]}"
+  # Set the user keychain search list to exactly [local-codesign, login],
+  # rebuilt from scratch each call. The previous implementation prepended the
+  # local keychain to whatever `security list-keychains` returned and re-fed it;
+  # with a repo path containing a space ("Main External") and concurrent builds
+  # from multiple worktrees, that accumulated/garbled entries and could bury the
+  # real login keychain — hiding the Developer ID certificate from codesign.
+  # An explicit, fixed two-entry list is idempotent and corruption-proof.
+  /usr/bin/security list-keychains -d user -s \
+    "$LOCAL_CODESIGN_KEYCHAIN" \
+    "$HOME/Library/Keychains/login.keychain-db"
 }
 
 run_with_timeout() {
@@ -120,6 +119,7 @@ stop_engine() {
   fi
 
   pkill -f "$ROOT_DIR/engine/.venv/bin/uvicorn omnivoice_engine.main:app --host 127.0.0.1 --port 8765" >/dev/null 2>&1 || true
+  pkill -f "Application Support/OmniVoice/engine-venv/bin/uvicorn omnivoice_engine.main:app --host 127.0.0.1 --port 8765" >/dev/null 2>&1 || true
   pkill -f "$ROOT_DIR/scripts/run-engine.sh" >/dev/null 2>&1 || true
   rm -f "$ENGINE_PID_FILE" "$ENGINE_APP_PATH_FILE"
 }
@@ -386,6 +386,72 @@ bundle_engine() {
   find "$ENGINE_BUNDLE_DIR" -name "*.pyo" -type f -delete
 }
 
+bundle_engine_wheelhouse() {
+  local bundled_python
+  bundled_python="$(python_runtime_bin "$PYTHON_RUNTIME_DIR")"
+  if [[ -z "$bundled_python" ]]; then
+    echo "Cannot bundle engine wheelhouse without embedded Python." >&2
+    return 1
+  fi
+
+  rm -rf "$ENGINE_WHEELHOUSE_DIR"
+  mkdir -p "$ENGINE_WHEELHOUSE_DIR"
+
+  local requirements_file
+  requirements_file="$(mktemp /tmp/omnivoice-engine-requirements.XXXXXX)"
+  "$bundled_python" - "$ROOT_DIR/engine/pyproject.toml" "$requirements_file" <<'PY'
+import pathlib
+import sys
+import tomllib
+
+pyproject_path = pathlib.Path(sys.argv[1])
+requirements_path = pathlib.Path(sys.argv[2])
+project = tomllib.loads(pyproject_path.read_text())
+dependencies = [
+    "setuptools>=69",
+    "wheel>=0.43",
+    *project["project"].get("dependencies", []),
+]
+optional = project["project"].get("optional-dependencies", {})
+for extra in ("asr", "mlx-asr", "mlx-diarization"):
+    dependencies.extend(optional.get(extra, []))
+
+seen: set[str] = set()
+deduped: list[str] = []
+for dependency in dependencies:
+    if dependency not in seen:
+        seen.add(dependency)
+        deduped.append(dependency)
+
+requirements_path.write_text("\n".join(deduped) + "\n")
+PY
+
+  "$bundled_python" -m ensurepip --upgrade >/dev/null 2>&1 || true
+  "$bundled_python" -m pip download --prefer-binary --dest "$ENGINE_WHEELHOUSE_DIR" --requirement "$requirements_file"
+  rm -f "$requirements_file"
+
+  find "$ENGINE_WHEELHOUSE_DIR" -name "__pycache__" -type d -prune -exec rm -rf {} +
+  find "$ENGINE_WHEELHOUSE_DIR" -name "*.pyc" -type f -delete
+  find "$ENGINE_WHEELHOUSE_DIR" -name "*.pyo" -type f -delete
+}
+
+bundle_support_files() {
+  rm -rf "$DOCS_BUNDLE_DIR" "$INTEGRATIONS_BUNDLE_DIR"
+  mkdir -p "$DOCS_BUNDLE_DIR" "$INTEGRATIONS_BUNDLE_DIR"
+
+  cp "$ROOT_DIR/README.md" "$DOCS_BUNDLE_DIR/"
+  cp "$ROOT_DIR/docs/LOCAL_DISTRIBUTION.md" "$DOCS_BUNDLE_DIR/"
+  cp "$ROOT_DIR/docs/OMNIVOICE_QUICK_REFERENCE.md" "$DOCS_BUNDLE_DIR/"
+  cp "$ROOT_DIR/docs/INTEGRATIONS.md" "$DOCS_BUNDLE_DIR/"
+
+  if [[ -d "$ROOT_DIR/integrations/raycast" ]]; then
+    mkdir -p "$INTEGRATIONS_BUNDLE_DIR/raycast"
+    /usr/bin/rsync -a --delete \
+      --exclude ".DS_Store" \
+      "$ROOT_DIR/integrations/raycast/" "$INTEGRATIONS_BUNDLE_DIR/raycast/"
+  fi
+}
+
 resolve_codesign_identity() {
   if [[ -n "${OMNIVOICE_CODESIGN_IDENTITY:-}" ]]; then
     CODESIGN_IDENTITY="$OMNIVOICE_CODESIGN_IDENTITY"
@@ -468,17 +534,48 @@ cat >"$INFO_PLIST" <<PLIST
   <string>NSApplication</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>OmniVoice uses the microphone for push-to-talk dictation.</string>
+  <key>SUFeedURL</key>
+  <string>https://github.com/MichaelDanCurtis/OmniVoice/releases/latest/download/appcast.xml</string>
+  <key>SUPublicEDKey</key>
+  <string>weUAjU02WUhH7OGMPaQTT1Nwn4s+2cA496LzavhpTiE=</string>
+  <key>SUEnableAutomaticChecks</key>
+  <true/>
+  <key>SUScheduledCheckInterval</key>
+  <integer>86400</integer>
 </dict>
 </plist>
 PLIST
 
+bundle_sparkle() {
+  # Embed Sparkle.framework (auto-updater) into the app bundle and make the
+  # executable resolve it at @executable_path/../Frameworks. Required on EVERY
+  # build — without it dyld can't satisfy @rpath/Sparkle.framework and the app
+  # crashes on launch.
+  local src
+  src="$(swift build --show-bin-path)/Sparkle.framework"
+  if [[ ! -d "$src" ]]; then
+    echo "Sparkle.framework not found at $src; build the package first." >&2
+    return 1
+  fi
+  mkdir -p "$APP_CONTENTS/Frameworks"
+  rm -rf "$APP_CONTENTS/Frameworks/Sparkle.framework"
+  cp -R "$src" "$APP_CONTENTS/Frameworks/Sparkle.framework"
+  # SwiftPM links with @loader_path only; add the Frameworks rpath if absent.
+  if ! /usr/bin/otool -l "$APP_BINARY" | grep -q "@executable_path/../Frameworks"; then
+    /usr/bin/install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BINARY" 2>/dev/null || true
+  fi
+}
+
 build_icon
 bundle_python_runtime
 bundle_engine
+bundle_engine_wheelhouse
+bundle_support_files
+bundle_sparkle
 
 xattr -dr com.apple.quarantine "$APP_BUNDLE" >/dev/null 2>&1 || true
-sign_app_bundle
 protect_python_runtime
+sign_app_bundle
 /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
 
 unregister_stale_launch_services() {
@@ -524,6 +621,8 @@ open_app() {
 }
 
 create_dmg() {
+  make_bundle_writable_for_rebuild "$DMG_STAGING/$APP_DISPLAY_NAME.app"
+  chmod -R u+w "$DMG_STAGING" >/dev/null 2>&1 || true
   rm -rf "$DMG_STAGING" "$DMG_PATH"
   mkdir -p "$DMG_STAGING"
 
@@ -541,7 +640,7 @@ On first launch, the app checks http://127.0.0.1:8765. If the engine is not alre
 
 ~/Library/Application Support/OmniVoice
 
-OmniVoice includes its own Python runtime. ASR dependencies and Hugging Face models are installed/downloaded locally, not bundled into this DMG.
+OmniVoice includes its own Python runtime and a bundled Python wheelhouse for normal engine dependencies. Hugging Face model weights are downloaded locally and are not bundled into this DMG.
 
 This build is locally signed for development. Public distribution still needs Developer ID signing and notarization.
 README

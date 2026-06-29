@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      OmniVoice ships an embedded CPython 3.12 runtime that runs the local
+      FastAPI ASR engine and loads MLX (Metal) + native wheels. Under the
+      hardened runtime (required for Developer ID notarization) those need:
+    -->
+
+    <!-- CPython / MLX generate executable code at runtime (JIT, Metal kernels). -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!--
+      The engine pip-installs native wheels (numpy, scipy, mlx, sherpa-onnx,
+      tokenizers, ...) at first run into Application Support. Those .dylib/.so
+      are signed by other teams or unsigned, so library validation must be off
+      or the bundled interpreter cannot dlopen them.
+    -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- The bundled engine launcher exports PYTHONHOME / DYLD_* before exec. -->
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+
+    <!-- NOTE: deliberately NOT sandboxed. The App Sandbox is incompatible with
+         OmniVoice's core (Accessibility text insertion into other apps, global
+         hotkeys, spawning the Python engine), which is why this app is
+         distributed via Developer ID + notarization rather than the App Store. -->
+</dict>
+</plist>

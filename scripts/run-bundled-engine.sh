@@ -5,12 +5,14 @@ BUNDLED_ENGINE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_RESOURCES_DIR="$(cd "$BUNDLED_ENGINE_ROOT/.." && pwd)"
 BUNDLED_PYTHON_BIN="$APP_RESOURCES_DIR/Python/bin/python3.12"
 BUNDLED_PYTHON_FALLBACK_BIN="$APP_RESOURCES_DIR/Python/bin/python3"
+BUNDLED_WHEELHOUSE_DIR="$BUNDLED_ENGINE_ROOT/wheelhouse"
 APP_SUPPORT_DIR="${OMNIVOICE_APP_SUPPORT_DIR:-$HOME/Library/Application Support/OmniVoice}"
 VENV_DIR="${OMNIVOICE_ENGINE_VENV:-$APP_SUPPORT_DIR/engine-venv}"
 RUNTIME_ENGINE_ROOT="$APP_SUPPORT_DIR/engine-source"
 PYTHON_BIN="${OMNIVOICE_PYTHON:-}"
 PORT="${OMNIVOICE_ENGINE_PORT:-8765}"
-ALLOW_SYSTEM_PYTHON_FALLBACK="${OMNIVOICE_ALLOW_SYSTEM_PYTHON_FALLBACK:-1}"
+ALLOW_SYSTEM_PYTHON_FALLBACK="${OMNIVOICE_ALLOW_SYSTEM_PYTHON_FALLBACK:-0}"
+USE_BUNDLED_WHEELHOUSE="${OMNIVOICE_USE_BUNDLED_WHEELHOUSE:-1}"
 
 # The bundled Python runtime lives inside the signed app bundle, so it must not
 # write __pycache__ files into Contents/Resources at launch time.
@@ -126,25 +128,75 @@ if ! python_is_supported "$(command -v python)" "3.12"; then
   echo "OmniVoice engine venv is not using Python 3.12 or newer after creation." >&2
   exit 1
 fi
+
+python_module_available() {
+  python - "$1" <<'PY' >/dev/null 2>&1
+import importlib.util
+import sys
+
+try:
+    available = importlib.util.find_spec(sys.argv[1]) is not None
+except (ImportError, ModuleNotFoundError, ValueError):
+    available = False
+raise SystemExit(0 if available else 1)
+PY
+}
+
+PIP_INSTALL_ARGS=()
+
+configure_pip_install_args() {
+  if [[ "$USE_BUNDLED_WHEELHOUSE" != "1" ]]; then
+    return
+  fi
+
+  if [[ ! -d "$BUNDLED_WHEELHOUSE_DIR" ]] || ! find "$BUNDLED_WHEELHOUSE_DIR" -type f \( -name "*.whl" -o -name "*.tar.gz" -o -name "*.zip" \) -print -quit | grep -q .; then
+    echo "Bundled OmniVoice Python wheelhouse is missing at $BUNDLED_WHEELHOUSE_DIR." >&2
+    echo "Reinstall OmniVoice, or set OMNIVOICE_USE_BUNDLED_WHEELHOUSE=0 to allow network package installation." >&2
+    exit 127
+  fi
+
+  PIP_INSTALL_ARGS=(--no-index --find-links "$BUNDLED_WHEELHOUSE_DIR")
+}
+
+pip_install() {
+  python -m pip install "${PIP_INSTALL_ARGS[@]}" "$@"
+}
+
+configure_pip_install_args
+
 python -m ensurepip --upgrade >/dev/null 2>&1 || true
-python -m pip install --upgrade pip
-python -m pip install "$RUNTIME_ENGINE_ROOT"
+pip_install --upgrade setuptools wheel
+pip_install --no-build-isolation "$RUNTIME_ENGINE_ROOT"
 
 if [[ "${OMNIVOICE_INSTALL_ASR:-1}" = "1" ]]; then
-  python -m pip install "$RUNTIME_ENGINE_ROOT[asr]"
+  pip_install --no-build-isolation "$RUNTIME_ENGINE_ROOT[asr]"
 fi
 
 if [[ "${OMNIVOICE_INSTALL_MLX_DIARIZATION:-0}" = "1" ]]; then
-  python -m pip install "$RUNTIME_ENGINE_ROOT[mlx-diarization]" || echo "MLX diarization runtime install failed; continuing without it." >&2
+  pip_install --no-build-isolation "$RUNTIME_ENGINE_ROOT[mlx-diarization]" || echo "MLX diarization runtime install failed; continuing without it." >&2
 fi
 
 if [[ "${OMNIVOICE_INSTALL_MLX_ASR:-0}" = "1" ]]; then
-  python -m pip install "$RUNTIME_ENGINE_ROOT[mlx-asr]" || echo "MLX ASR runtime install failed; continuing without it." >&2
+  pip_install --no-build-isolation "$RUNTIME_ENGINE_ROOT[mlx-asr]" || echo "MLX ASR runtime install failed; continuing without it." >&2
+fi
+
+if [[ "${OMNIVOICE_INSTALL_CANARY_ASR:-0}" = "1" ]]; then
+  if ! python_module_available "nemo.collections.speechlm2.models"; then
+    if ! pip_install --no-build-isolation "$RUNTIME_ENGINE_ROOT[canary-asr]"; then
+      if [[ "$USE_BUNDLED_WHEELHOUSE" = "1" ]]; then
+        echo "Canary-Qwen runtime is not part of the bundled wheelhouse; retrying with network package installation." >&2
+        python -m pip install --no-build-isolation "$RUNTIME_ENGINE_ROOT[canary-asr]" || echo "Canary-Qwen runtime install failed; continuing without it." >&2
+      else
+        echo "Canary-Qwen runtime install failed; continuing without it." >&2
+      fi
+    fi
+  fi
 fi
 
 export OMNIVOICE_MODEL_ROOT="${OMNIVOICE_MODEL_ROOT:-$APP_SUPPORT_DIR/models}"
 export OMNIVOICE_PARAKEET_MODEL_DIR="${OMNIVOICE_PARAKEET_MODEL_DIR:-$OMNIVOICE_MODEL_ROOT/parakeet-tdt}"
 export OMNIVOICE_PARAKEET_MLX_MODEL_DIR="${OMNIVOICE_PARAKEET_MLX_MODEL_DIR:-$OMNIVOICE_MODEL_ROOT/parakeet-tdt-mlx}"
+export OMNIVOICE_WHISPER_MLX_MODEL_DIR="${OMNIVOICE_WHISPER_MLX_MODEL_DIR:-$OMNIVOICE_MODEL_ROOT/whisper-large-v3-turbo-mlx-6bit}"
 export OMNIVOICE_CANARY_MODEL_DIR="${OMNIVOICE_CANARY_MODEL_DIR:-$OMNIVOICE_MODEL_ROOT/canary-qwen-2.5b}"
 export OMNIVOICE_MLX_SORTFORMER_FP16_DIR="${OMNIVOICE_MLX_SORTFORMER_FP16_DIR:-$OMNIVOICE_MODEL_ROOT/mlx-sortformer-streaming-fp16}"
 export OMNIVOICE_MLX_SORTFORMER_FP32_DIR="${OMNIVOICE_MLX_SORTFORMER_FP32_DIR:-$OMNIVOICE_MODEL_ROOT/mlx-sortformer-streaming-fp32}"

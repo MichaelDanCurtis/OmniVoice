@@ -4,8 +4,10 @@ from types import ModuleType
 from types import SimpleNamespace
 
 from omnivoice_engine.providers.registry import ProviderRegistry
+from omnivoice_engine.providers.canary_qwen import CanaryQwenProvider
 from omnivoice_engine.providers.parakeet_sherpa import ParakeetSherpaProvider
 from omnivoice_engine.providers.parakeet_mlx import ParakeetMLXProvider
+from omnivoice_engine.providers.whisper_mlx import WhisperMLXProvider
 
 
 def test_fake_provider_is_available():
@@ -144,6 +146,93 @@ def test_mlx_parakeet_provider_preserves_aligned_tokens(tmp_path, monkeypatch):
     assert [(token.start_ms, token.end_ms) for token in transcript.tokens] == [(100, 400), (400, 850)]
 
 
+def test_whisper_mlx_provider_is_visible_as_multilingual_apple_silicon_backend(monkeypatch):
+    monkeypatch.setenv("OMNIVOICE_WHISPER_MLX_MODEL_DIR", "/tmp/omnivoice-missing-whisper-model")
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr("platform.machine", lambda: "arm64")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "mlx_audio" else None)
+    registry = ProviderRegistry()
+
+    providers = registry.list_providers()
+
+    whisper = next(provider for provider in providers if provider.id == "whisper-large-v3-turbo-mlx-6bit")
+    assert whisper.available is False
+    assert whisper.label == "Whisper Large v3 Turbo MLX 6-bit"
+    assert "model files not found" in whisper.reason
+
+
+def test_whisper_mlx_provider_requires_apple_silicon(monkeypatch):
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    monkeypatch.setattr("platform.machine", lambda: "x86_64")
+
+    info = WhisperMLXProvider("/tmp/unused").info()
+
+    assert info.available is False
+    assert info.reason == "Whisper MLX requires Apple Silicon macOS"
+
+
+def test_whisper_mlx_provider_reports_missing_runtime(tmp_path, monkeypatch):
+    for filename in ["config.json", "model.safetensors", "tokenizer.json", "preprocessor_config.json"]:
+        (tmp_path / filename).write_text("model")
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr("platform.machine", lambda: "arm64")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+
+    info = WhisperMLXProvider(str(tmp_path)).info()
+
+    assert info.available is False
+    assert info.reason == "mlx-audio runtime is not installed"
+
+
+def test_whisper_mlx_provider_transcribes_with_local_model_dir(tmp_path, monkeypatch):
+    captured = {}
+    fake_utils_module = ModuleType("mlx_audio.stt.utils")
+    fake_generate_module = ModuleType("mlx_audio.stt.generate")
+
+    for filename in ["config.json", "model.safetensors", "tokenizer.json", "preprocessor_config.json"]:
+        (tmp_path / filename).write_text("model")
+
+    class FakeModel:
+        pass
+
+    def fake_load_model(model_path, lazy=False, strict=False):
+        captured["model_path"] = model_path
+        captured["lazy"] = lazy
+        captured["strict"] = strict
+        return FakeModel()
+
+    def fake_generate_transcription(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            text="你好世界",
+            segments=[
+                {"text": "你好", "start": 0.0, "end": 0.4},
+                {"text": "世界", "start": 0.4, "end": 0.9},
+            ],
+        )
+
+    fake_utils_module.load_model = fake_load_model
+    fake_generate_module.generate_transcription = fake_generate_transcription
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr("platform.machine", lambda: "arm64")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "mlx_audio" else None)
+    monkeypatch.setitem(sys.modules, "mlx_audio", ModuleType("mlx_audio"))
+    monkeypatch.setitem(sys.modules, "mlx_audio.stt", ModuleType("mlx_audio.stt"))
+    monkeypatch.setitem(sys.modules, "mlx_audio.stt.utils", fake_utils_module)
+    monkeypatch.setitem(sys.modules, "mlx_audio.stt.generate", fake_generate_module)
+
+    transcript = WhisperMLXProvider(str(tmp_path)).transcribe_aligned_pcm_float32(b"\0\0\0\0" * 16, 16000)
+
+    assert transcript.text == "你好世界"
+    assert captured["model_path"] == str(tmp_path)
+    assert captured["audio"].endswith(".wav")
+    assert captured["format"] == "txt"
+    assert captured["verbose"] is False
+    assert captured["task"] == "transcribe"
+    assert [sentence.text for sentence in transcript.sentences] == ["你好", "世界"]
+    assert [(sentence.start_ms, sentence.end_ms) for sentence in transcript.sentences] == [(0, 400), (400, 900)]
+
+
 def test_parakeet_provider_default_dir_uses_project_models_when_started_from_engine_dir(tmp_path, monkeypatch):
     project_root = tmp_path / "OmniVoice"
     package_dir = project_root / "engine" / "omnivoice_engine" / "providers"
@@ -220,11 +309,137 @@ def test_parakeet_provider_returns_empty_text_for_empty_request_body(tmp_path, m
     assert ParakeetSherpaProvider(str(tmp_path)).transcribe(b"") == ""
 
 
-def test_canary_qwen_provider_is_visible_as_installable_accuracy_mode():
+def test_canary_qwen_provider_is_visible_as_installable_accuracy_mode(monkeypatch):
+    monkeypatch.setenv("OMNIVOICE_CANARY_MODEL_DIR", "/tmp/omnivoice-missing-canary-model")
     registry = ProviderRegistry()
 
     providers = registry.list_providers()
 
     canary = next(provider for provider in providers if provider.id == "canary-qwen-2.5b")
     assert canary.available is False
-    assert canary.reason == "Canary-Qwen-2.5B runtime is not installed in this build"
+    assert canary.label == "Canary-Qwen-2.5B"
+    assert "model files not found" in canary.reason
+
+
+def test_canary_qwen_provider_reports_missing_runtime(tmp_path, monkeypatch):
+    for filename in ["config.json", "model.safetensors"]:
+        (tmp_path / filename).write_text("model")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+
+    info = CanaryQwenProvider(str(tmp_path)).info()
+
+    assert info.available is False
+    assert info.reason == "NVIDIA NeMo speechlm2 runtime is not installed"
+
+
+def test_canary_qwen_provider_transcribes_with_local_model_dir(tmp_path, monkeypatch):
+    captured = {}
+    fake_models_module = ModuleType("nemo.collections.speechlm2.models")
+
+    for filename in ["config.json", "model.safetensors"]:
+        (tmp_path / filename).write_text("model")
+
+    class FakeIds:
+        def cpu(self):
+            return "decoded-token-ids"
+
+    class FakeTokenizer:
+        def ids_to_text(self, token_ids):
+            captured["token_ids"] = token_ids
+            return "hello from canary"
+
+    class FakeSALM:
+        audio_locator_tag = "<|audio|>"
+        tokenizer = FakeTokenizer()
+
+        @classmethod
+        def from_pretrained(cls, model_path):
+            captured["model_path"] = model_path
+            return cls()
+
+        def generate(self, prompts, max_new_tokens):
+            captured["prompts"] = prompts
+            captured["max_new_tokens"] = max_new_tokens
+            return [FakeIds()]
+
+    fake_models_module.SALM = FakeSALM
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name: object() if name == "nemo.collections.speechlm2.models" else None,
+    )
+    monkeypatch.setitem(sys.modules, "nemo", ModuleType("nemo"))
+    monkeypatch.setitem(sys.modules, "nemo.collections", ModuleType("nemo.collections"))
+    monkeypatch.setitem(sys.modules, "nemo.collections.speechlm2", ModuleType("nemo.collections.speechlm2"))
+    monkeypatch.setitem(sys.modules, "nemo.collections.speechlm2.models", fake_models_module)
+
+    transcript = CanaryQwenProvider(str(tmp_path)).transcribe_aligned_pcm_float32(b"\0\0\0\0" * 16, 16000)
+
+    assert transcript.text == "hello from canary"
+    assert captured["model_path"] == str(tmp_path)
+    assert captured["token_ids"] == "decoded-token-ids"
+    assert captured["max_new_tokens"] == 128
+    assert captured["prompts"][0][0]["content"] == "Transcribe the following: <|audio|>"
+    assert captured["prompts"][0][0]["audio"][0].endswith(".wav")
+
+
+def test_canary_qwen_provider_cleans_chat_template_echoes(tmp_path, monkeypatch):
+    captured = {}
+    fake_models_module = ModuleType("nemo.collections.speechlm2.models")
+
+    for filename in ["config.json", "model.safetensors"]:
+        (tmp_path / filename).write_text("model")
+
+    class FakeIds:
+        def cpu(self):
+            return [1, 2, 3]
+
+    class FakeTokenizer:
+        def decode(self, token_ids, skip_special_tokens=False):
+            captured["decode_token_ids"] = token_ids
+            captured["skip_special_tokens"] = skip_special_tokens
+            return "<|im_start|>user\nTranscribe the following: <|audioplaceholder|><|im_end|>\n<|im_start|>assistant\nHello from Canary.<|im_end|>"
+
+        def ids_to_text(self, token_ids):
+            captured["ids_to_text_token_ids"] = token_ids
+            return "should not be used"
+
+    class FakeSALM:
+        audio_locator_tag = "<|audioplaceholder|>"
+        tokenizer = FakeTokenizer()
+
+        @classmethod
+        def from_pretrained(cls, model_path):
+            captured["model_path"] = model_path
+            return cls()
+
+        def generate(self, prompts, max_new_tokens):
+            captured["prompts"] = prompts
+            captured["max_new_tokens"] = max_new_tokens
+            return [FakeIds()]
+
+    fake_models_module.SALM = FakeSALM
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name: object() if name == "nemo.collections.speechlm2.models" else None,
+    )
+    monkeypatch.setitem(sys.modules, "nemo", ModuleType("nemo"))
+    monkeypatch.setitem(sys.modules, "nemo.collections", ModuleType("nemo.collections"))
+    monkeypatch.setitem(sys.modules, "nemo.collections.speechlm2", ModuleType("nemo.collections.speechlm2"))
+    monkeypatch.setitem(sys.modules, "nemo.collections.speechlm2.models", fake_models_module)
+
+    transcript = CanaryQwenProvider(str(tmp_path)).transcribe_aligned_pcm_float32(b"\0\0\0\0" * 16, 16000)
+
+    assert transcript.text == "Hello from Canary."
+    assert captured["decode_token_ids"] == [1, 2, 3]
+    assert captured["skip_special_tokens"] is True
+    assert "ids_to_text_token_ids" not in captured
+    assert captured["max_new_tokens"] == 128
+
+
+def test_canary_qwen_provider_cleans_list_shaped_transcript_payload():
+    provider = CanaryQwenProvider("/tmp/unused")
+
+    assert provider._clean_text("['Hello from Canary.']") == "Hello from Canary."
+    assert provider._clean_text('["Hello", "from Canary."]') == "Hello from Canary."

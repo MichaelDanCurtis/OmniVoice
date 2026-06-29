@@ -2,6 +2,25 @@ import XCTest
 @testable import OmniVoiceCore
 
 final class PreferencesStoreTests: XCTestCase {
+    func testDefaultsSeedAskKeywordBindings() {
+        let kws = OmniVoicePreferences.defaults.askKeywordBindings.map(\.keyword)
+        XCTAssertEqual(kws, ["ai", "claude", "gemini"])
+        let ai = OmniVoicePreferences.defaults.askKeywordBindings.first { $0.keyword == "ai" }
+        XCTAssertEqual(ai?.target.kind, .textLLM)
+        let claude = OmniVoicePreferences.defaults.askKeywordBindings.first { $0.keyword == "claude" }
+        XCTAssertEqual(claude?.target, AskTarget(kind: .agent, id: "claude"))
+    }
+
+    func testOldPreferencesWithoutBindingsDecodeToSeededDefaults() throws {
+        let json = """
+        { "asr_provider": "parakeet-tdt-mlx", "style": "neutral", "dictionary_terms": [],
+          "microphone_id": null, "dictation_hotkey": { "key_code": 49, "modifiers": 2304 },
+          "style_hotkey": { "key_code": 1, "modifiers": 2304 } }
+        """.data(using: .utf8)!
+        let prefs = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: json)
+        XCTAssertEqual(prefs.askKeywordBindings.map(\.keyword), ["ai", "claude", "gemini"])
+    }
+
     func testDefaultsUseParakeetMLXAndNeutralStyle() {
         let preferences = OmniVoicePreferences.defaults
 
@@ -10,8 +29,15 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.dictionaryTerms, [])
         XCTAssertNil(preferences.microphoneID)
         XCTAssertEqual(preferences.dictationHotkey, .defaultDictation)
+        XCTAssertEqual(preferences.additionalDictationHotkeys, [])
         XCTAssertEqual(preferences.styleHotkey, .defaultStyle)
         XCTAssertEqual(preferences.hotMenuHotkey, .defaultHotMenu)
+        XCTAssertEqual(preferences.additionalDictationHotkeys, [])
+        XCTAssertEqual(preferences.transcriptCacheHotkey, .defaultTranscriptCache)
+        XCTAssertFalse(preferences.mousePushToTalkEnabled)
+        XCTAssertEqual(preferences.mousePushToTalkButton, .defaultPushToTalk)
+        XCTAssertFalse(preferences.transcriptCacheMouseEnabled)
+        XCTAssertEqual(preferences.transcriptCacheMouseButton, .defaultTranscriptCache)
         XCTAssertEqual(preferences.hotMenuActions(for: .up), [.openConversation, .transcriptionMode, .askAI])
         XCTAssertEqual(preferences.hotMenuActions(for: .left), [.cycleTranslationLanguage])
         XCTAssertEqual(preferences.hotMenuActions(for: .right), [.toggleTranslation])
@@ -20,6 +46,14 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.hotMenuLeftAction, .cycleTranslationLanguage)
         XCTAssertEqual(preferences.hotMenuRightAction, .toggleTranslation)
         XCTAssertEqual(preferences.hotMenuDownAction, .cycleStyle)
+        XCTAssertTrue(preferences.recordingSoundCuesEnabled)
+        XCTAssertTrue(preferences.recordingStartCueEnabled)
+        XCTAssertTrue(preferences.recordingStopCueEnabled)
+        XCTAssertEqual(preferences.recordingCueTiming, .both)
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .stop))
+        XCTAssertEqual(preferences.recordingCueSet, .glassTap)
+        XCTAssertEqual(preferences.recordingCueVolume, 0.28)
         XCTAssertFalse(preferences.firstRunSetupCompleted)
     }
 
@@ -57,11 +91,15 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.textLLMConfiguration(for: TextLLMProviderKind.claude).transport, .anthropic)
         XCTAssertFalse(preferences.textLLMConfiguration(for: TextLLMProviderKind.claude).enabled)
         XCTAssertFalse(preferences.textLLMConfiguration(for: TextLLMProviderKind.openAI).isConfigured)
-        XCTAssertEqual(preferences.mcpServers, [])
         XCTAssertFalse(preferences.liveDraftInsertionEnabled)
         XCTAssertEqual(preferences.conversationArchiveFolderPath, ConversationArchive.defaultRootURL().path)
         XCTAssertTrue(preferences.automaticallyArchiveConversations)
         XCTAssertEqual(preferences.hotMenuHotkey, .defaultHotMenu)
+        XCTAssertEqual(preferences.transcriptCacheHotkey, .defaultTranscriptCache)
+        XCTAssertFalse(preferences.mousePushToTalkEnabled)
+        XCTAssertEqual(preferences.mousePushToTalkButton, .defaultPushToTalk)
+        XCTAssertFalse(preferences.transcriptCacheMouseEnabled)
+        XCTAssertEqual(preferences.transcriptCacheMouseButton, .defaultTranscriptCache)
         XCTAssertEqual(preferences.hotMenuActions(for: .up), [.openConversation, .transcriptionMode, .askAI])
         XCTAssertEqual(preferences.hotMenuActions(for: .left), [.cycleTranslationLanguage])
         XCTAssertEqual(preferences.hotMenuActions(for: .right), [.toggleTranslation])
@@ -106,6 +144,17 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.asrProvider, .parakeetTDTMLX)
         XCTAssertEqual(preferences.conversationArchiveFolderPath, ConversationArchive.defaultRootURL().path)
         XCTAssertTrue(preferences.automaticallyArchiveConversations)
+        XCTAssertTrue(preferences.recordingSoundCuesEnabled)
+        XCTAssertTrue(preferences.recordingStartCueEnabled)
+        XCTAssertTrue(preferences.recordingStopCueEnabled)
+        XCTAssertEqual(preferences.recordingCueSet, .glassTap)
+        XCTAssertEqual(preferences.recordingCueVolume, 0.28)
+        XCTAssertEqual(preferences.additionalDictationHotkeys, [])
+        XCTAssertEqual(preferences.transcriptCacheHotkey, .defaultTranscriptCache)
+        XCTAssertFalse(preferences.mousePushToTalkEnabled)
+        XCTAssertEqual(preferences.mousePushToTalkButton, .defaultPushToTalk)
+        XCTAssertFalse(preferences.transcriptCacheMouseEnabled)
+        XCTAssertEqual(preferences.transcriptCacheMouseButton, .defaultTranscriptCache)
         XCTAssertFalse(preferences.firstRunSetupCompleted)
     }
 
@@ -136,16 +185,68 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertNotNil(object["open_ai_compatible_api_key"])
         XCTAssertNotNil(object["text_llm_default_provider"])
         XCTAssertNotNil(object["text_llm_providers"])
-        XCTAssertNotNil(object["mcp_servers"])
         XCTAssertNotNil(object["live_draft_insertion_enabled"])
         XCTAssertNotNil(object["conversation_archive_folder_path"])
         XCTAssertNotNil(object["automatically_archive_conversations"])
+        XCTAssertNotNil(object["recording_sound_cues_enabled"])
+        XCTAssertNotNil(object["recording_start_cue_enabled"])
+        XCTAssertNotNil(object["recording_stop_cue_enabled"])
+        XCTAssertNotNil(object["recording_cue_set"])
+        XCTAssertNotNil(object["recording_cue_volume"])
         XCTAssertNotNil(object["hot_menu_hotkey"])
+        XCTAssertNotNil(object["additional_dictation_hotkeys"])
+        XCTAssertNotNil(object["transcript_cache_hotkey"])
         XCTAssertNotNil(object["hot_menu_up_actions"])
         XCTAssertNotNil(object["hot_menu_left_actions"])
         XCTAssertNotNil(object["hot_menu_right_actions"])
         XCTAssertNotNil(object["hot_menu_down_actions"])
+        XCTAssertNotNil(object["mouse_push_to_talk_enabled"])
+        XCTAssertNotNil(object["mouse_push_to_talk_button"])
+        XCTAssertNotNil(object["transcript_cache_mouse_enabled"])
+        XCTAssertNotNil(object["transcript_cache_mouse_button"])
         XCTAssertNotNil(object["first_run_setup_completed"])
+    }
+
+    func testRecordingCueEventPreferencesCanBeControlledIndependently() {
+        var preferences = OmniVoicePreferences.defaults
+
+        preferences.recordingCueTiming = .stop
+        XCTAssertFalse(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .stop))
+        XCTAssertEqual(preferences.recordingCueTiming, .stop)
+
+        preferences.recordingCueTiming = .start
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertFalse(preferences.isRecordingCueEnabled(for: .stop))
+        XCTAssertEqual(preferences.recordingCueTiming, .start)
+
+        preferences.recordingCueTiming = .both
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .stop))
+
+        preferences.recordingSoundCuesEnabled = false
+        XCTAssertFalse(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertFalse(preferences.isRecordingCueEnabled(for: .stop))
+    }
+
+    func testRecordingCueTimingExposesThreeWayDisplayNames() {
+        XCTAssertEqual(RecordingCueTiming.allCases.map(\.displayName), ["Start", "Stop", "Both"])
+    }
+
+    func testRecordingCueTimingNormalizesLegacyBothOffState() {
+        let preferences = OmniVoicePreferences(
+            asrProvider: .parakeetTDTMLX,
+            style: .neutral,
+            dictionaryTerms: [],
+            recordingStartCueEnabled: false,
+            recordingStopCueEnabled: false
+        )
+
+        XCTAssertEqual(preferences.recordingCueTiming, .both)
+        XCTAssertTrue(preferences.recordingStartCueEnabled)
+        XCTAssertTrue(preferences.recordingStopCueEnabled)
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .start))
+        XCTAssertTrue(preferences.isRecordingCueEnabled(for: .stop))
     }
 
     func testLegacyDiarizationPrecisionFallsBackFromProvider() throws {
@@ -190,35 +291,6 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(custom.apiKey, "local-key")
         XCTAssertTrue(custom.enabled)
         XCTAssertTrue(custom.isConfigured)
-    }
-
-    func testMCPServersRoundTripThroughPreferences() throws {
-        var preferences = OmniVoicePreferences.defaults
-        let serverID = UUID(uuidString: "00000000-0000-0000-0000-000000000123")!
-        let variableID = UUID(uuidString: "00000000-0000-0000-0000-000000000456")!
-
-        preferences.setMCPServer(
-            MCPServerConfiguration(
-                id: serverID,
-                name: "  Obsidian  ",
-                command: "  npx  ",
-                arguments: "-y obsidian-mcp",
-                environment: [
-                    MCPEnvironmentVariable(id: variableID, name: "  OBSIDIAN_PATH  ", value: "  ~/Documents/Vault  ")
-                ],
-                enabled: true
-            )
-        )
-
-        let data = try EngineCoding.encoder.encode(preferences)
-        let decoded = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: data)
-
-        XCTAssertEqual(decoded.mcpServers.count, 1)
-        XCTAssertEqual(decoded.mcpServers[0].id, serverID)
-        XCTAssertEqual(decoded.mcpServers[0].name, "Obsidian")
-        XCTAssertEqual(decoded.mcpServers[0].command, "npx")
-        XCTAssertEqual(decoded.mcpServers[0].environment[0].name, "OBSIDIAN_PATH")
-        XCTAssertEqual(decoded.mcpServers[0].environment[0].value, "~/Documents/Vault")
     }
 
     func testLegacySingleHotMenuActionsDecodeIntoActionCycles() throws {
@@ -437,6 +509,10 @@ final class PreferencesStoreTests: XCTestCase {
 
         preferences.cycleASRProvider()
 
+        XCTAssertEqual(preferences.asrProvider, .whisperLargeV3TurboMLX6Bit)
+
+        preferences.cycleASRProvider()
+
         XCTAssertEqual(preferences.asrProvider, .canaryQwen25B)
 
         preferences.cycleASRProvider()
@@ -488,8 +564,13 @@ final class PreferencesStoreTests: XCTestCase {
             dictionaryTerms: ["CUDA", "SwiftUI"],
             microphoneID: "BuiltInMicrophoneDevice",
             dictationHotkey: HotkeyBinding(keyCode: 12, modifiers: 2_304),
+            additionalDictationHotkeys: [
+                HotkeyBinding(keyCode: 2, modifiers: 2_304),
+                HotkeyBinding(keyCode: 3, modifiers: 2_304),
+            ],
             styleHotkey: HotkeyBinding(keyCode: 13, modifiers: 2_304),
             hotMenuHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(command: true, option: true, control: true)),
+            transcriptCacheHotkey: HotkeyBinding(keyCode: 14, modifiers: 2_304),
             hotMenuUpActions: [.openDashboard, .dictation],
             hotMenuLeftActions: [.toggleTranslation, .cycleASRProvider],
             hotMenuRightActions: [.dictation, .openConversation],
@@ -536,8 +617,12 @@ final class PreferencesStoreTests: XCTestCase {
             dictionaryTerms: [],
             microphoneID: "USBMicDevice",
             dictationHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(option: true, control: true)),
+            additionalDictationHotkeys: [
+                .modifierOnly(HotkeyBinding.carbonModifiers(command: true, control: true)),
+            ],
             styleHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(control: true, shift: true)),
-            hotMenuHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(command: true, option: true))
+            hotMenuHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(command: true, option: true)),
+            transcriptCacheHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(command: true, shift: true))
         )
 
         try store.save(preferences)
@@ -553,5 +638,31 @@ final class PreferencesStoreTests: XCTestCase {
         let store = PreferencesStore(userDefaults: defaults)
 
         XCTAssertEqual(try store.load(), .defaults)
+    }
+
+    func testDefaultsHaveNoCustomAgents() {
+        XCTAssertEqual(OmniVoicePreferences.defaults.customAgents, [])
+    }
+
+    func testCustomAgentsRoundTripThroughStore() throws {
+        let suiteName = "OmniVoicePreferencesStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = PreferencesStore(userDefaults: defaults)
+        var prefs = OmniVoicePreferences.defaults
+        prefs.customAgents = [AgentConfiguration(id: "glm", displayName: "GLM",
+            keyword: "glm", binaryPath: "/x")]
+        try store.save(prefs)
+        XCTAssertEqual(try store.load().customAgents, prefs.customAgents)
+    }
+
+    func testOldPreferencesWithoutCustomAgentsDecodeToEmpty() throws {
+        let json = """
+        { "asr_provider": "parakeet-tdt-mlx", "style": "neutral", "dictionary_terms": [],
+          "microphone_id": null, "dictation_hotkey": { "key_code": 49, "modifiers": 2304 },
+          "style_hotkey": { "key_code": 1, "modifiers": 2304 } }
+        """.data(using: .utf8)!
+        let prefs = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: json)
+        XCTAssertEqual(prefs.customAgents, [])
     }
 }

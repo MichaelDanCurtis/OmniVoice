@@ -187,12 +187,14 @@ def translation_capabilities(
     provider_id: str = Query("translategemma-mlx"),
     model_provider_id: str = Query(""),
     model_path: str = Query(""),
+    asr_provider: str = Query("parakeet-tdt-mlx"),
 ) -> TranslationCapabilities:
     try:
         return translation_registry.capabilities(
             provider_id,
             model_path=model_path,
             model_provider_id=model_provider_id or None,
+            asr_provider_id=asr_provider,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"unknown translation provider: {provider_id}") from exc

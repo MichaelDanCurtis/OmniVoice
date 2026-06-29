@@ -22,13 +22,56 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(ASRProviderKind.fake.rawValue, "fake")
         XCTAssertEqual(ASRProviderKind.parakeetTDT.rawValue, "parakeet-tdt")
         XCTAssertEqual(ASRProviderKind.parakeetTDTMLX.rawValue, "parakeet-tdt-mlx")
+        XCTAssertEqual(ASRProviderKind.whisperLargeV3TurboMLX6Bit.rawValue, "whisper-large-v3-turbo-mlx-6bit")
         XCTAssertEqual(ASRProviderKind.canaryQwen25B.rawValue, "canary-qwen-2.5b")
     }
 
     func testASRProviderUserSelectableCasesUseProductionLocalModels() {
-        XCTAssertEqual(ASRProviderKind.userSelectableCases, [.parakeetTDTMLX, .canaryQwen25B])
+        XCTAssertEqual(ASRProviderKind.userSelectableCases, [.parakeetTDTMLX, .whisperLargeV3TurboMLX6Bit, .canaryQwen25B])
         XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.fake))
         XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.parakeetTDT))
+    }
+
+    func testSpeechModelRecommendationsExposeCuratedASRChoices() {
+        XCTAssertEqual(SpeechModelRecommendation.defaultProviderID, "parakeet-tdt-mlx")
+        XCTAssertEqual(SpeechModelRecommendation.allCases.map(\.providerID), [
+            "parakeet-tdt-mlx",
+            "whisper-large-v3-turbo-mlx-6bit",
+            "canary-qwen-2.5b",
+        ])
+        XCTAssertEqual(SpeechModelRecommendation.parakeetTDTMLX.displayName, "Parakeet TDT MLX")
+        XCTAssertEqual(SpeechModelRecommendation.parakeetTDTMLX.badge, "Fast / Default")
+        XCTAssertEqual(SpeechModelRecommendation.whisperLargeV3TurboMLX6Bit.displayName, "Whisper Large v3 Turbo MLX 6-bit")
+        XCTAssertEqual(SpeechModelRecommendation.whisperLargeV3TurboMLX6Bit.badge, "Multilingual")
+        XCTAssertEqual(SpeechModelRecommendation.canaryQwen25B.displayName, "Canary-Qwen-2.5B")
+        XCTAssertEqual(SpeechModelRecommendation.canaryQwen25B.badge, "English Accuracy")
+        XCTAssertEqual(SpeechModelRecommendation.canaryQwen25B.providerKind, .canaryQwen25B)
+    }
+
+    func testASRProviderDisplayNamesAreReadableBeforeEngineRefresh() {
+        XCTAssertEqual(ASRProviderKind.fake.displayName, "Fake ASR")
+        XCTAssertEqual(ASRProviderKind.parakeetTDT.displayName, "Parakeet TDT")
+        XCTAssertEqual(ASRProviderKind.parakeetTDTMLX.displayName, "Parakeet TDT MLX")
+        XCTAssertEqual(ASRProviderKind.whisperLargeV3TurboMLX6Bit.displayName, "Whisper Large v3 Turbo MLX 6-bit")
+        XCTAssertEqual(ASRProviderKind.canaryQwen25B.displayName, "Canary-Qwen-2.5B")
+    }
+
+    func testEngineProviderContractDetectsStaleEngineProviderList() {
+        let staleProviders = [
+            EngineProviderInfo(id: "fake", label: "Fake ASR", available: true),
+            EngineProviderInfo(id: "parakeet-tdt-mlx", label: "Parakeet TDT MLX", available: true),
+            EngineProviderInfo(id: "canary-qwen-2.5b", label: "Canary-Qwen-2.5B", available: false),
+        ]
+
+        XCTAssertEqual(
+            EngineProviderContract.missingRequiredASRProviderIDs(in: staleProviders),
+            ["whisper-large-v3-turbo-mlx-6bit"]
+        )
+
+        let currentProviders = ASRProviderKind.userSelectableCases.map {
+            EngineProviderInfo(id: $0.rawValue, label: $0.displayName, available: true)
+        }
+        XCTAssertTrue(EngineProviderContract.missingRequiredASRProviderIDs(in: currentProviders).isEmpty)
     }
 
     func testDiarizationPrecisionMapsToMLXProviderIDs() {
@@ -202,13 +245,16 @@ final class ModelsTests: XCTestCase {
     func testDefaultHotkeyBindingsMatchPlannedShortcuts() {
         XCTAssertEqual(HotkeyBinding.defaultDictation.keyCode, 49)
         XCTAssertEqual(HotkeyBinding.defaultStyle.keyCode, 1)
+        XCTAssertEqual(HotkeyBinding.defaultTranscriptCache.keyCode, 8)
         XCTAssertEqual(HotkeyBinding.defaultDictation.modifiers, 2_304)
         XCTAssertEqual(HotkeyBinding.defaultStyle.modifiers, 2_304)
+        XCTAssertEqual(HotkeyBinding.defaultTranscriptCache.modifiers, 2_304)
     }
 
     func testHotkeyBindingsExposeReadableLabels() {
         XCTAssertEqual(HotkeyBinding.defaultDictation.displayName, "⌥⌘Space")
         XCTAssertEqual(HotkeyBinding.defaultStyle.displayName, "⌥⌘S")
+        XCTAssertEqual(HotkeyBinding.defaultTranscriptCache.displayName, "⌥⌘C")
     }
 
     func testHotkeyPresetsIncludeDefaultsAndReadableNames() {
@@ -228,6 +274,36 @@ final class ModelsTests: XCTestCase {
         XCTAssertTrue(HotkeyBinding(keyCode: 49, modifiers: 2_304).hasModifier)
         XCTAssertTrue(HotkeyBinding.modifierOnly(6_144).hasModifier)
         XCTAssertFalse(HotkeyBinding(keyCode: 49, modifiers: 0).hasModifier)
+    }
+
+    func testMouseButtonBindingsPreferExtraButtons() {
+        XCTAssertEqual(MouseButtonBinding.defaultPushToTalk.buttonNumber, 3)
+        XCTAssertEqual(MouseButtonBinding.defaultPushToTalk.displayName, "Mouse Button 4")
+        XCTAssertEqual(MouseButtonBinding.defaultTranscriptCache.buttonNumber, 4)
+        XCTAssertEqual(MouseButtonBinding.defaultTranscriptCache.displayName, "Mouse Button 5")
+        XCTAssertFalse(MouseButtonBinding(buttonNumber: 0).isUsableShortcut)
+        XCTAssertFalse(MouseButtonBinding(buttonNumber: 2).isUsableShortcut)
+        XCTAssertTrue(MouseButtonBinding(buttonNumber: 3).isUsableShortcut)
+    }
+
+    func testTranscriptCacheSelectionWrapsThroughItems() {
+        var selection = TranscriptCacheSelectionState()
+
+        selection.move(delta: 1, count: 3)
+        XCTAssertEqual(selection.selectedIndex, 1)
+
+        selection.move(delta: 3, count: 3)
+        XCTAssertEqual(selection.selectedIndex, 1)
+
+        selection.move(delta: -2, count: 3)
+        XCTAssertEqual(selection.selectedIndex, 2)
+
+        XCTAssertEqual(selection.selected(from: ["a", "b", "c"]), "c")
+        selection.reset(count: 2)
+        XCTAssertEqual(selection.selectedIndex, 1)
+        selection.reset(count: 0)
+        XCTAssertEqual(selection.selectedIndex, 0)
+        XCTAssertNil(selection.selected(from: [String]()))
     }
 
     func testHotkeyBindingsSupportModifierOnlyChords() {

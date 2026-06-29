@@ -8,6 +8,7 @@ struct OmniVoiceApp: App {
     @Environment(\.openWindow) private var openWindow
     @State private var model = AppModel()
     @State private var isEngineFrameExpanded = false
+    @StateObject private var updater = UpdaterViewModel()
 
     var body: some Scene {
         WindowGroup("OmniVoice", id: "control-panel") {
@@ -87,6 +88,12 @@ struct OmniVoiceApp: App {
                 appDelegate.attach(model: model)
                 await model.refreshEngineStatus()
             }
+
+            Divider()
+            Button("Check for Updates…") {
+                updater.checkForUpdates()
+            }
+            .disabled(!updater.canCheckForUpdates)
         }
 
         Settings {

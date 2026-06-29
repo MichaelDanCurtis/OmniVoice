@@ -4,7 +4,7 @@
 
 Hold the dictation hotkey, speak, then release the hotkey. OmniVoice shows live captions while listening and inserts the cleaned text where your cursor was when dictation started.
 
-If the local engine is not already running, the Mac app tries to start the bundled engine automatically. The first launch may take longer while Python dependencies are installed.
+If the local engine is not already running, the Mac app tries to start the bundled engine automatically. The first launch may take longer while the bundled runtime is copied into OmniVoice's Application Support folder.
 
 ## Corrections
 
@@ -85,7 +85,7 @@ TranslateGemma-style Hugging Face models may require accepting the model agreeme
 
 Hold the hot-menu hotkey to open the radial action menu. Use the mouse or arrow keys to choose actions. Tap the hot-menu hotkey twice quickly to latch it open.
 
-Typical V2 actions:
+Typical hot-menu actions:
 
 - Up cycles Conversation, Transcription, and Ask AI modes.
 - Right turns translation on or off.
