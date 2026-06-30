@@ -27,7 +27,8 @@ final class AudioCaptureService: @unchecked Sendable {
 
     private let engine = AVAudioEngine()
     private let queue = DispatchQueue(label: "omnivoice.audio.capture")
-    private var buffers: [AVAudioPCMBuffer] = []
+    private var samples: [Int16] = []
+    private var captureSampleRate: Double = 16_000
 
     var onLevel: ((Float) -> Void)?
     var onPCMChunk: ((Data) -> Void)?
@@ -43,25 +44,29 @@ final class AudioCaptureService: @unchecked Sendable {
     @discardableResult
     func start(deviceUID: String?) throws -> Double {
         queue.sync {
-            buffers.removeAll()
+            samples.removeAll()
         }
 
         try configureInputDevice(uid: deviceUID)
 
         let input = engine.inputNode
         let format = try tapFormat(for: input, deviceUID: deviceUID)
+        let captureRate = format.sampleRate
+        queue.sync { self.captureSampleRate = captureRate }
 
         input.removeTap(onBus: 0)
+        // Convert each tap buffer to mono PCM16 immediately and accumulate the small Int16
+        // samples, rather than retaining a full-rate float copy of every buffer for the whole
+        // recording (previously unbounded memory growth + a re-walk of all buffers at stop).
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             guard let self else { return }
-            let copied = Self.copy(buffer: buffer)
             let level = Self.level(buffer: buffer)
             let chunk = Self.float32MonoData(buffer: buffer)
+            var pcm16: [Int16] = []
+            Self.appendMonoPCM16Samples(from: buffer, to: &pcm16)
 
             queue.async {
-                if let copied {
-                    self.buffers.append(copied)
-                }
+                self.samples.append(contentsOf: pcm16)
                 self.onLevel?(level)
                 if let chunk {
                     self.onPCMChunk?(chunk)
@@ -78,42 +83,8 @@ final class AudioCaptureService: @unchecked Sendable {
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
 
-        let captured = queue.sync { buffers }
-        guard let first = captured.first else {
-            return PCM16WAVEncoder.encode(samples: [], sampleRate: 16_000)
-        }
-
-        var samples: [Int16] = []
-        for buffer in captured {
-            Self.appendMonoPCM16Samples(from: buffer, to: &samples)
-        }
-        return PCM16WAVEncoder.encode(samples: samples, sampleRate: Int(first.format.sampleRate.rounded()))
-    }
-
-    private static func copy(buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-        guard let copied = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameCapacity) else {
-            return nil
-        }
-        copied.frameLength = buffer.frameLength
-
-        let frameCount = Int(buffer.frameLength)
-        let channelCount = Int(buffer.format.channelCount)
-
-        if let source = buffer.floatChannelData, let destination = copied.floatChannelData {
-            for channel in 0..<channelCount {
-                destination[channel].update(from: source[channel], count: frameCount)
-            }
-        } else if let source = buffer.int16ChannelData, let destination = copied.int16ChannelData {
-            for channel in 0..<channelCount {
-                destination[channel].update(from: source[channel], count: frameCount)
-            }
-        } else if let source = buffer.int32ChannelData, let destination = copied.int32ChannelData {
-            for channel in 0..<channelCount {
-                destination[channel].update(from: source[channel], count: frameCount)
-            }
-        }
-
-        return copied
+        let (captured, rate) = queue.sync { (samples, captureSampleRate) }
+        return PCM16WAVEncoder.encode(samples: captured, sampleRate: Int(rate.rounded()))
     }
 
     private static func float32MonoData(buffer: AVAudioPCMBuffer) -> Data? {
