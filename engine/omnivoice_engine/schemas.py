@@ -22,10 +22,17 @@ Confidence = Annotated[float, Field(ge=0.0, le=1.0)]
 Milliseconds = Annotated[int, Field(ge=0)]
 
 
+class DictionaryEntryModel(BaseModel):
+    canonical: str
+    aliases: list[str] = Field(default_factory=list)
+    enabled: bool = True
+
+
 class CleanupRequest(BaseModel):
     raw_transcript: str = Field(min_length=0)
     style: str = "neutral"
     dictionary_terms: list[str] = Field(default_factory=list)
+    dictionary_entries: list[DictionaryEntryModel] = Field(default_factory=list)
 
 
 class CleanupResponse(BaseModel):

@@ -6,6 +6,20 @@ def clean(raw: str, style: str = "neutral") -> str:
     return clean_transcript(CleanupRequest(raw_transcript=raw, style=style)).text
 
 
+def test_dictionary_entries_alias_replacement_and_casing():
+    from omnivoice_engine.cleanup import _apply_dictionary_entries
+
+    entries = [{"canonical": "Figma", "aliases": ["fig ma"], "enabled": True}]
+    assert _apply_dictionary_entries("open fig ma and figma", entries) == "open Figma and Figma"
+
+
+def test_dictionary_entries_disabled_skipped():
+    from omnivoice_engine.cleanup import _apply_dictionary_entries
+
+    entries = [{"canonical": "Figma", "aliases": [], "enabled": False}]
+    assert _apply_dictionary_entries("figma", entries) == "figma"
+
+
 def test_no_wait_replaces_abandoned_clause():
     assert (
         clean("I'm going to go to the store. No wait, I'm going to go to the house.")
