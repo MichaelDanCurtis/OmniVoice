@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import OmniVoiceCore
 
@@ -38,7 +39,6 @@ struct CaptionOverlayView: View {
     let phase: CaptionOverlayPhase
 
     @State private var commitStarted = false
-    @Environment(\.colorScheme) private var colorScheme
 
     init(
         text: String,
@@ -202,7 +202,14 @@ struct CaptionOverlayView: View {
     }
 
     private var effectiveColorScheme: ColorScheme {
-        appearanceMode.colorScheme ?? colorScheme
+        if let scheme = appearanceMode.colorScheme {
+            return scheme
+        }
+        // .system: the @Environment(\.colorScheme) is unreliable inside this detached,
+        // borderless floating panel (it can report dark under a light system), which made
+        // the caption text resolve to the dark-mode white color on the light glass. Resolve
+        // from the actual app/system appearance instead.
+        return NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
     }
 
     private var effectiveResolvedAppearance: ThemeResolvedAppearance {
