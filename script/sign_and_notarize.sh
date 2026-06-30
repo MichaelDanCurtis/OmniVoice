@@ -173,9 +173,36 @@ if [[ -x "$SIGN_UPDATE" ]]; then
   </channel>
 </rss>
 XML
-  log "Appcast written. Upload BOTH $DMG and $APPCAST to the v$VERSION GitHub release."
+  log "Appcast written."
 else
   log "sign_update not found ($SIGN_UPDATE) — skipping appcast. Build the package first."
+fi
+
+# --- 7. Publish to GitHub Releases (opt-in) --------------------------------
+# SUFeedURL is https://github.com/.../releases/latest/download/appcast.xml, so the
+# appcast must live on the newest release alongside OmniVoice.dmg. Set OMNIVOICE_PUBLISH=1
+# to create/update the v$VERSION release and upload both assets in one shot.
+if [[ "${OMNIVOICE_PUBLISH:-0}" == "1" ]]; then
+  command -v gh >/dev/null || fail "OMNIVOICE_PUBLISH=1 but the GitHub CLI ('gh') is not installed."
+  [[ -f "$APPCAST" ]] || fail "appcast was not generated ($APPCAST); cannot publish."
+  TAG="v$VERSION"
+  NOTES_FILE="${OMNIVOICE_RELEASE_NOTES:-$ROOT_DIR/docs/V3_RELEASE_NOTES.md}"
+  if gh release view "$TAG" >/dev/null 2>&1; then
+    log "Release $TAG exists — uploading DMG + appcast (clobbering existing assets)..."
+    gh release upload "$TAG" "$DMG" "$APPCAST" --clobber
+    gh release edit "$TAG" --latest
+  else
+    log "Creating GitHub release $TAG with DMG + appcast..."
+    if [[ -f "$NOTES_FILE" ]]; then
+      gh release create "$TAG" "$DMG" "$APPCAST" --title "OmniVoice $VERSION" --notes-file "$NOTES_FILE" --latest
+    else
+      gh release create "$TAG" "$DMG" "$APPCAST" --title "OmniVoice $VERSION" --generate-notes --latest
+    fi
+  fi
+  log "Published $TAG. Sparkle clients will pick up the update from the feed."
+else
+  log "Set OMNIVOICE_PUBLISH=1 to auto-create the GitHub release, or upload BOTH"
+  log "  $DMG and $APPCAST to the v$VERSION release manually."
 fi
 
 log "Done. Final Gatekeeper assessment:"
