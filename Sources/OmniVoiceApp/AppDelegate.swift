@@ -97,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func attach(model: AppModel) {
         self.model = model
         updatePermissionStatus()
+        model.hydrateAndMigrateLLMSecrets()
         askController.updateConfiguration(model.preferences)
         model.onCustomAgentsChanged = { [weak self, weak model] _ in
             guard let model else { return }
