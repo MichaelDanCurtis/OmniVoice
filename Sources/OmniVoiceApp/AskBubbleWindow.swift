@@ -44,6 +44,7 @@ final class AskBubbleWindow {
     func appendAnswer(_ chunk: String) { model.answer += chunk; relayout() }
     func setStreaming(_ streaming: Bool) { model.streaming = streaming; relayout() }
     func markInserted() { model.streaming = false; model.statusNote = "Inserted" }
+    func markInsertFailed() { model.streaming = false; model.statusNote = "Copied — ⌘V to paste" }
     func showError(_ message: String) { model.streaming = false; model.error = message; relayout() }
     func hide() { panel?.orderOut(nil) }
 

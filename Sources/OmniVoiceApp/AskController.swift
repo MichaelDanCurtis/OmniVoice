@@ -166,8 +166,16 @@ final class AskController {
         copyAnswer()
         let text = lastAnswer
         let target = capturedTarget
-        bubble.markInserted()
-        Task { @MainActor in try? await insertion.insert(text, target: target) }
+        Task { @MainActor in
+            do {
+                try await insertion.insert(text, target: target)
+                bubble.markInserted()
+            } catch {
+                // copyAnswer() already put it on the clipboard — tell the user to paste it
+                // rather than claiming "Inserted" when the insert actually failed.
+                bubble.markInsertFailed()
+            }
+        }
     }
 
     private func copyAnswer() {
