@@ -29,28 +29,54 @@ public struct AgentRunner: AgentRunning {
         let errPipe = Pipe()
         process.standardOutput = outPipe
         process.standardError = errPipe
-        if let stdin = rendered.stdin {
-            let inPipe = Pipe()
-            process.standardInput = inPipe
-            inPipe.fileHandleForWriting.write(Data(stdin.utf8))
-            inPipe.fileHandleForWriting.closeFile()
+        let inPipe: Pipe?
+        if rendered.stdin != nil {
+            let pipe = Pipe()
+            process.standardInput = pipe
+            inPipe = pipe
+        } else {
+            inPipe = nil
         }
 
         do { try process.run() } catch { throw AgentRunError.notFound }
 
+        // Feed stdin off the calling thread: a prompt larger than the pipe buffer (~64KB,
+        // easy with context history + attachments) would otherwise block here before the
+        // stdout/stderr readers below start draining → deadlock.
+        if let stdin = rendered.stdin, let inPipe {
+            let handle = inPipe.fileHandleForWriting
+            DispatchQueue.global(qos: .userInitiated).async {
+                handle.write(Data(stdin.utf8))
+                try? handle.close()
+            }
+        }
+
         let collected = OutputBox()
-        // Resume when stdout reaches EOF (the process closed it / exited). availableData
-        // returns empty on EOF; we stream non-empty chunks and resume exactly once.
+        let errBox = OutputBox()
+        // Drain BOTH stdout and stderr concurrently and resume only once both reach EOF.
+        // Draining stderr is essential: a chatty CLI (sign-in warnings, progress logs) that
+        // fills the 64KB stderr buffer would otherwise block the child, so it never closes
+        // stdout and we'd hang forever. Reading both to EOF also leaves errBox complete with
+        // no concurrent-read race after waitUntilExit.
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let resumer = ResumeOnce(continuation)
+            let latch = EOFLatch(count: 2, continuation: continuation)
             outPipe.fileHandleForReading.readabilityHandler = { handle in
                 let data = handle.availableData
                 if data.isEmpty {
                     handle.readabilityHandler = nil
-                    resumer.fire()
+                    latch.signal()
                 } else if let chunk = String(data: data, encoding: .utf8) {
                     collected.append(chunk)
                     onChunk(chunk)
+                }
+            }
+            errPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    handle.readabilityHandler = nil
+                    latch.signal()
+                } else if let chunk = String(data: data, encoding: .utf8) {
+                    errBox.append(chunk)
                 }
             }
         }
@@ -58,8 +84,7 @@ public struct AgentRunner: AgentRunning {
         process.waitUntilExit()
 
         if process.terminationStatus != 0 {
-            let raw = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let message = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            let message = errBox.value.trimmingCharacters(in: .whitespacesAndNewlines)
             throw AgentRunError.failed(message.isEmpty ? "exit \(process.terminationStatus)" : message)
         }
         return collected.value
@@ -73,12 +98,22 @@ private final class OutputBox: @unchecked Sendable {
     var value: String { lock.lock(); defer { lock.unlock() }; return storage }
 }
 
-private final class ResumeOnce: @unchecked Sendable {
+/// Resumes the continuation once `count` EOF signals have arrived (stdout + stderr),
+/// exactly once, in a thread-safe way.
+private final class EOFLatch: @unchecked Sendable {
     private let lock = NSLock()
+    private var remaining: Int
     private var continuation: CheckedContinuation<Void, Never>?
-    init(_ c: CheckedContinuation<Void, Never>) { continuation = c }
-    func fire() {
-        lock.lock(); let c = continuation; continuation = nil; lock.unlock()
+    init(count: Int, continuation: CheckedContinuation<Void, Never>) {
+        self.remaining = count
+        self.continuation = continuation
+    }
+    func signal() {
+        lock.lock()
+        remaining -= 1
+        let c = remaining <= 0 ? continuation : nil
+        if remaining <= 0 { continuation = nil }
+        lock.unlock()
         c?.resume()
     }
 }

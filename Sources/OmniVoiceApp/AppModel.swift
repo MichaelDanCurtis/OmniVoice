@@ -184,6 +184,8 @@ final class AppModel {
     private let engineClient: EngineClient
     @ObservationIgnored private let workspaceStore: OmniWorkspaceStore
     @ObservationIgnored private let huggingFaceTokenStore = HuggingFaceTokenStore()
+    @ObservationIgnored private let llmSecretStore = LLMSecretStore()
+    private static let legacyOpenAIProviderID = "openai_compatible_legacy"
     @ObservationIgnored private let conversationRecorder = ConversationRecorderService()
     @ObservationIgnored private let recordingCuePlayer = RecordingCuePlayer.shared
     @ObservationIgnored private var isConversationStartInFlight = false
@@ -3810,13 +3812,67 @@ final class AppModel {
 
     @discardableResult
     private func persistPreferences() -> Bool {
+        // Keep LLM secrets in the Keychain, never in the plaintext preferences plist. If the
+        // Keychain write fully succeeds we persist a stripped copy; if it fails we fall back
+        // to saving with secrets inline so a configured key is never lost.
+        let keychainOK = syncLLMSecretsToKeychain(preferences)
+        let toSave = keychainOK ? strippingLLMSecrets(preferences) : preferences
         do {
-            try preferencesStore.save(preferences)
+            try preferencesStore.save(toSave)
             return true
         } catch {
             statusText = "Preferences save failed"
             return false
         }
+    }
+
+    /// Loads LLM secrets from the Keychain into in-memory preferences, migrating any
+    /// plaintext secrets still present in the loaded plist into the Keychain (and then
+    /// stripping them from disk). Call once at startup, before any AI request.
+    func hydrateAndMigrateLLMSecrets() {
+        var migrated = false
+        for index in preferences.textLLMProviders.indices {
+            let providerID = preferences.textLLMProviders[index].provider.rawValue
+            migrateSecret(&preferences.textLLMProviders[index].apiKey, provider: providerID, field: .apiKey, migrated: &migrated)
+            migrateSecret(&preferences.textLLMProviders[index].oauthAccessToken, provider: providerID, field: .oauthAccessToken, migrated: &migrated)
+            migrateSecret(&preferences.textLLMProviders[index].oauthRefreshToken, provider: providerID, field: .oauthRefreshToken, migrated: &migrated)
+        }
+        migrateSecret(&preferences.openAICompatibleAPIKey, provider: Self.legacyOpenAIProviderID, field: .apiKey, migrated: &migrated)
+        if migrated {
+            _ = persistPreferences()
+        }
+    }
+
+    private func migrateSecret(_ value: inout String, provider: String, field: LLMSecretStore.Field, migrated: inout Bool) {
+        if let stored = llmSecretStore.value(provider: provider, field: field), !stored.isEmpty {
+            value = stored   // Keychain is the source of truth
+        } else if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            _ = llmSecretStore.setValue(value, provider: provider, field: field)   // migrate plaintext → Keychain
+            migrated = true
+        }
+    }
+
+    private func syncLLMSecretsToKeychain(_ prefs: OmniVoicePreferences) -> Bool {
+        var ok = true
+        for provider in prefs.textLLMProviders {
+            let providerID = provider.provider.rawValue
+            ok = llmSecretStore.setValue(provider.apiKey, provider: providerID, field: .apiKey) && ok
+            ok = llmSecretStore.setValue(provider.oauthAccessToken, provider: providerID, field: .oauthAccessToken) && ok
+            ok = llmSecretStore.setValue(provider.oauthRefreshToken, provider: providerID, field: .oauthRefreshToken) && ok
+        }
+        ok = llmSecretStore.setValue(prefs.openAICompatibleAPIKey, provider: Self.legacyOpenAIProviderID, field: .apiKey) && ok
+        return ok
+    }
+
+    private func strippingLLMSecrets(_ prefs: OmniVoicePreferences) -> OmniVoicePreferences {
+        var copy = prefs
+        for index in copy.textLLMProviders.indices {
+            copy.textLLMProviders[index].apiKey = ""
+            copy.textLLMProviders[index].oauthAccessToken = ""
+            copy.textLLMProviders[index].oauthRefreshToken = ""
+        }
+        copy.openAICompatibleAPIKey = ""
+        return copy
     }
 
     private func notifyThemeChanged() {
