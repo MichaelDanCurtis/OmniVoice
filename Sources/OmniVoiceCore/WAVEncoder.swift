@@ -24,8 +24,12 @@ public enum PCM16WAVEncoder {
         data.appendASCII("data")
         data.appendLittleEndian(UInt32(dataByteCount))
 
-        for sample in samples {
-            data.appendLittleEndian(UInt16(bitPattern: sample))
+        // Apple platforms are little-endian, so the Int16 samples are already in WAV byte
+        // order — append them in a single bulk copy instead of two bytes at a time (which is
+        // millions of tiny appends for a multi-minute recording).
+        samples.withUnsafeBytes { rawBuffer in
+            guard let base = rawBuffer.baseAddress else { return }
+            data.append(base.assumingMemoryBound(to: UInt8.self), count: rawBuffer.count)
         }
 
         return data

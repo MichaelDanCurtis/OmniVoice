@@ -116,6 +116,7 @@ public final class EngineStreamingClient: @unchecked Sendable {
     private var onUpdate: (@Sendable (TranscriptUpdate) -> Void)?
     private var onDiagnostics: (@Sendable (EngineStreamingDiagnostics) -> Void)?
     private var diagnostics: EngineStreamingDiagnostics = .idle
+    private var lastDiagnosticsEmit: DispatchTime = .now()
 
     public init(baseURL: URL = URL(string: "ws://127.0.0.1:8765")!, session: URLSession = .shared) {
         self.baseURL = baseURL
@@ -311,10 +312,24 @@ public final class EngineStreamingClient: @unchecked Sendable {
         self.task === task && connectionGate.isCurrent(token)
     }
 
+    // Called on the serial `queue` for every mutation, including per-audio-chunk counter
+    // bumps (~15/s). Emitting each one writes the @Observable AppModel and re-renders the
+    // whole SwiftUI tree during dictation. Emit immediately on important changes (state or a
+    // new error), but coalesce high-frequency counter updates to ~4/s.
     private func updateDiagnostics(_ update: (inout EngineStreamingDiagnostics) -> Void) {
+        let previousState = diagnostics.state
+        let previousError = diagnostics.lastError
         update(&diagnostics)
-        onDiagnostics?(diagnostics)
+        let important = diagnostics.state != previousState || diagnostics.lastError != previousError
+        let now = DispatchTime.now()
+        let elapsedMs = (now.uptimeNanoseconds &- lastDiagnosticsEmit.uptimeNanoseconds) / 1_000_000
+        if important || elapsedMs >= 250 {
+            lastDiagnosticsEmit = now
+            onDiagnostics?(diagnostics)
+        }
     }
+
+    private static let streamingDecoder = JSONDecoder()
 
     private static func decode(_ json: String) -> TranscriptUpdate? {
         struct StreamingPayload: Decodable {
@@ -324,7 +339,7 @@ public final class EngineStreamingClient: @unchecked Sendable {
 
         guard
             let data = json.data(using: .utf8),
-            let payload = try? JSONDecoder().decode(StreamingPayload.self, from: data)
+            let payload = try? streamingDecoder.decode(StreamingPayload.self, from: data)
         else {
             return nil
         }
