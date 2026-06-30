@@ -1,0 +1,190 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1782712141235,
+  "projectRoot": "/Volumes/Main External/Development/OmniVoice",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "scripts"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "Assets": {
+      "path": "Assets",
+      "purpose": "Static assets",
+      "fileCount": 0,
+      "lastAccessed": 1782712141219,
+      "keyFiles": []
+    },
+    "OmniVoice_win": {
+      "path": "OmniVoice_win",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1782712141219,
+      "keyFiles": [
+        "OmniVoice.slnx",
+        "README.md"
+      ]
+    },
+    "Sources": {
+      "path": "Sources",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1782712141219,
+      "keyFiles": []
+    },
+    "Tests": {
+      "path": "Tests",
+      "purpose": "Test files",
+      "fileCount": 0,
+      "lastAccessed": 1782712141219,
+      "keyFiles": []
+    },
+    "dist": {
+      "path": "dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 5,
+      "lastAccessed": 1782712141220,
+      "keyFiles": [
+        "OmniVoice.icns",
+        "engine-app-path",
+        "engine.log",
+        "engine.pid"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 6,
+      "lastAccessed": 1782712141220,
+      "keyFiles": [
+        "INTEGRATIONS.md",
+        "LOCAL_DISTRIBUTION.md",
+        "OMNIVOICE_QUICK_REFERENCE.md",
+        "V2_FEATURE_GUI_MAP.md",
+        "V3_RELEASE_CHECKLIST.md"
+      ]
+    },
+    "engine": {
+      "path": "engine",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1782712141220,
+      "keyFiles": [
+        "pyproject.toml"
+      ]
+    },
+    "integrations": {
+      "path": "integrations",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1782712141220,
+      "keyFiles": []
+    },
+    "models": {
+      "path": "models",
+      "purpose": "Data models",
+      "fileCount": 0,
+      "lastAccessed": 1782712141221,
+      "keyFiles": []
+    },
+    "script": {
+      "path": "script",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1782712141221,
+      "keyFiles": [
+        "OmniVoice.entitlements",
+        "build_and_run.sh",
+        "sign_and_notarize.sh"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 3,
+      "lastAccessed": 1782712141221,
+      "keyFiles": [
+        "download-parakeet-tdt.sh",
+        "run-bundled-engine.sh",
+        "run-engine.sh"
+      ]
+    },
+    "OmniVoice_win/Assets": {
+      "path": "OmniVoice_win/Assets",
+      "purpose": "Static assets",
+      "fileCount": 0,
+      "lastAccessed": 1782712141221,
+      "keyFiles": []
+    },
+    "OmniVoice_win/scripts": {
+      "path": "OmniVoice_win/scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 1,
+      "lastAccessed": 1782712141221,
+      "keyFiles": [
+        "run-engine.ps1"
+      ]
+    },
+    "OmniVoice_win/src": {
+      "path": "OmniVoice_win/src",
+      "purpose": "Source code",
+      "fileCount": 0,
+      "lastAccessed": 1782712141221,
+      "keyFiles": []
+    },
+    "OmniVoice_win/tests": {
+      "path": "OmniVoice_win/tests",
+      "purpose": "Test files",
+      "fileCount": 0,
+      "lastAccessed": 1782712141221,
+      "keyFiles": []
+    },
+    "engine/models": {
+      "path": "engine/models",
+      "purpose": "Data models",
+      "fileCount": 0,
+      "lastAccessed": 1782712141222,
+      "keyFiles": []
+    },
+    "engine/tests": {
+      "path": "engine/tests",
+      "purpose": "Test files",
+      "fileCount": 12,
+      "lastAccessed": 1782712141222,
+      "keyFiles": [
+        "conftest.py",
+        "test_api.py",
+        "test_cleanup.py"
+      ]
+    }
+  },
+  "hotPaths": [],
+  "userDirectives": []
+}

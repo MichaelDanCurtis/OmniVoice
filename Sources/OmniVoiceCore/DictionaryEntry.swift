@@ -49,13 +49,7 @@ public struct DictionaryEntry: Codable, Equatable, Identifiable, Sendable {
         )
     }
 
-    enum CodingKeys: String, CodingKey {
-        case id
-        case canonical
-        case aliases
-        case source
-        case enabled
-        case createdAt = "created_at"
-        case updatedAt = "updated_at"
-    }
+    // No explicit CodingKeys: the shared EngineCoding coder applies
+    // convertTo/FromSnakeCase, so default camelCase keys serialize as snake_case
+    // (created_at / updated_at) and round-trip correctly.
 }

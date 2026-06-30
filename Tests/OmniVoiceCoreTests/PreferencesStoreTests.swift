@@ -237,7 +237,7 @@ final class PreferencesStoreTests: XCTestCase {
         let preferences = OmniVoicePreferences(
             asrProvider: .parakeetTDTMLX,
             style: .neutral,
-            dictionaryTerms: [],
+            dictionaryEntries: [],
             recordingStartCueEnabled: false,
             recordingStopCueEnabled: false
         )
@@ -552,6 +552,24 @@ final class PreferencesStoreTests: XCTestCase {
         }
     }
 
+    func testAutoLearnDefaultsTrue() {
+        XCTAssertTrue(OmniVoicePreferences.defaults.autoLearnCorrectionsEnabled)
+    }
+
+    func testLegacyDictionaryTermsMigrateToEntries() throws {
+        // Simulate an old preferences blob: the legacy `dictionary_terms` key, no `dictionary_entries`.
+        let data = try JSONEncoder().encode(OmniVoicePreferences.defaults)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object["dictionary_entries"] = nil
+        object["dictionary_terms"] = ["Figma", "Slack"]
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(OmniVoicePreferences.self, from: legacyData)
+        XCTAssertEqual(decoded.dictionaryEntries.map(\.canonical), ["Figma", "Slack"])
+        XCTAssertTrue(decoded.dictionaryEntries.allSatisfy { $0.source == .manual })
+        XCTAssertEqual(decoded.dictionaryTerms, ["Figma", "Slack"])
+    }
+
     func testPreferencesRoundTripThroughStore() throws {
         let suiteName = "OmniVoicePreferencesStoreTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -561,7 +579,7 @@ final class PreferencesStoreTests: XCTestCase {
         let preferences = OmniVoicePreferences(
             asrProvider: .fake,
             style: .concise,
-            dictionaryTerms: ["CUDA", "SwiftUI"],
+            dictionaryEntries: ["CUDA", "SwiftUI"].map { DictionaryEntry(manualTerm: $0, at: Date(timeIntervalSince1970: 0)) },
             microphoneID: "BuiltInMicrophoneDevice",
             dictationHotkey: HotkeyBinding(keyCode: 12, modifiers: 2_304),
             additionalDictationHotkeys: [
@@ -614,7 +632,7 @@ final class PreferencesStoreTests: XCTestCase {
         let preferences = OmniVoicePreferences(
             asrProvider: .parakeetTDT,
             style: .neutral,
-            dictionaryTerms: [],
+            dictionaryEntries: [],
             microphoneID: "USBMicDevice",
             dictationHotkey: .modifierOnly(HotkeyBinding.carbonModifiers(option: true, control: true)),
             additionalDictationHotkeys: [

@@ -2314,10 +2314,15 @@ final class AppModel {
     }
 
     func setDictionaryTermsText(_ text: String) {
-        preferences.dictionaryTerms = text
+        // Rebuild the manual entries from the text box, preserving learned entries.
+        let canonicals = text
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        let now = Date()
+        let manual = canonicals.map { DictionaryEntry(manualTerm: $0, at: now) }
+        let learned = preferences.dictionaryEntries.filter { $0.source == .learned }
+        preferences.dictionaryEntries = manual + learned
         persistPreferences()
         statusText = "Dictionary updated"
     }
