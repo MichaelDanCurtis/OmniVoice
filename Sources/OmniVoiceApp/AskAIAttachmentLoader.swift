@@ -4,10 +4,28 @@ import UniformTypeIdentifiers
 import OmniVoiceCore
 
 enum AskAIAttachmentLoader {
+    /// Cap on attachment size loaded fully into memory (then base64-encoded ~1.33×).
+    /// Guards against memory spikes / zip-bomb-style files.
+    private static let maxAttachmentBytes = 25 * 1_048_576
+
+    private static func fileSize(of url: URL) -> Int? {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+    }
+
     static func attachment(for url: URL) -> AskAIContextAttachment {
         let title = url.lastPathComponent
         let type = UTType(filenameExtension: url.pathExtension)
         let mimeType = type?.preferredMIMEType ?? fallbackMIMEType(for: url)
+
+        if let size = fileSize(of: url), size > maxAttachmentBytes {
+            return AskAIContextAttachment(
+                kind: .file,
+                title: title,
+                text: "Attachment “\(title)” is \(size / 1_048_576) MB, over the \(maxAttachmentBytes / 1_048_576) MB limit, and was not loaded.",
+                filePath: url.path,
+                mimeType: mimeType
+            )
+        }
 
         if type?.conforms(to: .image) == true || mimeType.hasPrefix("image/") {
             return imageAttachment(url: url, title: title, mimeType: mimeType)
