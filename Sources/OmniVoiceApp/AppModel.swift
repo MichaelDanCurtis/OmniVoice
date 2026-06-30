@@ -1687,54 +1687,6 @@ final class AppModel {
         preferences.hotMenuStatusLabel(for: action, targetLanguageOptions: translationTargetLanguageOptions)
     }
 
-    func setOpenAICompatibleBaseURL(_ url: String) {
-        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard preferences.openAICompatibleBaseURL != trimmed else {
-            return
-        }
-
-        var configuration = preferences.textLLMConfiguration(for: TextLLMProviderKind.custom)
-        configuration.baseURL = trimmed
-        preferences.setTextLLMConfiguration(configuration)
-        guard persistPreferences() else {
-            return
-        }
-
-        statusText = trimmed.isEmpty ? "AI endpoint cleared" : "AI endpoint updated"
-    }
-
-    func setOpenAICompatibleModel(_ name: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard preferences.openAICompatibleModel != trimmed else {
-            return
-        }
-
-        var configuration = preferences.textLLMConfiguration(for: TextLLMProviderKind.custom)
-        configuration.model = trimmed
-        preferences.setTextLLMConfiguration(configuration)
-        guard persistPreferences() else {
-            return
-        }
-
-        statusText = trimmed.isEmpty ? "AI model cleared" : "AI model updated"
-    }
-
-    func setOpenAICompatibleAPIKey(_ key: String) {
-        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard preferences.openAICompatibleAPIKey != trimmed else {
-            return
-        }
-
-        var configuration = preferences.textLLMConfiguration(for: TextLLMProviderKind.custom)
-        configuration.apiKey = trimmed
-        preferences.setTextLLMConfiguration(configuration)
-        guard persistPreferences() else {
-            return
-        }
-
-        statusText = trimmed.isEmpty ? "AI API key cleared" : "AI API key updated"
-    }
-
     func loadHuggingFaceTokenFromKeychain() {
         huggingFaceTokenDraft = huggingFaceTokenStore.load() ?? ""
         statusText = huggingFaceTokenDraft.isEmpty ? "No Hugging Face token in Keychain" : "Hugging Face token loaded"
