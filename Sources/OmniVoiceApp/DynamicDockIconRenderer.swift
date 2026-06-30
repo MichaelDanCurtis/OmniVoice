@@ -5,7 +5,10 @@ import OmniVoiceCore
 final class DynamicDockIconController {
     private var lastSignature: String?
 
-    func apply(theme: OmniVoiceTheme, appearanceMode: AppAppearanceMode) {
+    /// - Parameter force: re-apply even if the signature is unchanged. Needed after the
+    ///   activation policy flips to `.regular`, because the Dock icon (re)appearing resets to
+    ///   the static Info.plist icon — a startup apply done while `.accessory` doesn't persist.
+    func apply(theme: OmniVoiceTheme, appearanceMode: AppAppearanceMode, force: Bool = false) {
         let resolvedAppearance = DynamicDockIconRenderer.resolvedAppearance(for: appearanceMode)
         let signature = [
             theme.id.rawValue,
@@ -15,7 +18,7 @@ final class DynamicDockIconController {
             resolvedAppearance.rawValue,
         ].joined(separator: "|")
 
-        guard signature != lastSignature else {
+        guard force || signature != lastSignature else {
             return
         }
 

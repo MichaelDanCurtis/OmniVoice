@@ -72,7 +72,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApplication.shared.setActivationPolicy(desired)
         if desired == .regular {
             if let model {
-                dockIconController.apply(theme: model.activeTheme, appearanceMode: model.preferences.appearanceMode)
+                // Force: macOS reset the Dock icon to the static one when the icon reappeared.
+                dockIconController.apply(theme: model.activeTheme, appearanceMode: model.preferences.appearanceMode, force: true)
             }
             NSApplication.shared.activate(ignoringOtherApps: true)
         }
