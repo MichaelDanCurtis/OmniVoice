@@ -20,6 +20,7 @@ final class AskBubbleWindow {
     private var hostingView: NSView?
     private let model = AskBubbleViewModel()
     private var lastHeight: CGFloat = 200
+    private var relayoutWorkItem: DispatchWorkItem?
     /// The answer scroll caps here so the whole bubble stays within ~two-thirds of the screen.
     private let maxAnswerHeight: CGFloat = max(220, ((NSScreen.main?.visibleFrame.height ?? 900) * 2 / 3) - 120)
     /// ~Half the screen width (clamped), centered — the bubble grows downward, not sideways.
@@ -37,15 +38,15 @@ final class AskBubbleWindow {
         let panel = self.panel ?? makePanel()
         self.panel = panel
         layout(height: lastHeight)
-        relayout()
+        performRelayout()
         panel.makeKeyAndOrderFront(nil)
     }
 
     func appendAnswer(_ chunk: String) { model.answer += chunk; relayout() }
-    func setStreaming(_ streaming: Bool) { model.streaming = streaming; relayout() }
+    func setStreaming(_ streaming: Bool) { model.streaming = streaming; performRelayout() }
     func markInserted() { model.streaming = false; model.statusNote = "Inserted" }
     func markInsertFailed() { model.streaming = false; model.statusNote = "Copied — ⌘V to paste" }
-    func showError(_ message: String) { model.streaming = false; model.error = message; relayout() }
+    func showError(_ message: String) { model.streaming = false; model.error = message; performRelayout() }
     func hide() { panel?.orderOut(nil) }
 
     private func makePanel() -> AskKeyPanel {
@@ -90,10 +91,22 @@ final class AskBubbleWindow {
         panel.setFrame(frame, display: true, animate: false)
     }
 
+    /// Coalesces the per-chunk resize during streaming: re-measuring the whole answer and
+    /// resizing the window on every token is O(n²). Debounce to ~12/s; one-time events
+    /// (show / final / error) call performRelayout() directly for an immediate fit.
+    private func relayout() {
+        relayoutWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.performRelayout() }
+        relayoutWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
+    }
+
     /// Measure the answer height in AppKit (reliable, unlike SwiftUI preferences inside a
     /// ScrollView), cap it, push it into the view, then size the panel to the hosting
     /// view's real fitting height on the next runloop — after SwiftUI applies the change.
-    private func relayout() {
+    private func performRelayout() {
+        relayoutWorkItem?.cancel()
+        relayoutWorkItem = nil
         let contentWidth = bubbleWidth - 36
         let text: String
         if let error = model.error {
