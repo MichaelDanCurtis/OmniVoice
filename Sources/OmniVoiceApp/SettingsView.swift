@@ -977,7 +977,7 @@ struct SettingsView: View {
                 LabeledContent("Local Path", value: modelStatus.localPath)
                 LabeledContent("Installed", value: modelStatus.installed ? "Yes" : "No")
                 LabeledContent("Revision", value: modelStatus.installedRevision?.prefix(12).description ?? "Not installed")
-                LabeledContent("Update", value: selectedModelUpdateText)
+                LabeledContent("Update", value: modelUpdateText(forProviderID: model.preferences.asrProvider.rawValue))
 
                 HStack {
                     Button("Check Update") {
@@ -1035,7 +1035,7 @@ struct SettingsView: View {
                 LabeledContent("Local Path", value: modelStatus.localPath)
                 LabeledContent("Installed", value: modelStatus.installed ? "Yes" : "No")
                 LabeledContent("Revision", value: modelStatus.installedRevision?.prefix(12).description ?? "Not installed")
-                LabeledContent("Update", value: selectedDiarizationModelUpdateText)
+                LabeledContent("Update", value: modelUpdateText(forProviderID: model.conversationDiarizationPrecision.providerID))
 
                 HStack {
                     Button("Check Update") {
@@ -1143,7 +1143,7 @@ struct SettingsView: View {
                 }
                 LabeledContent("Installed", value: translationModelStatus.installed ? "Yes" : "No")
                 LabeledContent("Local Path", value: translationModelStatus.localPath)
-                LabeledContent("Update", value: selectedTranslationModelUpdateText)
+                LabeledContent("Update", value: modelUpdateText(forProviderID: model.selectedTranslationModelProviderID()))
 
                 if let message = selectedTranslationModelMessage {
                     Text(message)
@@ -2154,27 +2154,6 @@ struct SettingsView: View {
         model.setTextLLMConfiguration(configuration)
     }
 
-    private var openAICompatibleBaseURLBinding: Binding<String> {
-        Binding(
-            get: { model.preferences.openAICompatibleBaseURL },
-            set: { model.setOpenAICompatibleBaseURL($0) }
-        )
-    }
-
-    private var openAICompatibleModelBinding: Binding<String> {
-        Binding(
-            get: { model.preferences.openAICompatibleModel },
-            set: { model.setOpenAICompatibleModel($0) }
-        )
-    }
-
-    private var openAICompatibleAPIKeyBinding: Binding<String> {
-        Binding(
-            get: { model.preferences.openAICompatibleAPIKey },
-            set: { model.setOpenAICompatibleAPIKey($0) }
-        )
-    }
-
     private var selectedProviderStatus: String {
         let label = model.label(for: model.preferences.asrProvider)
         guard let provider = model.providerInfo(for: model.preferences.asrProvider) else {
@@ -2247,27 +2226,8 @@ struct SettingsView: View {
         return "Falls back to \(model.diarizationLabel(for: effective))"
     }
 
-    private var selectedModelUpdateText: String {
-        guard let update = model.modelUpdateInfo,
-              update.providerID == model.preferences.asrProvider.rawValue else {
-            return "Not checked"
-        }
-
-        return update.updateAvailable ? "Available" : "Current"
-    }
-
-    private var selectedDiarizationModelUpdateText: String {
-        guard let update = model.modelUpdateInfo,
-              update.providerID == model.conversationDiarizationPrecision.providerID else {
-            return "Not checked"
-        }
-
-        return update.updateAvailable ? "Available" : "Current"
-    }
-
-    private var selectedTranslationModelUpdateText: String {
-        guard let update = model.modelUpdateInfo,
-              update.providerID == model.selectedTranslationModelProviderID() else {
+    private func modelUpdateText(forProviderID providerID: String) -> String {
+        guard let update = model.modelUpdateInfo, update.providerID == providerID else {
             return "Not checked"
         }
 
