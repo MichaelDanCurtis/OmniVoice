@@ -414,9 +414,20 @@ public struct EngineClient: Sendable {
     public let baseURL: URL
     private let urlSession: URLSession
 
-    public init(baseURL: URL = URL(string: "http://127.0.0.1:8765")!, urlSession: URLSession = .shared) {
+    public init(baseURL: URL = URL(string: "http://127.0.0.1:8765")!, urlSession: URLSession? = nil) {
         self.baseURL = baseURL
-        self.urlSession = urlSession
+        self.urlSession = urlSession ?? EngineClient.defaultSession()
+    }
+
+    /// Default session with bounded timeouts so a hung engine surfaces an error instead of
+    /// awaiting indefinitely: 60s idle (no response) and a 15-min hard ceiling per request
+    /// (the URLSession default resource timeout is 7 days). Per-request `timeoutInterval`
+    /// overrides (e.g. the 600s validate call) still apply on top.
+    private static func defaultSession() -> URLSession {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 900
+        return URLSession(configuration: config)
     }
 
     public func health() async throws -> EngineHealth {
