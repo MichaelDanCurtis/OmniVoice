@@ -90,10 +90,23 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
             window = created
         }
 
+        // Pin the floating panel's appearance so the glass material AND the SwiftUI
+        // colorScheme environment match the resolved mode. Without this the borderless
+        // panel's colorScheme resolved to dark under a light system → white caption text
+        // on the light background.
+        window?.appearance = Self.resolvedAppearance(for: appearanceMode)
         window?.alphaValue = 1
         window?.contentView = content
         window?.setFrame(CGRect(origin: origin, size: targetSize), display: true)
         window?.orderFrontRegardless()
+    }
+
+    private static func resolvedAppearance(for mode: AppAppearanceMode) -> NSAppearance? {
+        switch mode {
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        case .system: NSApp.effectiveAppearance
+        }
     }
 
     func windowDidMove(_ notification: Notification) {
