@@ -481,6 +481,9 @@ final class TextInsertionService {
             restore(previousItems, to: pasteboard)
             throw InsertionError.pasteboardUnavailable
         }
+        // This paste is transient (restored below); mark it so clipboard-history managers
+        // (Paste, Maccy, …) don't persist the inserted text.
+        _ = pasteboard.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
         let ownChangeCount = pasteboard.changeCount
 
         let source = CGEventSource(stateID: .combinedSessionState)

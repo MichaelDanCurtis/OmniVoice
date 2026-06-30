@@ -98,6 +98,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.model = model
         updatePermissionStatus()
         model.hydrateAndMigrateLLMSecrets()
+        if model.preferencesLoadFailed {
+            model.statusText = "Saved settings couldn't be read — using defaults"
+        }
         askController.updateConfiguration(model.preferences)
         model.onCustomAgentsChanged = { [weak self, weak model] _ in
             guard let model else { return }

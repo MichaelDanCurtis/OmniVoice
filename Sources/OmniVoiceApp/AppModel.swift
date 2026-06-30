@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Observation
 import OmniVoiceCore
+import os
 
 enum EngineConnectionState: Equatable {
     case unknown
@@ -186,6 +187,9 @@ final class AppModel {
     @ObservationIgnored private let huggingFaceTokenStore = HuggingFaceTokenStore()
     @ObservationIgnored private let llmSecretStore = LLMSecretStore()
     private static let legacyOpenAIProviderID = "openai_compatible_legacy"
+    private static let logger = Logger(subsystem: "com.omnivoice.OmniVoiceApp", category: "AppModel")
+    /// True when saved preferences couldn't be decoded at launch and defaults were used.
+    @ObservationIgnored private(set) var preferencesLoadFailed = false
     @ObservationIgnored private let conversationRecorder = ConversationRecorderService()
     @ObservationIgnored private let recordingCuePlayer = RecordingCuePlayer.shared
     @ObservationIgnored private var isConversationStartInFlight = false
@@ -254,7 +258,20 @@ final class AppModel {
         self.preferencesStore = preferencesStore
         self.engineClient = engineClient
         self.workspaceStore = workspaceStore
-        var resolvedPreferences = preferences ?? (try? preferencesStore.load()) ?? .defaults
+        var resolvedPreferences: OmniVoicePreferences
+        if let preferences {
+            resolvedPreferences = preferences
+        } else {
+            do {
+                resolvedPreferences = try preferencesStore.load()
+            } catch {
+                // Surface rather than silently resetting to defaults (the user would lose all
+                // settings with no signal). attach() shows this once at startup.
+                resolvedPreferences = .defaults
+                preferencesLoadFailed = true
+                Self.logger.error("Preferences load failed; using defaults: \(error.localizedDescription, privacy: .public)")
+            }
+        }
         resolvedPreferences.asrProvider = resolvedPreferences.asrProvider.normalizedForUserSelection
         self.preferences = resolvedPreferences
         self.session = session
@@ -2998,7 +3015,7 @@ final class AppModel {
             statusText = "Conversation recording"
         } catch {
             deferredConversationAction = nil
-            _ = try? await engineClient.stopConversation(sessionID: session.id)
+            await bestEffortStopConversation(session.id)
             activeConversation = nil
             isConversationRecording = false
             isConversationFinalizing = false
@@ -3061,7 +3078,7 @@ final class AppModel {
 
         if let sessionID {
             Task { [engineClient] in
-                _ = try? await engineClient.stopConversation(sessionID: sessionID)
+                await bestEffortStopConversation(sessionID)
             }
         }
     }
@@ -3873,6 +3890,16 @@ final class AppModel {
         }
         copy.openAICompatibleAPIKey = ""
         return copy
+    }
+
+    /// Best-effort engine stop that logs failures instead of swallowing them, so an
+    /// orphaned server-side conversation session is at least diagnosable.
+    private func bestEffortStopConversation(_ sessionID: String) async {
+        do {
+            _ = try await engineClient.stopConversation(sessionID: sessionID)
+        } catch {
+            Self.logger.error("stopConversation failed for \(sessionID, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func notifyThemeChanged() {
