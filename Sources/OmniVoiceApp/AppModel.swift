@@ -3875,8 +3875,13 @@ final class AppModel {
         let cached = preferences.entitlementSnapshotData.flatMap {
             try? JSONDecoder().decode(EntitlementSnapshot.self, from: $0)
         }
+        // Use the real Worker once it's provisioned; until `WorkerConfig.baseURL` is set the
+        // stub grants a trial so premium features stay usable in dev.
+        let provider: EntitlementProviding = WorkerConfig.baseURL.map {
+            WorkerEntitlementProvider(baseURL: $0)
+        } ?? StubEntitlementProvider.trialing()
         return EntitlementService(
-            provider: StubEntitlementProvider.trialing(),
+            provider: provider,
             cached: cached,
             persist: { [weak self] snapshot in self?.persistEntitlementSnapshot(snapshot) }
         )
