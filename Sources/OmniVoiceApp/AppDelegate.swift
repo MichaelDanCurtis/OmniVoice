@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let insertionService = TextInsertionService()
     private lazy var askController = AskController(insertion: insertionService, engineClient: engineClient)
     private let correctionWatcher = CorrectionWatcher()
+    private let learnedWordToast = LearnedWordToast()
     private let recordingCuePlayer = RecordingCuePlayer.shared
     private let dockIconController = DynamicDockIconController()
     private let commandExecutor = DictationCommandExecutor()
@@ -105,10 +106,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         askController.updateConfiguration(model.preferences)
         correctionWatcher.onLearn = { [weak self, weak model] correction in
-            guard let model, model.preferences.autoLearnCorrectionsEnabled else { return }
-            _ = model.upsertLearnedCorrection(correction)
+            guard let self, let model, model.preferences.autoLearnCorrectionsEnabled else { return }
+            guard let entry = model.upsertLearnedCorrection(correction) else { return }
             model.statusText = "Learned “\(correction.to)”"
-            _ = self // toast wiring added in the LearnedWordToast task
+            self.learnedWordToast.show(correction: correction, entryID: entry.id)
+        }
+        learnedWordToast.onUndo = { [weak model] id in
+            model?.removeDictionaryEntry(id: id)
         }
         model.onCustomAgentsChanged = { [weak self, weak model] _ in
             guard let model else { return }
