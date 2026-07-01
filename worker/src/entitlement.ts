@@ -48,7 +48,7 @@ export async function readEntitlementRow(db: D1Database, userId: string): Promis
               e.current_period_end AS currentPeriodEnd
          FROM users u
          LEFT JOIN entitlements e ON e.workos_user_id = u.workos_user_id
-        WHERE u.workos_user_id = ?1`,
+        WHERE u.workos_user_id = ?`,
     )
     .bind(userId)
     .first<EntitlementRow>()
