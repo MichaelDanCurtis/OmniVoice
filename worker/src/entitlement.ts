@@ -1,7 +1,7 @@
 import type { Context } from 'hono'
 import type { Env } from './env'
 import { trialDays } from './env'
-import { verifyWorkosToken, workosJwks } from './workos'
+import { authenticatedUserId } from './workos'
 
 /// A user's trial + subscription facts, joined from the `users` and `entitlements` tables.
 export interface EntitlementRow {
@@ -57,18 +57,8 @@ export async function readEntitlementRow(db: D1Database, userId: string): Promis
 
 /// GET /entitlement — Bearer WorkOS token → verify → read D1 → compute → JSON.
 export async function handleEntitlement(c: Context<{ Bindings: Env }>): Promise<Response> {
-  const header = c.req.header('Authorization') ?? ''
-  const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : ''
-  if (!token) return c.json({ error: 'unauthorized' }, 401)
-
-  let userId: string
-  try {
-    const payload = await verifyWorkosToken(token, workosJwks(c.env.WORKOS_CLIENT_ID))
-    if (!payload.sub) return c.json({ error: 'unauthorized' }, 401)
-    userId = payload.sub
-  } catch {
-    return c.json({ error: 'unauthorized' }, 401)
-  }
+  const userId = await authenticatedUserId(c)
+  if (!userId) return c.json({ error: 'unauthorized' }, 401)
 
   const row = await readEntitlementRow(c.env.DB, userId)
   const nowSeconds = Math.floor(Date.now() / 1000)
