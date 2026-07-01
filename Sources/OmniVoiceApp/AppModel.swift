@@ -2328,6 +2328,39 @@ final class AppModel {
         statusText = "Dictionary updated"
     }
 
+    /// Learn a correction (or merge its alias into an existing entry). Returns the affected
+    /// entry so the undo toast can reference it by id.
+    @discardableResult
+    func upsertLearnedCorrection(_ correction: LearnedCorrection) -> DictionaryEntry? {
+        let (updated, id) = DictionaryStore.upsert(
+            correction,
+            into: preferences.dictionaryEntries,
+            now: Date(),
+            makeID: { UUID().uuidString }
+        )
+        preferences.dictionaryEntries = updated
+        guard persistPreferences() else { return nil }
+        return preferences.dictionaryEntries.first { $0.id == id }
+    }
+
+    func removeDictionaryEntry(id: String) {
+        preferences.dictionaryEntries.removeAll { $0.id == id }
+        guard persistPreferences() else { return }
+    }
+
+    func updateDictionaryEntry(_ entry: DictionaryEntry) {
+        guard let index = preferences.dictionaryEntries.firstIndex(where: { $0.id == entry.id }) else { return }
+        preferences.dictionaryEntries[index] = entry
+        guard persistPreferences() else { return }
+    }
+
+    func setAutoLearnEnabled(_ enabled: Bool) {
+        guard preferences.autoLearnCorrectionsEnabled != enabled else { return }
+        preferences.autoLearnCorrectionsEnabled = enabled
+        guard persistPreferences() else { return }
+        statusText = enabled ? "Auto-learn on" : "Auto-learn off"
+    }
+
     func refreshEngineStatus() async {
         engineState = .checking
         await loadEngineStatus(startEngineIfOffline: true)
