@@ -1729,11 +1729,59 @@ struct SettingsView: View {
         Section("Personal Dictionary") {
             TextEditor(text: dictionaryTermsBinding)
                 .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 180)
+                .frame(minHeight: 140)
             Text("Add names, products, acronyms, and terms OmniVoice should preserve. Use one term per line.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Toggle("Automatically learn my corrections", isOn: autoLearnBinding)
+
+            let learned = model.preferences.dictionaryEntries.filter { $0.source == .learned }
+            if learned.isEmpty {
+                Text("Learned words appear here after OmniVoice picks up a correction (say a word, fix it, and it remembers). Undo within 5s, or remove one here anytime. ⌃⌥T teaches one manually.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(learned) { entry in
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.canonical)
+                            if !entry.aliases.isEmpty {
+                                Text("heard as: \(entry.aliases.joined(separator: ", "))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Toggle("", isOn: learnedEnabledBinding(entry)).labelsHidden()
+                        Button(role: .destructive) {
+                            model.removeDictionaryEntry(id: entry.id)
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
         }
+    }
+
+    private var autoLearnBinding: Binding<Bool> {
+        Binding(
+            get: { model.preferences.autoLearnCorrectionsEnabled },
+            set: { model.setAutoLearnEnabled($0) }
+        )
+    }
+
+    private func learnedEnabledBinding(_ entry: DictionaryEntry) -> Binding<Bool> {
+        Binding(
+            get: { entry.enabled },
+            set: {
+                var updated = entry
+                updated.enabled = $0
+                model.updateDictionaryEntry(updated)
+            }
+        )
     }
 
     @ViewBuilder

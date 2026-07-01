@@ -52,6 +52,7 @@ def clean_transcript(request: CleanupRequest) -> CleanupResponse:
     text = _apply_inline_replacements(text)
     text = _apply_spoken_text_commands(text)
     text = _apply_dictionary_terms(text, request.dictionary_terms)
+    text = _apply_dictionary_entries(text, request.dictionary_entries)
     if request.style == "concise":
         text = _remove_leading_fillers(text)
     text = _normalize_capitalization(text)
@@ -108,6 +109,34 @@ def _apply_dictionary_terms(text: str, terms: list[str]) -> str:
             continue
         pattern = re.compile(rf"\b{re.escape(cleaned_term)}\b", re.IGNORECASE)
         current = pattern.sub(cleaned_term, current)
+    return current
+
+
+def _entry_field(entry, name, default):
+    if isinstance(entry, dict):
+        return entry.get(name, default)
+    return getattr(entry, name, default)
+
+
+def _apply_dictionary_entries(text: str, entries) -> str:
+    """Apply learned/manual dictionary entries: replace each enabled entry's aliases with its
+    canonical (case-insensitive, whole-word), then normalize the canonical's own casing.
+    Accepts pydantic models or plain dicts."""
+    current = text
+    for entry in entries:
+        if not _entry_field(entry, "enabled", True):
+            continue
+        canonical = " ".join(str(_entry_field(entry, "canonical", "")).strip().split())
+        if not canonical:
+            continue
+        for alias in _entry_field(entry, "aliases", []) or []:
+            cleaned_alias = " ".join(str(alias).strip().split())
+            if not cleaned_alias:
+                continue
+            pattern = re.compile(rf"\b{re.escape(cleaned_alias)}\b", re.IGNORECASE)
+            current = pattern.sub(canonical, current)
+        pattern = re.compile(rf"\b{re.escape(canonical)}\b", re.IGNORECASE)
+        current = pattern.sub(canonical, current)
     return current
 
 

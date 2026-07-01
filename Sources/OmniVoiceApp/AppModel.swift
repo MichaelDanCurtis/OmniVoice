@@ -435,7 +435,8 @@ final class AppModel {
                 CleanupRequest(
                     rawTranscript: note.body,
                     style: .neutral,
-                    dictionaryTerms: preferences.dictionaryTerms
+                    dictionaryTerms: preferences.dictionaryTerms,
+                    dictionaryEntries: CleanupRequest.entries(from: preferences.dictionaryEntries)
                 )
             )
             updateSelectedTranscriptionNote(body: result.text)
@@ -2314,12 +2315,50 @@ final class AppModel {
     }
 
     func setDictionaryTermsText(_ text: String) {
-        preferences.dictionaryTerms = text
+        // Rebuild the manual entries from the text box, preserving learned entries.
+        let canonicals = text
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        let now = Date()
+        let manual = canonicals.map { DictionaryEntry(manualTerm: $0, at: now) }
+        let learned = preferences.dictionaryEntries.filter { $0.source == .learned }
+        preferences.dictionaryEntries = manual + learned
         persistPreferences()
         statusText = "Dictionary updated"
+    }
+
+    /// Learn a correction (or merge its alias into an existing entry). Returns the affected
+    /// entry so the undo toast can reference it by id.
+    @discardableResult
+    func upsertLearnedCorrection(_ correction: LearnedCorrection) -> DictionaryEntry? {
+        let (updated, id) = DictionaryStore.upsert(
+            correction,
+            into: preferences.dictionaryEntries,
+            now: Date(),
+            makeID: { UUID().uuidString }
+        )
+        preferences.dictionaryEntries = updated
+        guard persistPreferences() else { return nil }
+        return preferences.dictionaryEntries.first { $0.id == id }
+    }
+
+    func removeDictionaryEntry(id: String) {
+        preferences.dictionaryEntries.removeAll { $0.id == id }
+        guard persistPreferences() else { return }
+    }
+
+    func updateDictionaryEntry(_ entry: DictionaryEntry) {
+        guard let index = preferences.dictionaryEntries.firstIndex(where: { $0.id == entry.id }) else { return }
+        preferences.dictionaryEntries[index] = entry
+        guard persistPreferences() else { return }
+    }
+
+    func setAutoLearnEnabled(_ enabled: Bool) {
+        guard preferences.autoLearnCorrectionsEnabled != enabled else { return }
+        preferences.autoLearnCorrectionsEnabled = enabled
+        guard persistPreferences() else { return }
+        statusText = enabled ? "Auto-learn on" : "Auto-learn off"
     }
 
     func refreshEngineStatus() async {
@@ -3534,7 +3573,8 @@ final class AppModel {
                 CleanupRequest(
                     rawTranscript: "I am going to the store. No wait, I am going to the house.",
                     style: preferences.style,
-                    dictionaryTerms: preferences.dictionaryTerms
+                    dictionaryTerms: preferences.dictionaryTerms,
+                    dictionaryEntries: CleanupRequest.entries(from: preferences.dictionaryEntries)
                 )
             )
             lastTestResult = result.text

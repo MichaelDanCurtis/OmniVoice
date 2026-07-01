@@ -7,7 +7,14 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
 
     public var asrProvider: ASRProviderKind
     public var style: StyleProfile
-    public var dictionaryTerms: [String]
+    public var dictionaryEntries: [DictionaryEntry]
+    public var autoLearnCorrectionsEnabled: Bool
+
+    /// Back-compat read accessor: enabled manual canonicals, in order. The engine still
+    /// receives these; the full entries (incl. learned aliases) go via `dictionaryEntries`.
+    public var dictionaryTerms: [String] {
+        dictionaryEntries.filter { $0.source == .manual && $0.enabled }.map(\.canonical)
+    }
     public var microphoneId: String?
     public var dictationHotkey: HotkeyBinding
     public var additionalDictationHotkeys: [HotkeyBinding]
@@ -120,7 +127,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public static let defaults = OmniVoicePreferences(
         asrProvider: .parakeetTDTMLX,
         style: .neutral,
-        dictionaryTerms: [],
+        dictionaryEntries: [],
         microphoneID: nil,
         dictationHotkey: .defaultDictation,
         additionalDictationHotkeys: [],
@@ -174,7 +181,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public init(
         asrProvider: ASRProviderKind,
         style: StyleProfile,
-        dictionaryTerms: [String],
+        dictionaryEntries: [DictionaryEntry],
+        autoLearnCorrectionsEnabled: Bool = true,
         microphoneID: String? = nil,
         dictationHotkey: HotkeyBinding = .defaultDictation,
         additionalDictationHotkeys: [HotkeyBinding] = [],
@@ -230,7 +238,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     ) {
         self.asrProvider = asrProvider.normalizedForUserSelection
         self.style = style
-        self.dictionaryTerms = dictionaryTerms
+        self.dictionaryEntries = dictionaryEntries
+        self.autoLearnCorrectionsEnabled = autoLearnCorrectionsEnabled
         self.microphoneId = microphoneID
         self.dictationHotkey = dictationHotkey
         self.additionalDictationHotkeys = Self.normalizedAdditionalDictationHotkeys(
@@ -314,27 +323,35 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             let acronymContainer = try decoder.container(keyedBy: AcronymCodingKeys.self)
             let legacyHotMenuContainer = try decoder.container(keyedBy: LegacyHotMenuCodingKeys.self)
+            let legacyDictionaryContainer = try decoder.container(keyedBy: LegacyDictionaryCodingKeys.self)
             try self.init(
                 snakeCaseContainer: container,
                 acronymContainer: acronymContainer,
-                legacyHotMenuContainer: legacyHotMenuContainer
+                legacyHotMenuContainer: legacyHotMenuContainer,
+                dictionaryEntries: try Self.decodeDictionaryEntries(entries: container, legacy: legacyDictionaryContainer)
             )
         } catch DecodingError.keyNotFound {
             let container = try decoder.container(keyedBy: ConvertedCodingKeys.self)
             let legacyHotMenuContainer = try decoder.container(keyedBy: LegacyConvertedHotMenuCodingKeys.self)
-            try self.init(convertedContainer: container, legacyHotMenuContainer: legacyHotMenuContainer)
+            try self.init(
+                convertedContainer: container,
+                legacyHotMenuContainer: legacyHotMenuContainer,
+                dictionaryEntries: try Self.decodeDictionaryEntries(converted: container)
+            )
         }
     }
 
     private init(
         snakeCaseContainer container: KeyedDecodingContainer<CodingKeys>,
         acronymContainer: KeyedDecodingContainer<AcronymCodingKeys>,
-        legacyHotMenuContainer: KeyedDecodingContainer<LegacyHotMenuCodingKeys>
+        legacyHotMenuContainer: KeyedDecodingContainer<LegacyHotMenuCodingKeys>,
+        dictionaryEntries: [DictionaryEntry]
     ) throws {
         self.init(
             asrProvider: try container.decode(ASRProviderKind.self, forKey: .asrProvider),
             style: try container.decode(StyleProfile.self, forKey: .style),
-            dictionaryTerms: try container.decode([String].self, forKey: .dictionaryTerms),
+            dictionaryEntries: dictionaryEntries,
+            autoLearnCorrectionsEnabled: try container.decodeIfPresent(Bool.self, forKey: .autoLearnCorrectionsEnabled) ?? true,
             microphoneID: try container.decodeIfPresent(String.self, forKey: .microphoneId),
             dictationHotkey: try container.decode(HotkeyBinding.self, forKey: .dictationHotkey),
             additionalDictationHotkeys: try container.decodeIfPresent(
@@ -414,12 +431,14 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
 
     private init(
         convertedContainer container: KeyedDecodingContainer<ConvertedCodingKeys>,
-        legacyHotMenuContainer: KeyedDecodingContainer<LegacyConvertedHotMenuCodingKeys>
+        legacyHotMenuContainer: KeyedDecodingContainer<LegacyConvertedHotMenuCodingKeys>,
+        dictionaryEntries: [DictionaryEntry]
     ) throws {
         self.init(
             asrProvider: try container.decode(ASRProviderKind.self, forKey: .asrProvider),
             style: try container.decode(StyleProfile.self, forKey: .style),
-            dictionaryTerms: try container.decode([String].self, forKey: .dictionaryTerms),
+            dictionaryEntries: dictionaryEntries,
+            autoLearnCorrectionsEnabled: try container.decodeIfPresent(Bool.self, forKey: .autoLearnCorrectionsEnabled) ?? true,
             microphoneID: try container.decodeIfPresent(String.self, forKey: .microphoneId),
             dictationHotkey: try container.decode(HotkeyBinding.self, forKey: .dictationHotkey),
             additionalDictationHotkeys: try container.decodeIfPresent(
@@ -693,10 +712,41 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         }
     }
 
+    /// Snake-case decode path: `dictionary_entries` lives in `CodingKeys`; the legacy
+    /// `dictionary_terms` lives in a separate decode-only enum (it can't stay in `CodingKeys`
+    /// without a backing stored property, which would break the synthesized `Encodable`).
+    private static func decodeDictionaryEntries(
+        entries entriesContainer: KeyedDecodingContainer<CodingKeys>,
+        legacy legacyContainer: KeyedDecodingContainer<LegacyDictionaryCodingKeys>
+    ) throws -> [DictionaryEntry] {
+        if let entries = try entriesContainer.decodeIfPresent([DictionaryEntry].self, forKey: .dictionaryEntries) {
+            return entries
+        }
+        let legacy = try legacyContainer.decodeIfPresent([String].self, forKey: .dictionaryTerms) ?? []
+        return legacy.map { DictionaryEntry(manualTerm: $0, at: Date(timeIntervalSince1970: 0)) }
+    }
+
+    /// Converted (camelCase) decode path: both keys live in `ConvertedCodingKeys` (decode-only,
+    /// so keeping the legacy key there is harmless).
+    private static func decodeDictionaryEntries(
+        converted container: KeyedDecodingContainer<ConvertedCodingKeys>
+    ) throws -> [DictionaryEntry] {
+        if let entries = try container.decodeIfPresent([DictionaryEntry].self, forKey: .dictionaryEntries) {
+            return entries
+        }
+        let legacy = try container.decodeIfPresent([String].self, forKey: .dictionaryTerms) ?? []
+        return legacy.map { DictionaryEntry(manualTerm: $0, at: Date(timeIntervalSince1970: 0)) }
+    }
+
+    private enum LegacyDictionaryCodingKeys: String, CodingKey {
+        case dictionaryTerms = "dictionary_terms"
+    }
+
     private enum CodingKeys: String, CodingKey {
         case asrProvider = "asr_provider"
         case style = "style"
-        case dictionaryTerms = "dictionary_terms"
+        case dictionaryEntries = "dictionary_entries"
+        case autoLearnCorrectionsEnabled = "auto_learn_corrections_enabled"
         case microphoneId = "microphone_id"
         case dictationHotkey = "dictation_hotkey"
         case additionalDictationHotkeys = "additional_dictation_hotkeys"
@@ -751,6 +801,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case asrProvider
         case style
         case dictionaryTerms
+        case dictionaryEntries
+        case autoLearnCorrectionsEnabled
         case microphoneId
         case dictationHotkey
         case additionalDictationHotkeys

@@ -1432,14 +1432,37 @@ public struct TranscriptUpdate: Codable, Equatable, Sendable {
 }
 
 public struct CleanupRequest: Codable, Equatable, Sendable {
+    public struct Entry: Codable, Equatable, Sendable {
+        public let canonical: String
+        public let aliases: [String]
+        public let enabled: Bool
+        public init(canonical: String, aliases: [String], enabled: Bool) {
+            self.canonical = canonical
+            self.aliases = aliases
+            self.enabled = enabled
+        }
+    }
+
     public let rawTranscript: String
     public let style: StyleProfile
     public let dictionaryTerms: [String]
+    public let dictionaryEntries: [Entry]
 
-    public init(rawTranscript: String, style: StyleProfile, dictionaryTerms: [String] = []) {
+    public init(
+        rawTranscript: String,
+        style: StyleProfile,
+        dictionaryTerms: [String] = [],
+        dictionaryEntries: [Entry] = []
+    ) {
         self.rawTranscript = rawTranscript
         self.style = style
         self.dictionaryTerms = dictionaryTerms
+        self.dictionaryEntries = dictionaryEntries
+    }
+
+    /// Maps personal-dictionary entries to the engine's wire form.
+    public static func entries(from dictionaryEntries: [DictionaryEntry]) -> [Entry] {
+        dictionaryEntries.map { Entry(canonical: $0.canonical, aliases: $0.aliases, enabled: $0.enabled) }
     }
 }
 

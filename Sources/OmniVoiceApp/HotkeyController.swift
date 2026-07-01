@@ -15,6 +15,7 @@ final class HotkeyController {
         case bubbleInsert
         case bubbleCopy
         case bubbleDismiss
+        case teachCorrectionPressed
     }
 
     enum HotkeyError: Error {
@@ -32,6 +33,7 @@ final class HotkeyController {
     private var bubbleInsertHotkey: EventHotKeyRef?
     private var bubbleCopyHotkey: EventHotKeyRef?
     private var bubbleDismissHotkey: EventHotKeyRef?
+    private var teachCorrectionHotkey: EventHotKeyRef?   // fixed ⌃⌥T
     private var eventHandler: EventHandlerRef?
     private var dictationModifierChords: [HotkeyBinding] = []
     private var styleModifierChord: HotkeyBinding?
@@ -174,6 +176,11 @@ final class HotkeyController {
             installModifierMonitors()
         }
 
+        // Fixed teach-correction hotkey: ⌃⌥T (keyCode 17, control+option = 6144). Best-effort
+        // — if the combo is taken, teaching is still available; auto-detect is the primary path.
+        let teachID = EventHotKeyID(signature: OSType(0x4F4D4E49), id: 8)
+        RegisterEventHotKey(17, 6_144, teachID, GetApplicationEventTarget(), UInt32(kEventHotKeyExclusive), &teachCorrectionHotkey)
+
         isRegistered = true
     }
 
@@ -196,6 +203,10 @@ final class HotkeyController {
             UnregisterEventHotKey(transcriptCacheHotkey)
         }
         unregisterBubbleActions()
+        if let teachCorrectionHotkey {
+            UnregisterEventHotKey(teachCorrectionHotkey)
+        }
+        teachCorrectionHotkey = nil
         if let eventHandler {
             RemoveEventHandler(eventHandler)
         }
@@ -239,6 +250,8 @@ final class HotkeyController {
             onEvent?(.bubbleCopy)
         } else if hotkeyID.id == 7, kind == UInt32(kEventHotKeyPressed) {
             onEvent?(.bubbleDismiss)
+        } else if hotkeyID.id == 8, kind == UInt32(kEventHotKeyPressed) {
+            onEvent?(.teachCorrectionPressed)
         }
     }
 
