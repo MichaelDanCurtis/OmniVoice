@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let streamingClient = EngineStreamingClient()
     private let insertionService = TextInsertionService()
     private lazy var askController = AskController(insertion: insertionService, engineClient: engineClient)
+    private let correctionWatcher = CorrectionWatcher()
     private let recordingCuePlayer = RecordingCuePlayer.shared
     private let dockIconController = DynamicDockIconController()
     private let commandExecutor = DictationCommandExecutor()
@@ -103,6 +104,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.statusText = "Saved settings couldn't be read — using defaults"
         }
         askController.updateConfiguration(model.preferences)
+        correctionWatcher.onLearn = { [weak self, weak model] correction in
+            guard let model, model.preferences.autoLearnCorrectionsEnabled else { return }
+            _ = model.upsertLearnedCorrection(correction)
+            model.statusText = "Learned “\(correction.to)”"
+            _ = self // toast wiring added in the LearnedWordToast task
+        }
         model.onCustomAgentsChanged = { [weak self, weak model] _ in
             guard let model else { return }
             self?.askController.updateConfiguration(model.preferences)
@@ -871,7 +878,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let insertionText = await translatedTextIfNeeded(finalText, model: model)
         model.session.finishCleanup(insertionText)
-        await insertFinalText(insertionText, model: model, successStatus: model.preferences.liveTranslationEnabled ? "Translated text inserted" : "Inserted")
+        await insertFinalText(insertionText, model: model, successStatus: model.preferences.liveTranslationEnabled ? "Translated text inserted" : "Inserted", learnable: true)
         await model.refreshTranscripts(updateStatus: false)
     }
 
@@ -911,13 +918,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func insertFinalText(_ finalText: String, model: AppModel, successStatus: String) async {
+    private func insertFinalText(_ finalText: String, model: AppModel, successStatus: String, learnable: Bool = false) async {
         if var draft = liveDraft {
             if insertionService.commitLiveDraft(finalText, draft: &draft) {
                 liveDraft = nil
                 model.statusText = successStatus
                 overlay.commitAndHide(mode: model.activeTheme.commitAnimationMode)
                 model.session.reset()
+                if learnable, model.preferences.autoLearnCorrectionsEnabled {
+                    correctionWatcher.observeFocusedElement(insertedText: finalText)
+                }
                 return
             }
 
@@ -930,6 +940,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.statusText = successStatus
             overlay.commitAndHide(mode: model.activeTheme.commitAnimationMode)
             model.session.reset()
+            if learnable, model.preferences.autoLearnCorrectionsEnabled {
+                correctionWatcher.observeFocusedElement(insertedText: finalText)
+            }
         } catch TextInsertionService.InsertionError.accessibilityPermissionRequired {
             model.session.fail("Accessibility permission required")
             model.statusText = "Accessibility permission required"
