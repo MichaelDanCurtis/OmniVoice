@@ -19,6 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var askController = AskController(insertion: insertionService, engineClient: engineClient)
     private let correctionWatcher = CorrectionWatcher()
     private let learnedWordToast = LearnedWordToast()
+    private let teachCorrectionWindow = TeachCorrectionWindow()
+    private var lastLearnableInsertion: String?
     private let recordingCuePlayer = RecordingCuePlayer.shared
     private let dockIconController = DynamicDockIconController()
     private let commandExecutor = DictationCommandExecutor()
@@ -107,9 +109,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         askController.updateConfiguration(model.preferences)
         correctionWatcher.onLearn = { [weak self, weak model] correction in
             guard let self, let model, model.preferences.autoLearnCorrectionsEnabled else { return }
-            guard let entry = model.upsertLearnedCorrection(correction) else { return }
-            model.statusText = "Learned “\(correction.to)”"
-            self.learnedWordToast.show(correction: correction, entryID: entry.id)
+            self.commitLearnedCorrection(correction, model: model)
+        }
+        teachCorrectionWindow.onLearn = { [weak self, weak model] correction in
+            guard let self, let model else { return }
+            self.commitLearnedCorrection(correction, model: model)
         }
         learnedWordToast.onUndo = { [weak model] id in
             model?.removeDictionaryEntry(id: id)
@@ -377,6 +381,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .bubbleDismiss:
             abortDictationForBubbleAction(model: model)
             askController.bubbleDismiss()
+        case .teachCorrectionPressed:
+            if let last = lastLearnableInsertion {
+                teachCorrectionWindow.show(originalText: last)
+            }
         }
     }
 
@@ -922,6 +930,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func commitLearnedCorrection(_ correction: LearnedCorrection, model: AppModel) {
+        guard let entry = model.upsertLearnedCorrection(correction) else { return }
+        model.statusText = "Learned “\(correction.to)”"
+        learnedWordToast.show(correction: correction, entryID: entry.id)
+    }
+
     private func insertFinalText(_ finalText: String, model: AppModel, successStatus: String, learnable: Bool = false) async {
         if var draft = liveDraft {
             if insertionService.commitLiveDraft(finalText, draft: &draft) {
@@ -929,8 +943,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 model.statusText = successStatus
                 overlay.commitAndHide(mode: model.activeTheme.commitAnimationMode)
                 model.session.reset()
-                if learnable, model.preferences.autoLearnCorrectionsEnabled {
-                    correctionWatcher.observeFocusedElement(insertedText: finalText)
+                if learnable {
+                    lastLearnableInsertion = finalText
+                    if model.preferences.autoLearnCorrectionsEnabled {
+                        correctionWatcher.observeFocusedElement(insertedText: finalText)
+                    }
                 }
                 return
             }
@@ -944,8 +961,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.statusText = successStatus
             overlay.commitAndHide(mode: model.activeTheme.commitAnimationMode)
             model.session.reset()
-            if learnable, model.preferences.autoLearnCorrectionsEnabled {
-                correctionWatcher.observeFocusedElement(insertedText: finalText)
+            if learnable {
+                lastLearnableInsertion = finalText
+                if model.preferences.autoLearnCorrectionsEnabled {
+                    correctionWatcher.observeFocusedElement(insertedText: finalText)
+                }
             }
         } catch TextInsertionService.InsertionError.accessibilityPermissionRequired {
             model.session.fail("Accessibility permission required")
