@@ -623,6 +623,24 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(try store.load(), preferences)
     }
 
+    func testEntitlementSnapshotDataRoundTripsThroughStore() throws {
+        let suiteName = "OmniVoicePreferencesStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = PreferencesStore(userDefaults: defaults)
+        var preferences = OmniVoicePreferences.defaults
+        preferences.entitlementSnapshotData = Data("cached-entitlement".utf8)
+
+        try store.save(preferences)
+
+        XCTAssertEqual(try store.load().entitlementSnapshotData, Data("cached-entitlement".utf8))
+    }
+
+    func testEntitlementSnapshotDataDefaultsNil() {
+        XCTAssertNil(OmniVoicePreferences.defaults.entitlementSnapshotData)
+    }
+
     func testModifierOnlyHotkeysRoundTripThroughStore() throws {
         let suiteName = "OmniVoicePreferencesStoreTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
