@@ -202,6 +202,18 @@ final class AppModel {
     @ObservationIgnored var onThemeChanged: ((OmniVoiceTheme, AppAppearanceMode) -> Void)?
     @ObservationIgnored var onCustomAgentsChanged: (([AgentConfiguration]) -> Void)?
 
+    // MARK: - Account + entitlement gate
+    /// Gates the four premium features. Created lazily so it can read the cached
+    /// snapshot from (already-loaded) preferences and persist refreshed answers back.
+    @ObservationIgnored private(set) lazy var entitlement: EntitlementService = makeEntitlementService()
+    @ObservationIgnored var onPresentPaywall: ((PremiumFeature) -> Void)?
+    @ObservationIgnored var onRequestSignIn: (() -> Void)?
+    @ObservationIgnored var onRequestSignOut: (() -> Void)?
+    @ObservationIgnored var onUpgrade: (() -> Void)?
+    @ObservationIgnored var onManageBilling: (() -> Void)?
+    /// Email of the signed-in account, or nil when signed out. Drives the Account UI.
+    var accountEmail: String?
+
     init(
         preferences: OmniVoicePreferences? = nil,
         preferencesStore: PreferencesStore = PreferencesStore(),
@@ -1523,6 +1535,11 @@ final class AppModel {
 
     func setLiveTranslationEnabled(_ enabled: Bool) {
         guard preferences.liveTranslationEnabled != enabled else {
+            return
+        }
+
+        if enabled, !isEntitled(to: .liveTranslation) {
+            presentPaywall(for: .liveTranslation)
             return
         }
 
@@ -2965,6 +2982,10 @@ final class AppModel {
     }
 
     func startConversationRecording() async {
+        if !isEntitled(to: .conversationMode) {
+            presentPaywall(for: .conversationMode)
+            return
+        }
         guard !isConversationStartInFlight, !isConversationRecording, !isConversationFinalizing, !conversationRecorder.recordingActive else {
             statusText = isConversationFinalizing ? "Conversation finalizing" : "Conversation already recording"
             return
@@ -3833,6 +3854,37 @@ final class AppModel {
             statusText = "Preferences save failed"
             return false
         }
+    }
+
+    // MARK: - Entitlement gate
+
+    func isEntitled(to feature: PremiumFeature) -> Bool {
+        entitlement.isEntitled(to: feature)
+    }
+
+    func presentPaywall(for feature: PremiumFeature) {
+        onPresentPaywall?(feature)
+    }
+
+    /// Refresh the entitlement answer from the provider (Worker in production, stub in dev).
+    func refreshEntitlement() async {
+        await entitlement.refresh()
+    }
+
+    private func makeEntitlementService() -> EntitlementService {
+        let cached = preferences.entitlementSnapshotData.flatMap {
+            try? JSONDecoder().decode(EntitlementSnapshot.self, from: $0)
+        }
+        return EntitlementService(
+            provider: StubEntitlementProvider.trialing(),
+            cached: cached,
+            persist: { [weak self] snapshot in self?.persistEntitlementSnapshot(snapshot) }
+        )
+    }
+
+    private func persistEntitlementSnapshot(_ snapshot: EntitlementSnapshot) {
+        preferences.entitlementSnapshotData = try? JSONEncoder().encode(snapshot)
+        _ = persistPreferences()
     }
 
     /// Loads LLM secrets from the Keychain into in-memory preferences, migrating any
