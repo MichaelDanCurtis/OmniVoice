@@ -435,7 +435,8 @@ final class AppModel {
                 CleanupRequest(
                     rawTranscript: note.body,
                     style: .neutral,
-                    dictionaryTerms: preferences.dictionaryTerms
+                    dictionaryTerms: preferences.dictionaryTerms,
+                    dictionaryEntries: CleanupRequest.entries(from: preferences.dictionaryEntries)
                 )
             )
             updateSelectedTranscriptionNote(body: result.text)
@@ -3539,7 +3540,8 @@ final class AppModel {
                 CleanupRequest(
                     rawTranscript: "I am going to the store. No wait, I am going to the house.",
                     style: preferences.style,
-                    dictionaryTerms: preferences.dictionaryTerms
+                    dictionaryTerms: preferences.dictionaryTerms,
+                    dictionaryEntries: CleanupRequest.entries(from: preferences.dictionaryEntries)
                 )
             )
             lastTestResult = result.text

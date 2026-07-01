@@ -17,6 +17,29 @@ final class EngineClientTests: XCTestCase {
         XCTAssertTrue(json.contains("neutral"))
     }
 
+    func testCleanupRequestEncodesDictionaryEntries() throws {
+        let request = CleanupRequest(
+            rawTranscript: "figma",
+            style: .neutral,
+            dictionaryEntries: [CleanupRequest.Entry(canonical: "Figma", aliases: ["figma"], enabled: true)]
+        )
+        let data = try EngineCoding.encoder.encode(request)
+        let json = String(decoding: data, as: UTF8.self)
+        XCTAssertTrue(json.contains("dictionary_entries"))
+        XCTAssertTrue(json.contains("canonical"))
+
+        let decoded = try EngineCoding.decoder.decode(CleanupRequest.self, from: data)
+        XCTAssertEqual(decoded.dictionaryEntries, request.dictionaryEntries)
+    }
+
+    func testCleanupRequestEntriesFromDictionaryEntries() {
+        let entries = [DictionaryEntry(id: "1", canonical: "Figma", aliases: ["figma"],
+                                       source: .learned, enabled: true,
+                                       createdAt: Date(timeIntervalSince1970: 0), updatedAt: Date(timeIntervalSince1970: 0))]
+        let wire = CleanupRequest.entries(from: entries)
+        XCTAssertEqual(wire, [CleanupRequest.Entry(canonical: "Figma", aliases: ["figma"], enabled: true)])
+    }
+
     func testCleanupResponseDecodesSnakeCasePayload() throws {
         let data = #"{"text":"Schedule it for Tuesday.","cleanup_applied":true}"#.data(using: .utf8)!
 

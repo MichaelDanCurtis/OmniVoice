@@ -852,7 +852,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     CleanupRequest(
                         rawTranscript: rawTranscript,
                         style: cleanupStyle,
-                        dictionaryTerms: model.preferences.dictionaryTerms
+                        dictionaryTerms: model.preferences.dictionaryTerms,
+                        dictionaryEntries: CleanupRequest.entries(from: model.preferences.dictionaryEntries)
                     )
                 )
                 finalText = TextInsertionEdit.sanitizedInsertionText(cleanup.text)
