@@ -187,7 +187,7 @@ final class AppModel {
     @ObservationIgnored private let huggingFaceTokenStore = HuggingFaceTokenStore()
     @ObservationIgnored private let llmSecretStore = LLMSecretStore()
     private static let legacyOpenAIProviderID = "openai_compatible_legacy"
-    private static let logger = Logger(subsystem: "com.omnivoice.OmniVoiceApp", category: "AppModel")
+    private static let logger = Logger(subsystem: "com.omnispeak.OmniVoiceApp", category: "AppModel")
     /// True when saved preferences couldn't be decoded at launch and defaults were used.
     @ObservationIgnored private(set) var preferencesLoadFailed = false
     @ObservationIgnored private let conversationRecorder = ConversationRecorderService()
@@ -2109,7 +2109,7 @@ final class AppModel {
         do {
             let result = try await engineClient.aiHandoff(
                 AIHandoffRequest(
-                    prompt: "Reply with exactly: OmniVoice AI OK.",
+                    prompt: "Reply with exactly: OmniSpeak AI OK.",
                     provider: provider.rawValue,
                     baseURL: configuration.resolvedBaseURL,
                     model: configuration.trimmedModel,
@@ -2419,7 +2419,7 @@ final class AppModel {
         async let localSigningIdentityCount = Self.omniVoiceSigningIdentityCount()
 
         let currentAppPath = Bundle.main.bundleURL.path
-        let expectedAppPath = "\(NSHomeDirectory())/Applications/OmniVoice.app"
+        let expectedAppPath = "\(NSHomeDirectory())/Applications/OmniSpeak.app"
         let appPathState: StartupCheckState = currentAppPath == expectedAppPath ? .passed : .failed
 
         let registrationCount = await launchServicesCount
@@ -2429,11 +2429,11 @@ final class AppModel {
         let signingState: StartupCheckState = signingIdentityCount == 1 ? .passed : .warning
         let signingDetail: String
         if signingIdentityCount == 1 {
-            signingDetail = "One OmniVoice signing identity is visible."
+            signingDetail = "One OmniSpeak signing identity is visible."
         } else if signingIdentityCount == 0 {
-            signingDetail = "No OmniVoice signing identity is visible to the user keychain search list."
+            signingDetail = "No OmniSpeak signing identity is visible to the user keychain search list."
         } else {
-            signingDetail = "\(signingIdentityCount) OmniVoice signing identities are visible. The launcher will probe signing and fall back if Apple blocks one."
+            signingDetail = "\(signingIdentityCount) OmniSpeak signing identities are visible. The launcher will probe signing and fall back if Apple blocks one."
         }
 
         let selectedModel = modelStatus(for: preferences.asrProvider)
@@ -2486,8 +2486,8 @@ final class AppModel {
                 id: "launch-services",
                 title: "Apple app registry",
                 detail: registrationCount == 1
-                    ? "One OmniVoice registration is active."
-                    : "\(registrationCount) OmniVoice registrations are active. Relaunch through the OmniVoice launcher to repair this.",
+                    ? "One OmniSpeak registration is active."
+                    : "\(registrationCount) OmniSpeak registrations are active. Relaunch through the OmniSpeak launcher to repair this.",
                 state: registrationState,
                 action: .refresh
             ),
@@ -2503,7 +2503,7 @@ final class AppModel {
                 title: "Accessibility",
                 detail: accessibilityTrusted
                     ? "Allowed for cursor detection and text insertion."
-                    : "Required for cursor detection and final text insertion. If it still shows required after allowing it, reset the OmniVoice Accessibility record.",
+                    : "Required for cursor detection and final text insertion. If it still shows required after allowing it, reset the OmniSpeak Accessibility record.",
                 state: accessibilityTrusted ? .passed : .failed,
                 action: accessibilityTrusted ? nil : .accessibility
             ),
@@ -4107,7 +4107,7 @@ final class AppModel {
             return 0
         }
 
-        return output.components(separatedBy: "identifier:                 com.omnivoice.OmniVoiceApp").count - 1
+        return output.components(separatedBy: "identifier:                 com.omnispeak.OmniVoiceApp").count - 1
     }
 
     private static func omniVoiceSigningIdentityCount() async -> Int {
@@ -4117,7 +4117,7 @@ final class AppModel {
 
         return output
             .split(separator: "\n")
-            .filter { $0.contains("\"OmniVoice Local Development\"") }
+            .filter { $0.contains("\"OmniSpeak Local Development\"") }
             .count
     }
 

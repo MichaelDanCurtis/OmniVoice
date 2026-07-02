@@ -250,7 +250,7 @@ final class ConversationModelsTests: XCTestCase {
 
         let root = ConversationArchive.defaultRootURL(documentsURL: documents)
 
-        XCTAssertEqual(root.path, "/Users/tester/Documents/OmniVoice")
+        XCTAssertEqual(root.path, "/Users/tester/Documents/OmniSpeak")
     }
 
     func testConversationAudioSourceStoresDesignSourceFields() {

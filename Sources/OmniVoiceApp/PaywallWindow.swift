@@ -44,7 +44,7 @@ final class PaywallWindow {
             backing: .buffered,
             defer: false
         )
-        panel.title = "OmniVoice Premium"
+        panel.title = "OmniSpeak Premium"
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.contentView = NSHostingView(rootView: PaywallView(model: model))

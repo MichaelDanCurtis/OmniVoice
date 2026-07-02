@@ -4,7 +4,7 @@ import OSLog
 
 @MainActor
 final class TextInsertionService {
-    private let logger = Logger(subsystem: "com.omnivoice.OmniVoiceApp", category: "Insertion")
+    private let logger = Logger(subsystem: "com.omnispeak.OmniVoiceApp", category: "Insertion")
 
     struct Target {
         let application: NSRunningApplication?
@@ -36,7 +36,7 @@ final class TextInsertionService {
             case .accessibilityPermissionRequired:
                 "Accessibility permission is required to insert dictated text."
             case .noInsertionToUndo:
-                "There is no recent OmniVoice insertion to undo."
+                "There is no recent OmniSpeak insertion to undo."
             case .pasteboardUnavailable:
                 "The pasteboard was unavailable."
             case .syntheticTypingUnavailable:

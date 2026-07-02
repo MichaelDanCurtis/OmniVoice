@@ -1,6 +1,6 @@
 import Foundation
 
-/// A learned mapping: the text OmniVoice inserted (`from`) → the user's corrected form (`to`).
+/// A learned mapping: the text OmniSpeak inserted (`from`) → the user's corrected form (`to`).
 public struct LearnedCorrection: Equatable, Sendable {
     public let from: String
     public let to: String
@@ -10,14 +10,14 @@ public struct LearnedCorrection: Equatable, Sendable {
     }
 }
 
-/// Pure logic that decides whether an edit to OmniVoice's inserted text is a vocabulary
+/// Pure logic that decides whether an edit to OmniSpeak's inserted text is a vocabulary
 /// correction worth learning. Deterministic and side-effect-free so it's fully unit-tested;
 /// the Accessibility plumbing that feeds it lives in `CorrectionWatcher` (app layer).
 public enum CorrectionClassifier {
     /// - Parameters:
-    ///   - before: the field value right after OmniVoice inserted.
+    ///   - before: the field value right after OmniSpeak inserted.
     ///   - after: the field value now.
-    ///   - insertedRange: the range OmniVoice wrote within `before`.
+    ///   - insertedRange: the range OmniSpeak wrote within `before`.
     /// - Returns: a `LearnedCorrection` when the edit is a single-word vocabulary fix that
     ///   overlaps the inserted span; otherwise nil.
     public static func classify(before: String, after: String, insertedRange: Range<String.Index>) -> LearnedCorrection? {
@@ -55,7 +55,7 @@ public enum CorrectionClassifier {
         let to = String(afterChars[afterStart..<afterEnd]).trimmingCharacters(in: .whitespaces)
         guard !from.isEmpty, !to.isEmpty, from != to else { return nil }
 
-        // The edit must overlap the span OmniVoice inserted.
+        // The edit must overlap the span OmniSpeak inserted.
         let changeStartIdx = before.index(before.startIndex, offsetBy: beforeStart)
         let changeEndIdx = before.index(before.startIndex, offsetBy: beforeEnd)
         guard changeStartIdx < insertedRange.upperBound, insertedRange.lowerBound < changeEndIdx else { return nil }

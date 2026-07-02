@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 struct HuggingFaceTokenStore {
-    private let service = "com.omnivoice.huggingface"
+    private let service = "com.omnispeak.huggingface"
     private let account = "user-token"
 
     func load() -> String? {

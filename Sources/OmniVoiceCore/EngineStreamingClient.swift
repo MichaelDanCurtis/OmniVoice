@@ -109,7 +109,7 @@ public struct TranslationStreamConfiguration: Codable, Equatable, Sendable {
 public final class EngineStreamingClient: @unchecked Sendable {
     private let baseURL: URL
     private let session: URLSession
-    private let queue = DispatchQueue(label: "omnivoice.engine.streaming")
+    private let queue = DispatchQueue(label: "omnispeak.engine.streaming")
     private var task: URLSessionWebSocketTask?
     private let connectionGate = EngineStreamingConnectionGate()
     private var connectionToken: EngineStreamingConnectionToken?

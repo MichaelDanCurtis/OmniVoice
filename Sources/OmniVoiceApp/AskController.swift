@@ -4,7 +4,7 @@ import OmniVoiceCore
 /// Routes "ask <keyword> …" (and follow-ups / actions while the bubble is open) to the
 /// keyword's bound provider — a local agent CLI or an engine text-LLM provider —
 /// streaming/showing the answer in the Ask bubble. Conversation context is
-/// OmniVoice-managed: each turn re-sends thread history as a one-shot prompt (no ACP).
+/// OmniSpeak-managed: each turn re-sends thread history as a one-shot prompt (no ACP).
 @MainActor
 final class AskController {
     private let bubble = AskBubbleWindow()

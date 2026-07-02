@@ -11,7 +11,7 @@ struct LLMSecretStore {
         case oauthRefreshToken
     }
 
-    private let service = "com.omnivoice.llm-secrets"
+    private let service = "com.omnispeak.llm-secrets"
 
     func value(provider: String, field: Field) -> String? {
         load(account: account(provider, field))

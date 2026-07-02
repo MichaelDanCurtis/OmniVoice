@@ -167,7 +167,7 @@ final class WorkspaceModelsTests: XCTestCase {
         let attachment = AskAIContextAttachment(
             kind: .image,
             title: "dashboard.png",
-            text: "Screenshot from OmniVoice.",
+            text: "Screenshot from OmniSpeak.",
             filePath: "/tmp/dashboard.png",
             mimeType: "image/png",
             dataURL: "data:image/png;base64,abc123"

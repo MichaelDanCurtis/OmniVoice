@@ -6,7 +6,7 @@ import Network
 /// provisioned (see `docs/ACCOUNT_ENTITLEMENT_RUNBOOK.md`). While `nil`, sign-in
 /// throws `AuthError.notConfigured` and the app runs on the stub entitlement provider.
 enum WorkerConfig {
-    /// Base URL of the deployed Cloudflare Worker (e.g. `https://api.omnivoice.app`).
+    /// Base URL of the deployed Cloudflare Worker (e.g. `https://api.omnispeak.app`).
     static let baseURL: URL? = nil
     /// WorkOS client id for the AuthKit application.
     static let workosClientID: String? = nil
@@ -123,7 +123,7 @@ final class AuthLoginController {
 /// those callbacks, so the mutable state is effectively serialized.
 private final class LoopbackAuthListener: @unchecked Sendable {
     private let listener: NWListener
-    private let queue = DispatchQueue(label: "com.omnivoice.auth.loopback")
+    private let queue = DispatchQueue(label: "com.omnispeak.auth.loopback")
     private var connection: NWConnection?
     private var startResumed = false
     private var callbackResumed = false
@@ -218,7 +218,7 @@ private final class LoopbackAuthListener: @unchecked Sendable {
     private static func sendClosePage(on connection: NWConnection) {
         let body = """
         <html><body style="font-family: -apple-system, sans-serif; text-align: center; padding-top: 80px;">\
-        <h2>OmniVoice</h2><p>You’re signed in. You can close this tab and return to the app.</p></body></html>
+        <h2>OmniSpeak</h2><p>You’re signed in. You can close this tab and return to the app.</p></body></html>
         """
         let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
             + "Content-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n"

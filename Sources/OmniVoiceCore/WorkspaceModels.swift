@@ -432,7 +432,7 @@ public enum OmniWorkspaceArchive {
             .appending(path: "Library", directoryHint: .isDirectory)
             .appending(path: "Application Support", directoryHint: .isDirectory)
         return base
-            .appending(path: "OmniVoice", directoryHint: .isDirectory)
+            .appending(path: "OmniSpeak", directoryHint: .isDirectory)
             .appending(path: "Workspace", directoryHint: .isDirectory)
     }
 

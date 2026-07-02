@@ -366,7 +366,7 @@ struct EditorWindowView: View {
                         .textFieldStyle(.plain)
                         .help("Subject name for this group of transcription notes")
 
-                        Text("Notes are saved inside OmniVoice as Markdown-ready context for documents and AI.")
+                        Text("Notes are saved inside OmniSpeak as Markdown-ready context for documents and AI.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -795,7 +795,7 @@ struct AskAIWindowView: View {
             let fileType = UTType(typeIdentifier)
             let fileExtension = fileType?.preferredFilenameExtension ?? "png"
             let url = FileManager.default.temporaryDirectory
-                .appending(path: "OmniVoice-Dropped-\(UUID().uuidString).\(fileExtension)")
+                .appending(path: "OmniSpeak-Dropped-\(UUID().uuidString).\(fileExtension)")
             do {
                 try data.write(to: url)
             } catch {
@@ -822,7 +822,7 @@ struct AskAIWindowView: View {
             let fileType = UTType(typeIdentifier)
             let fileExtension = fileType?.preferredFilenameExtension ?? "wav"
             let url = FileManager.default.temporaryDirectory
-                .appending(path: "OmniVoice-Dropped-\(UUID().uuidString).\(fileExtension)")
+                .appending(path: "OmniSpeak-Dropped-\(UUID().uuidString).\(fileExtension)")
             do {
                 try data.write(to: url)
             } catch {

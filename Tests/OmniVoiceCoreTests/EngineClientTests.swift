@@ -6,14 +6,14 @@ final class EngineClientTests: XCTestCase {
         let request = CleanupRequest(
             rawTranscript: "Schedule it for Monday, actually Tuesday.",
             style: .neutral,
-            dictionaryTerms: ["OmniVoice"]
+            dictionaryTerms: ["OmniSpeak"]
         )
         let data = try EngineCoding.encoder.encode(request)
         let json = String(decoding: data, as: UTF8.self)
 
         XCTAssertTrue(json.contains("raw_transcript"))
         XCTAssertTrue(json.contains("dictionary_terms"))
-        XCTAssertTrue(json.contains("OmniVoice"))
+        XCTAssertTrue(json.contains("OmniSpeak"))
         XCTAssertTrue(json.contains("neutral"))
     }
 
@@ -375,13 +375,13 @@ final class EngineClientTests: XCTestCase {
                 AIChatAttachment(
                     kind: .image,
                     title: "dashboard.png",
-                    text: "Screenshot from OmniVoice.",
+                    text: "Screenshot from OmniSpeak.",
                     mimeType: "image/png",
                     dataURL: "data:image/png;base64,abc123"
                 )
             ],
             webSearchEnabled: true,
-            webSearchQuery: "OmniVoice release notes"
+            webSearchQuery: "OmniSpeak release notes"
         )
 
         let data = try EngineCoding.encoder.encode(request)
@@ -394,7 +394,7 @@ final class EngineClientTests: XCTestCase {
         XCTAssertEqual(object["oauth_access_token"] as? String, "oauth-token")
         XCTAssertEqual((object["headers"] as? [String: String])?["X-Kimi"], "enabled")
         XCTAssertEqual(object["web_search_enabled"] as? Bool, true)
-        XCTAssertEqual(object["web_search_query"] as? String, "OmniVoice release notes")
+        XCTAssertEqual(object["web_search_query"] as? String, "OmniSpeak release notes")
         XCTAssertEqual(messages.first?["role"] as? String, "user")
         XCTAssertEqual(messages.first?["content"] as? String, "What is in this screenshot?")
         XCTAssertEqual(attachments.first?["kind"] as? String, "image")

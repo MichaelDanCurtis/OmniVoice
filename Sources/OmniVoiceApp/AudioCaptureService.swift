@@ -26,7 +26,7 @@ final class AudioCaptureService: @unchecked Sendable {
     }
 
     private let engine = AVAudioEngine()
-    private let queue = DispatchQueue(label: "omnivoice.audio.capture")
+    private let queue = DispatchQueue(label: "omnispeak.audio.capture")
     private var samples: [Int16] = []
     private var captureSampleRate: Double = 16_000
 

@@ -6,7 +6,7 @@ public enum ConversationArchive {
     ) -> URL {
         let base = documentsURL ?? URL(filePath: NSHomeDirectory(), directoryHint: .isDirectory)
             .appending(path: "Documents", directoryHint: .isDirectory)
-        return base.appending(path: "OmniVoice", directoryHint: .isDirectory)
+        return base.appending(path: "OmniSpeak", directoryHint: .isDirectory)
     }
 
     public static func markdown(for detail: ConversationDetail) -> String {

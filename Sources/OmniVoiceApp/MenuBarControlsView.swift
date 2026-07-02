@@ -41,7 +41,7 @@ struct MenuBarControlsView: View {
             SettingsLink {
                 Label("Settings", systemImage: "gearshape")
             }
-            .help("Open OmniVoice settings")
+            .help("Open OmniSpeak settings")
 
             Button("Refresh Status") {
                 Task {
@@ -71,7 +71,7 @@ struct MenuBarControlsView: View {
                 Button("Open Accessibility Settings") {
                     requestAccessibilityPermission()
                 }
-                .help("Open macOS Accessibility permissions for OmniVoice")
+                .help("Open macOS Accessibility permissions for OmniSpeak")
             }
 
             Divider()
@@ -116,7 +116,7 @@ struct MenuBarControlsView: View {
             Button("Quit") {
                 NSApplication.shared.terminate(nil)
             }
-            .help("Quit OmniVoice")
+            .help("Quit OmniSpeak")
         }
         .padding(8)
         .frame(width: 260, alignment: .leading)

@@ -5,7 +5,7 @@ import OSLog
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let permissionLogger = Logger(subsystem: "com.omnivoice.OmniVoiceApp", category: "Permissions")
+    private let permissionLogger = Logger(subsystem: "com.omnispeak.OmniVoiceApp", category: "Permissions")
     private weak var model: AppModel?
     private let overlay = CaptionOverlayWindow()
     private let hotMenuOverlay = HotMenuOverlayWindow()
@@ -44,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var onOpenAskAI: (() -> Void)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Menu-bar-only by default: no Dock icon while OmniVoice is just listening
+        // Menu-bar-only by default: no Dock icon while OmniSpeak is just listening
         // in the status bar. A Dock icon (and Cmd-Tab entry) appears only while a
         // real window is open, and disappears when every window is closed or
         // minimized. The caption / hot-menu / transcript overlays are borderless
@@ -256,7 +256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         process.arguments = [
             "reset",
             "Accessibility",
-            Bundle.main.bundleIdentifier ?? "com.omnivoice.OmniVoiceApp",
+            Bundle.main.bundleIdentifier ?? "com.omnispeak.OmniVoiceApp",
         ]
 
         do {

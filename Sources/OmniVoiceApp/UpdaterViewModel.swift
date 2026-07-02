@@ -5,7 +5,7 @@ import Sparkle
 ///
 /// Sparkle reads `SUFeedURL` (the appcast) and `SUPublicEDKey` from Info.plist,
 /// downloads the newest build, verifies its EdDSA signature *and* Apple
-/// notarization, then installs and relaunches. OmniVoice ships via Developer ID
+/// notarization, then installs and relaunches. OmniSpeak ships via Developer ID
 /// (outside the App Store), so this is how users receive updates.
 @MainActor
 final class UpdaterViewModel: ObservableObject {
