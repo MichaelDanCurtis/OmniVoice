@@ -9,7 +9,7 @@ public sealed class PreferencesStore
     public PreferencesStore(string? path = null)
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var dir = Path.Combine(appData, "OmniVoice");
+        var dir = Path.Combine(appData, "OmniSpeak");
         Directory.CreateDirectory(dir);
         _path = path ?? Path.Combine(dir, "preferences.json");
     }

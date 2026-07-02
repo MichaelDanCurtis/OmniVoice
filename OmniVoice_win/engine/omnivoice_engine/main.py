@@ -34,14 +34,14 @@ from .schemas import (
     TranscribeResponse,
 )
 
-app = FastAPI(title="OmniVoice Local Engine")
+app = FastAPI(title="OmniSpeak Local Engine")
 registry = ProviderRegistry()
 model_manager = ModelManager()
 runtime_store = RuntimeStore()
 STARTED_MONOTONIC = time.monotonic()
 STATIC_DIR = Path(__file__).parent / "static"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DESKTOP_APP_PATH = REPO_ROOT / "dist" / ("OmniVoice.exe" if os.name == "nt" else "OmniVoice.app")
+DEFAULT_DESKTOP_APP_PATH = REPO_ROOT / "dist" / ("OmniSpeak.exe" if os.name == "nt" else "OmniSpeak.app")
 DEFAULT_THEME_CSS_VARIABLES = {
     "--ov-accent": "#38BDF8",
     "--ov-accent-secondary": "#818CF8",
@@ -658,11 +658,11 @@ def desktop_app_path() -> Path:
 
     candidates = [
         DEFAULT_DESKTOP_APP_PATH,
-        REPO_ROOT / "src" / "OmniVoice.App" / "bin" / "Release" / "net10.0-windows" / "OmniVoice.exe",
-        REPO_ROOT / "src" / "OmniVoice.App" / "bin" / "Debug" / "net10.0-windows" / "OmniVoice.exe",
+        REPO_ROOT / "src" / "OmniVoice.App" / "bin" / "Release" / "net10.0-windows" / "OmniSpeak.exe",
+        REPO_ROOT / "src" / "OmniVoice.App" / "bin" / "Debug" / "net10.0-windows" / "OmniSpeak.exe",
     ]
     if os.name != "nt":
-        candidates.append(Path("/Applications/OmniVoice.app"))
+        candidates.append(Path("/Applications/OmniSpeak.app"))
     for candidate in candidates:
         if candidate.exists():
             return candidate

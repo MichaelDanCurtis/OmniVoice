@@ -33,7 +33,7 @@ public partial class App : Application
         _coordinator.OverlayHideRequested += () => _overlay?.HideCaption();
         _tray = new NotifyIcon
         {
-            Text = "OmniVoice",
+            Text = "OmniSpeak",
             Icon = SystemIcons.Application,
             Visible = true,
         };

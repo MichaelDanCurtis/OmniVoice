@@ -1,4 +1,4 @@
-# OmniVoice (Windows)
+# OmniSpeak (Windows)
 
 Local-first Windows dictation app — hold a hotkey, speak, release to insert cleaned text at the cursor.
 
@@ -43,7 +43,7 @@ dotnet publish src/OmniVoice.App/OmniVoice.App.csproj -c Release -r win-x64 --se
 .\scripts\run-engine.ps1
 ```
 
-Runtime data is stored under `%LOCALAPPDATA%\OmniVoice\`.
+Runtime data is stored under `%LOCALAPPDATA%\OmniSpeak\`.
 
 ## Features ported
 

@@ -36,7 +36,7 @@ def test_parakeet_provider_is_reported_even_when_model_is_absent(monkeypatch):
 
 
 def test_parakeet_provider_default_dir_uses_project_models_when_started_from_engine_dir(tmp_path, monkeypatch):
-    project_root = tmp_path / "OmniVoice"
+    project_root = tmp_path / "OmniSpeak"
     package_dir = project_root / "engine" / "omnivoice_engine" / "providers"
     package_dir.mkdir(parents=True)
     model_dir = project_root / "models" / "parakeet-tdt"

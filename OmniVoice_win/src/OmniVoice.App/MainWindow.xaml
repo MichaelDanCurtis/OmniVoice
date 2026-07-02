@@ -1,7 +1,7 @@
 <Window x:Class="OmniVoice.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="OmniVoice Settings"
+        Title="OmniSpeak Settings"
         Height="720"
         Width="760"
         MinHeight="560"
@@ -14,7 +14,7 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Margin="0,0,0,16">
-            <TextBlock Text="OmniVoice" FontSize="24" FontWeight="SemiBold" />
+            <TextBlock Text="OmniSpeak" FontSize="24" FontWeight="SemiBold" />
             <TextBlock x:Name="StatusTextBlock" Margin="0,6,0,0" Foreground="#666" Text="Ready" />
             <TextBlock x:Name="EngineTextBlock" Margin="0,4,0,0" Foreground="#666" Text="Engine: unknown" />
             <StackPanel x:Name="PendingHandoffPanel" Orientation="Horizontal" Margin="0,8,0,0" Visibility="Collapsed">

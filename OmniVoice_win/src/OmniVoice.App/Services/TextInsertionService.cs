@@ -86,7 +86,7 @@ public sealed class TextInsertionService
     public void UndoLastInsertion()
     {
         if (_lastInsertion is not { } record)
-            throw new InvalidOperationException("There is no recent OmniVoice insertion to undo.");
+            throw new InvalidOperationException("There is no recent OmniSpeak insertion to undo.");
 
         if (!TrySetValue(record.Element, record.PreviousText))
             throw new InvalidOperationException("Could not restore the previous text.");

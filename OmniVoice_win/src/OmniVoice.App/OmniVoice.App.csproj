@@ -13,7 +13,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
 
-    <AssemblyName>OmniVoice</AssemblyName>
+    <AssemblyName>OmniSpeak</AssemblyName>
     <RootNamespace>OmniVoice.App</RootNamespace>
   </PropertyGroup>
 

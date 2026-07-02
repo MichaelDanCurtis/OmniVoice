@@ -27,7 +27,7 @@ internal sealed class FileSecretStore : ISecretStore
     public FileSecretStore(string? directory = null)
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        _directory = directory ?? Path.Combine(appData, "OmniVoice", "secrets");
+        _directory = directory ?? Path.Combine(appData, "OmniSpeak", "secrets");
         Directory.CreateDirectory(_directory);
     }
 
@@ -62,7 +62,7 @@ internal sealed class DpapiSecretStore : ISecretStore
     public DpapiSecretStore(string? directory = null)
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        _directory = directory ?? Path.Combine(appData, "OmniVoice", "secrets");
+        _directory = directory ?? Path.Combine(appData, "OmniSpeak", "secrets");
         Directory.CreateDirectory(_directory);
     }
 
