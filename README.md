@@ -1,6 +1,6 @@
-# OmniVoice
+# OmniSpeak
 
-OmniVoice is a local-first macOS dictation app inspired by the push-to-talk workflow of Wispr Flow.
+OmniSpeak is a local-first macOS dictation app inspired by the push-to-talk workflow of Wispr Flow.
 
 Hold a configured hotkey, speak, see live captions while the app listens, then release the hotkey to insert cleaned text wherever the cursor was active.
 
@@ -52,7 +52,7 @@ engine/.venv/bin/python -m pytest engine/tests
 
 The local DMG is written to:
 
-`dist/OmniVoice.dmg`
+`dist/OmniSpeak.dmg`
 
 ## Engine
 
@@ -62,7 +62,7 @@ The desktop app expects the local engine at:
 
 If the engine is offline, the app starts the bundled engine launcher and creates runtime files under:
 
-`~/Library/Application Support/OmniVoice`
+`~/Library/Application Support/OmniSpeak`
 
 The distributable app includes a bundled Python runtime, the local engine source, and a bundled Python wheelhouse for the core/ASR/MLX runtime packages. Model weights are not bundled; they are downloaded or selected through the app and stored under Application Support by default.
 

@@ -1,4 +1,4 @@
-# OmniVoice V3 Release Checklist
+# OmniSpeak V3 Release Checklist
 
 ## Required Before Tagging
 
@@ -11,9 +11,9 @@
 ## Required For Local DMG
 
 - `./script/build_and_run.sh --dmg`
-- `/usr/bin/codesign --verify --deep --strict --verbose=2 dist/OmniVoice.app`
-- `/usr/bin/hdiutil verify dist/OmniVoice.dmg`
-- `/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' dist/OmniVoice.app/Contents/Info.plist`
+- `/usr/bin/codesign --verify --deep --strict --verbose=2 dist/OmniSpeak.app`
+- `/usr/bin/hdiutil verify dist/OmniSpeak.dmg`
+- `/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' dist/OmniSpeak.app/Contents/Info.plist`
 
 ## Required For Public Distribution
 
@@ -26,7 +26,7 @@
 ## Auto-Update Release (Sparkle)
 
 Updates ship via Sparkle: the app reads `SUFeedURL`
-(`https://github.com/MichaelDanCurtis/OmniVoice/releases/latest/download/appcast.xml`)
+(`https://github.com/MichaelDanCurtis/OmniSpeak/releases/latest/download/appcast.xml`)
 and `SUPublicEDKey` from `Info.plist`, then downloads, verifies the EdDSA signature **and**
 Apple notarization, installs, and relaunches. The in-app updater (`UpdaterViewModel`, the
 menu's "Check for Updates…") and the Sparkle key pair are already in place — the public key
@@ -61,7 +61,7 @@ OMNIVOICE_APP_VERSION=<x.y.z> OMNIVOICE_PUBLISH=1 ./script/sign_and_notarize.sh
 The second command signs (Sparkle helpers inside-out, hardened runtime, entitlements),
 notarizes + staples the app and DMG, EdDSA-signs the DMG, writes `dist/appcast.xml`, and —
 with `OMNIVOICE_PUBLISH=1` — creates/updates the `v<x.y.z>` GitHub release (marked **latest**)
-with both `OmniVoice.dmg` and `appcast.xml`. Release notes come from
+with both `OmniSpeak.dmg` and `appcast.xml`. Release notes come from
 `docs/V3_RELEASE_NOTES.md` (override with `OMNIVOICE_RELEASE_NOTES=<path>`). Omit
 `OMNIVOICE_PUBLISH` to upload the two assets to the release manually instead.
 
@@ -70,6 +70,6 @@ installed build — Sparkle compares versions to decide whether to offer the upd
 
 ## Local Runtime Packaging
 
-The local DMG bundles the Swift app, engine source launcher, embedded Python runtime, and a Python wheelhouse for the normal core/ASR/MLX runtime packages. First launch creates the engine venv under `~/Library/Application Support/OmniVoice` from bundled resources.
+The local DMG bundles the Swift app, engine source launcher, embedded Python runtime, and a Python wheelhouse for the normal core/ASR/MLX runtime packages. First launch creates the engine venv under `~/Library/Application Support/OmniSpeak` from bundled resources.
 
 Model weights are still external by design. Users download or select models through the app or engine dashboard.

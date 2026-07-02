@@ -6,7 +6,7 @@ APP_RESOURCES_DIR="$(cd "$BUNDLED_ENGINE_ROOT/.." && pwd)"
 BUNDLED_PYTHON_BIN="$APP_RESOURCES_DIR/Python/bin/python3.12"
 BUNDLED_PYTHON_FALLBACK_BIN="$APP_RESOURCES_DIR/Python/bin/python3"
 BUNDLED_WHEELHOUSE_DIR="$BUNDLED_ENGINE_ROOT/wheelhouse"
-APP_SUPPORT_DIR="${OMNIVOICE_APP_SUPPORT_DIR:-$HOME/Library/Application Support/OmniVoice}"
+APP_SUPPORT_DIR="${OMNIVOICE_APP_SUPPORT_DIR:-$HOME/Library/Application Support/OmniSpeak}"
 VENV_DIR="${OMNIVOICE_ENGINE_VENV:-$APP_SUPPORT_DIR/engine-venv}"
 RUNTIME_ENGINE_ROOT="$APP_SUPPORT_DIR/engine-source"
 PYTHON_BIN="${OMNIVOICE_PYTHON:-}"
@@ -92,8 +92,8 @@ resolve_python() {
     fi
   done
 
-  echo "OmniVoice could not find a usable bundled Python 3.12+ runtime." >&2
-  echo "Reinstall OmniVoice, or set OMNIVOICE_PYTHON to a Python 3.12+ executable." >&2
+  echo "OmniSpeak could not find a usable bundled Python 3.12+ runtime." >&2
+  echo "Reinstall OmniSpeak, or set OMNIVOICE_PYTHON to a Python 3.12+ executable." >&2
   exit 127
 }
 
@@ -107,13 +107,13 @@ cp -R "$BUNDLED_ENGINE_ROOT/omnivoice_engine" "$RUNTIME_ENGINE_ROOT/"
 
 if [[ -x "$VENV_DIR/bin/python" ]]; then
   if ! python_is_supported "$VENV_DIR/bin/python" "3.12"; then
-    echo "Existing OmniVoice engine venv uses Python $(python_version_label "$VENV_DIR/bin/python"); rebuilding with $PYTHON_BIN." >&2
+    echo "Existing OmniSpeak engine venv uses Python $(python_version_label "$VENV_DIR/bin/python"); rebuilding with $PYTHON_BIN." >&2
     rm -rf "$VENV_DIR"
   else
     selected_base_prefix="$(python_base_prefix "$PYTHON_BIN")"
     existing_base_prefix="$(python_base_prefix "$VENV_DIR/bin/python")"
     if [[ -n "$selected_base_prefix" && -n "$existing_base_prefix" && "$selected_base_prefix" != "$existing_base_prefix" ]]; then
-      echo "Existing OmniVoice engine venv uses $existing_base_prefix; rebuilding with bundled Python at $selected_base_prefix." >&2
+      echo "Existing OmniSpeak engine venv uses $existing_base_prefix; rebuilding with bundled Python at $selected_base_prefix." >&2
       rm -rf "$VENV_DIR"
     fi
   fi
@@ -125,7 +125,7 @@ fi
 
 . "$VENV_DIR/bin/activate"
 if ! python_is_supported "$(command -v python)" "3.12"; then
-  echo "OmniVoice engine venv is not using Python 3.12 or newer after creation." >&2
+  echo "OmniSpeak engine venv is not using Python 3.12 or newer after creation." >&2
   exit 1
 fi
 
@@ -150,8 +150,8 @@ configure_pip_install_args() {
   fi
 
   if [[ ! -d "$BUNDLED_WHEELHOUSE_DIR" ]] || ! find "$BUNDLED_WHEELHOUSE_DIR" -type f \( -name "*.whl" -o -name "*.tar.gz" -o -name "*.zip" \) -print -quit | grep -q .; then
-    echo "Bundled OmniVoice Python wheelhouse is missing at $BUNDLED_WHEELHOUSE_DIR." >&2
-    echo "Reinstall OmniVoice, or set OMNIVOICE_USE_BUNDLED_WHEELHOUSE=0 to allow network package installation." >&2
+    echo "Bundled OmniSpeak Python wheelhouse is missing at $BUNDLED_WHEELHOUSE_DIR." >&2
+    echo "Reinstall OmniSpeak, or set OMNIVOICE_USE_BUNDLED_WHEELHOUSE=0 to allow network package installation." >&2
     exit 127
   fi
 

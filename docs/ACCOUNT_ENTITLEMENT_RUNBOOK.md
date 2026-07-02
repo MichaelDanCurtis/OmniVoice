@@ -74,6 +74,6 @@ automatically (see `AppModel.makeEntitlementService()`), and enables real sign-i
 ## Notes
 
 - The WorkOS API secret and Stripe secret live **only** in the Worker; the app holds just the
-  user's own session tokens (Keychain, `com.omnivoice.auth`).
+  user's own session tokens (Keychain, `com.omnispeak.auth`).
 - Offline: the app honors the last entitlement answer for a 7-day grace window, then re-locks.
 - Local dictation + dictionary learning are always free, signed in or not.

@@ -3,12 +3,12 @@ set -euo pipefail
 
 MODE="${1:-run}"
 APP_NAME="OmniVoiceApp"
-APP_DISPLAY_NAME="OmniVoice"
-BUNDLE_ID="com.omnivoice.OmniVoiceApp"
+APP_DISPLAY_NAME="OmniSpeak"
+BUNDLE_ID="com.omnispeak.OmniVoiceApp"
 MIN_SYSTEM_VERSION="14.0"
 APP_VERSION="${OMNIVOICE_APP_VERSION:-3.0.0}"
 APP_BUILD="${OMNIVOICE_APP_BUILD:-1}"
-DMG_VOLUME_NAME="${OMNIVOICE_DMG_VOLUME_NAME:-OmniVoice}"
+DMG_VOLUME_NAME="${OMNIVOICE_DMG_VOLUME_NAME:-OmniSpeak}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -25,16 +25,16 @@ PYTHON_RUNTIME_VERSION="${OMNIVOICE_PYTHON_RUNTIME_VERSION:-3.12}"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 RUN_APP_BUNDLE="${OMNIVOICE_RUN_APP_BUNDLE:-$HOME/Applications/$APP_DISPLAY_NAME.app}"
 ICON_SOURCE="$ROOT_DIR/Assets/AppIcon/OmniVoiceIcon.svg"
-ICONSET_DIR="$DIST_DIR/OmniVoice.iconset"
-ICON_DIST_FILE="$DIST_DIR/OmniVoice.icns"
-ICON_BUNDLE_FILE="$APP_RESOURCES/OmniVoice.icns"
+ICONSET_DIR="$DIST_DIR/OmniSpeak.iconset"
+ICON_DIST_FILE="$DIST_DIR/OmniSpeak.icns"
+ICON_BUNDLE_FILE="$APP_RESOURCES/OmniSpeak.icns"
 DOCS_BUNDLE_DIR="$APP_RESOURCES/Docs"
 INTEGRATIONS_BUNDLE_DIR="$APP_RESOURCES/Integrations"
 DMG_STAGING="$DIST_DIR/dmg-staging"
-DMG_PATH="$DIST_DIR/OmniVoice.dmg"
+DMG_PATH="$DIST_DIR/OmniSpeak.dmg"
 ENGINE_PID_FILE="$DIST_DIR/engine.pid"
 ENGINE_APP_PATH_FILE="$DIST_DIR/engine-app-path"
-LOCAL_CODESIGN_NAME="OmniVoice Local Development"
+LOCAL_CODESIGN_NAME="OmniSpeak Local Development"
 LOCAL_CODESIGN_DIR="$DIST_DIR/codesign"
 LOCAL_CODESIGN_KEYCHAIN="$LOCAL_CODESIGN_DIR/OmniVoiceLocal.keychain-db"
 LOCAL_CODESIGN_P12_PASSWORD="omnivoice-local"
@@ -119,7 +119,7 @@ stop_engine() {
   fi
 
   pkill -f "$ROOT_DIR/engine/.venv/bin/uvicorn omnivoice_engine.main:app --host 127.0.0.1 --port 8765" >/dev/null 2>&1 || true
-  pkill -f "Application Support/OmniVoice/engine-venv/bin/uvicorn omnivoice_engine.main:app --host 127.0.0.1 --port 8765" >/dev/null 2>&1 || true
+  pkill -f "Application Support/OmniSpeak/engine-venv/bin/uvicorn omnivoice_engine.main:app --host 127.0.0.1 --port 8765" >/dev/null 2>&1 || true
   pkill -f "$ROOT_DIR/scripts/run-engine.sh" >/dev/null 2>&1 || true
   rm -f "$ENGINE_PID_FILE" "$ENGINE_APP_PATH_FILE"
 }
@@ -515,7 +515,7 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleDisplayName</key>
   <string>$APP_DISPLAY_NAME</string>
   <key>CFBundleIconFile</key>
-  <string>OmniVoice</string>
+  <string>OmniSpeak</string>
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleName</key>
@@ -533,9 +533,9 @@ cat >"$INFO_PLIST" <<PLIST
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>OmniVoice uses the microphone for push-to-talk dictation.</string>
+  <string>OmniSpeak uses the microphone for push-to-talk dictation.</string>
   <key>SUFeedURL</key>
-  <string>https://github.com/MichaelDanCurtis/OmniVoice/releases/latest/download/appcast.xml</string>
+  <string>https://github.com/MichaelDanCurtis/OmniSpeak/releases/latest/download/appcast.xml</string>
   <key>SUPublicEDKey</key>
   <string>weUAjU02WUhH7OGMPaQTT1Nwn4s+2cA496LzavhpTiE=</string>
   <key>SUEnableAutomaticChecks</key>
@@ -630,17 +630,17 @@ create_dmg() {
   ln -s /Applications "$DMG_STAGING/Applications"
 
   cat >"$DMG_STAGING/README.txt" <<README
-OmniVoice local build
+OmniSpeak local build
 
-Drag OmniVoice.app to Applications.
+Drag OmniSpeak.app to Applications.
 
-This package contains the desktop app, the OmniVoice engine source bundle, and an embedded Python runtime.
+This package contains the desktop app, the OmniSpeak engine source bundle, and an embedded Python runtime.
 
 On first launch, the app checks http://127.0.0.1:8765. If the engine is not already running, it starts the bundled engine and creates its Python virtual environment under:
 
-~/Library/Application Support/OmniVoice
+~/Library/Application Support/OmniSpeak
 
-OmniVoice includes its own Python runtime and a bundled Python wheelhouse for normal engine dependencies. Hugging Face model weights are downloaded locally and are not bundled into this DMG.
+OmniSpeak includes its own Python runtime and a bundled Python wheelhouse for normal engine dependencies. Hugging Face model weights are downloaded locally and are not bundled into this DMG.
 
 This build is locally signed for development. Public distribution still needs Developer ID signing and notarization.
 README

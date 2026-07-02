@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# Sign OmniVoice.app with a Developer ID Application certificate under the
+# Sign OmniSpeak.app with a Developer ID Application certificate under the
 # hardened runtime, then notarize and staple it (and the DMG) for distribution
 # outside the Mac App Store.
 #
-# OmniVoice cannot ship on the Mac App Store: its core (Accessibility text
+# OmniSpeak cannot ship on the Mac App Store: its core (Accessibility text
 # insertion into other apps, global push-to-talk hotkeys, a spawned bundled
 # Python engine) is incompatible with the App Sandbox. Developer ID +
 # notarization is the correct distribution path.
@@ -27,7 +27,7 @@
 #          --password "<app-specific-password>"
 #
 # Usage:
-#   script/sign_and_notarize.sh [path/to/OmniVoice.app] [path/to/OmniVoice.dmg]
+#   script/sign_and_notarize.sh [path/to/OmniSpeak.app] [path/to/OmniSpeak.dmg]
 #
 # Env overrides:
 #   OMNIVOICE_SIGN_IDENTITY   full identity string (default: auto-detected)
@@ -38,10 +38,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP="${1:-$ROOT_DIR/dist/OmniVoice.app}"
-DMG="${2:-$ROOT_DIR/dist/OmniVoice.dmg}"
-ENTITLEMENTS="$ROOT_DIR/script/OmniVoice.entitlements"
-BUNDLE_ID="com.omnivoice.OmniVoiceApp"
+APP="${1:-$ROOT_DIR/dist/OmniSpeak.app}"
+DMG="${2:-$ROOT_DIR/dist/OmniSpeak.dmg}"
+ENTITLEMENTS="$ROOT_DIR/script/OmniSpeak.entitlements"
+BUNDLE_ID="com.omnispeak.OmniVoiceApp"
 TEAM_ID="${OMNIVOICE_TEAM_ID:-P7R2A675CN}"
 NOTARY_PROFILE="${OMNIVOICE_NOTARY_PROFILE:-omnivoice-notary}"
 LOGIN_KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
@@ -134,13 +134,13 @@ rm -f "$APP_ZIP"
 # notarize + staple the DMG itself.
 log "Building DMG from the notarized app..."
 DMG_STAGE_PARENT="$(mktemp -d)"
-DMG_STAGE="$DMG_STAGE_PARENT/OmniVoice"
+DMG_STAGE="$DMG_STAGE_PARENT/OmniSpeak"
 mkdir -p "$DMG_STAGE"
 cp -R "$APP" "$DMG_STAGE/"
 ln -s /Applications "$DMG_STAGE/Applications"
 mkdir -p "$(dirname "$DMG")"
 rm -f "$DMG"
-hdiutil create -volname "OmniVoice" -srcfolder "$DMG_STAGE" -ov -format UDZO "$DMG" >/dev/null
+hdiutil create -volname "OmniSpeak" -srcfolder "$DMG_STAGE" -ov -format UDZO "$DMG" >/dev/null
 rm -rf "$DMG_STAGE_PARENT"
 
 log "Signing DMG..."
@@ -154,7 +154,7 @@ xcrun stapler validate "$DMG"
 SIGN_UPDATE="$ROOT_DIR/.build/artifacts/sparkle/Sparkle/bin/sign_update"
 APPCAST="$ROOT_DIR/dist/appcast.xml"
 VERSION="${OMNIVOICE_APP_VERSION:-3.0.0}"
-DOWNLOAD_BASE="${OMNIVOICE_DOWNLOAD_BASE:-https://github.com/MichaelDanCurtis/OmniVoice/releases/download/v$VERSION}"
+DOWNLOAD_BASE="${OMNIVOICE_DOWNLOAD_BASE:-https://github.com/MichaelDanCurtis/OmniSpeak/releases/download/v$VERSION}"
 if [[ -x "$SIGN_UPDATE" ]]; then
   log "EdDSA-signing the DMG and writing $APPCAST..."
   ED_ATTRS="$("$SIGN_UPDATE" "$DMG")"   # -> sparkle:edSignature="..." length="..."
@@ -162,13 +162,13 @@ if [[ -x "$SIGN_UPDATE" ]]; then
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
-    <title>OmniVoice</title>
+    <title>OmniSpeak</title>
     <item>
       <title>Version $VERSION</title>
       <sparkle:version>$VERSION</sparkle:version>
       <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <enclosure url="$DOWNLOAD_BASE/OmniVoice.dmg" type="application/octet-stream" $ED_ATTRS />
+      <enclosure url="$DOWNLOAD_BASE/OmniSpeak.dmg" type="application/octet-stream" $ED_ATTRS />
     </item>
   </channel>
 </rss>
@@ -180,7 +180,7 @@ fi
 
 # --- 7. Publish to GitHub Releases (opt-in) --------------------------------
 # SUFeedURL is https://github.com/.../releases/latest/download/appcast.xml, so the
-# appcast must live on the newest release alongside OmniVoice.dmg. Set OMNIVOICE_PUBLISH=1
+# appcast must live on the newest release alongside OmniSpeak.dmg. Set OMNIVOICE_PUBLISH=1
 # to create/update the v$VERSION release and upload both assets in one shot.
 if [[ "${OMNIVOICE_PUBLISH:-0}" == "1" ]]; then
   command -v gh >/dev/null || fail "OMNIVOICE_PUBLISH=1 but the GitHub CLI ('gh') is not installed."
@@ -194,9 +194,9 @@ if [[ "${OMNIVOICE_PUBLISH:-0}" == "1" ]]; then
   else
     log "Creating GitHub release $TAG with DMG + appcast..."
     if [[ -f "$NOTES_FILE" ]]; then
-      gh release create "$TAG" "$DMG" "$APPCAST" --title "OmniVoice $VERSION" --notes-file "$NOTES_FILE" --latest
+      gh release create "$TAG" "$DMG" "$APPCAST" --title "OmniSpeak $VERSION" --notes-file "$NOTES_FILE" --latest
     else
-      gh release create "$TAG" "$DMG" "$APPCAST" --title "OmniVoice $VERSION" --generate-notes --latest
+      gh release create "$TAG" "$DMG" "$APPCAST" --title "OmniSpeak $VERSION" --generate-notes --latest
     fi
   fi
   log "Published $TAG. Sparkle clients will pick up the update from the feed."
