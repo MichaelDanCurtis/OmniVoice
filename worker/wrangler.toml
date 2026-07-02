@@ -1,6 +1,6 @@
-# OmniVoice account + entitlement Worker.
+# OmniSpeak account + entitlement Worker.
 # Deploy is DEFERRED until the account holder provisions D1 + secrets (see README.md).
-name = "omnivoice-account"
+name = "omnispeak-account"
 main = "src/index.ts"
 compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
@@ -8,11 +8,11 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 TRIAL_DAYS = "14"
 
-# D1 "omnivoice" created + schema applied via the Cloudflare connector (2026-07-01).
+# D1 "omnispeak" created + schema applied via the Cloudflare connector (2026-07-01).
 [[d1_databases]]
 binding = "DB"
-database_name = "omnivoice"
-database_id = "61aeebe3-e29b-4e2c-9b1c-cf9e479351bd"
+database_name = "omnispeak"
+database_id = "ea4cf66f-5571-4c3b-8eb4-ae339b2ad5a6"
 
 # Secrets (NOT stored here) — set with `wrangler secret put <NAME>`:
 #   WORKOS_API_KEY, WORKOS_CLIENT_ID, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_ID

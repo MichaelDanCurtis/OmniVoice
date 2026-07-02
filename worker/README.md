@@ -1,4 +1,4 @@
-# OmniVoice Account + Entitlement Worker
+# OmniSpeak Account + Entitlement Worker
 
 Cloudflare Worker backing feature B: verifies WorkOS sessions, tracks the no-card
 trial + Stripe subscription in D1, and answers "is this user entitled?".
@@ -32,8 +32,8 @@ npm test
 2. **Stripe**: create a product + recurring price (note the **price id**). Add a webhook
    endpoint pointing at `<worker-url>/webhooks/stripe` for `checkout.session.completed`,
    `customer.subscription.updated`, `customer.subscription.deleted`; note the **signing secret**.
-3. **Cloudflare D1**: `wrangler d1 create omnivoice`, paste the `database_id` into
-   `wrangler.toml`, then `wrangler d1 execute omnivoice --file schema.sql`.
+3. **Cloudflare D1**: `wrangler d1 create omnispeak`, paste the `database_id` into
+   `wrangler.toml`, then `wrangler d1 execute omnispeak --file schema.sql`.
 4. **Secrets**:
    ```sh
    wrangler secret put WORKOS_API_KEY
@@ -44,4 +44,4 @@ npm test
    ```
 5. **Deploy**: `npm run deploy` (`wrangler deploy`).
 6. **Point the app at it**: set `WorkerConfig.baseURL` and `WorkerConfig.workosClientID`
-   in `Sources/OmniVoiceApp/AuthLoginController.swift`.
+   in `Sources/OmniSpeakApp/AuthLoginController.swift`.

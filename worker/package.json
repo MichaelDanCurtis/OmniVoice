@@ -1,5 +1,5 @@
 {
-  "name": "omnivoice-account-worker",
+  "name": "omnispeak-account-worker",
   "version": "0.1.0",
   "private": true,
   "type": "module",

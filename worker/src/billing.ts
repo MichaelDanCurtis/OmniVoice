@@ -141,8 +141,8 @@ export async function handleCheckout(c: Context<{ Bindings: Env }>): Promise<Res
     'line_items[0][price]': c.env.STRIPE_PRICE_ID,
     'line_items[0][quantity]': '1',
     client_reference_id: userId,
-    success_url: 'https://omnivoice.app/billing/success',
-    cancel_url: 'https://omnivoice.app/billing/cancel',
+    success_url: 'https://omnispeak.app/billing/success',
+    cancel_url: 'https://omnispeak.app/billing/cancel',
   })
   return c.json({ url: session['url'] })
 }
@@ -155,7 +155,7 @@ export async function handlePortal(c: Context<{ Bindings: Env }>): Promise<Respo
   const customerId = await ensureStripeCustomer(c.env, userId)
   const session = await stripePost(c.env, 'billing_portal/sessions', {
     customer: customerId,
-    return_url: 'https://omnivoice.app/account',
+    return_url: 'https://omnispeak.app/account',
   })
   return c.json({ url: session['url'] })
 }

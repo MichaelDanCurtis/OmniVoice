@@ -1,5 +1,5 @@
--- OmniVoice account + entitlement schema (Cloudflare D1 / SQLite).
--- Apply with: wrangler d1 execute omnivoice --file schema.sql
+-- OmniSpeak account + entitlement schema (Cloudflare D1 / SQLite).
+-- Apply with: wrangler d1 execute omnispeak --file schema.sql
 
 CREATE TABLE IF NOT EXISTS users (
   workos_user_id     TEXT PRIMARY KEY,
