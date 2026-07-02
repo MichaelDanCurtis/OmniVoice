@@ -166,7 +166,7 @@ def test_dashboard_root_returns_engine_console():
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "OmniVoice Engine" in response.text
+    assert "OmniSpeak Engine" in response.text
     assert "/assets/dashboard.js" in response.text
 
 
@@ -520,7 +520,7 @@ def test_ai_chat_endpoint_posts_history_and_context_attachments(monkeypatch, tmp
     assert captured["api_key"] == "test-key"
     assert captured["headers"] == {"X-Kimi": "enabled"}
     assert captured["messages"][0]["role"] == "system"
-    assert "OmniVoice Ask AI" in captured["messages"][0]["content"]
+    assert "OmniSpeak Ask AI" in captured["messages"][0]["content"]
     assert "Return only the text to insert" not in captured["messages"][0]["content"]
     assert captured["messages"][1]["role"] == "user"
     assert "Help me write to the mechanic." in captured["messages"][1]["content"]
@@ -536,15 +536,15 @@ def test_ai_chat_endpoint_includes_web_search_context_when_enabled(monkeypatch, 
 
     def fake_chat_completion(*, base_url, api_key, oauth_access_token="", headers=None, model, messages, timeout):
         captured["messages"] = messages
-        return "The current result points to OmniVoice release notes."
+        return "The current result points to OmniSpeak release notes."
 
     def fake_web_search(query: str, limit: int = 5):
         captured["query"] = query
         return [
             engine_main.WebSearchResult(
-                title="OmniVoice release notes",
+                title="OmniSpeak release notes",
                 url="https://example.com/omnivoice-release",
-                snippet="OmniVoice added Ask AI web search.",
+                snippet="OmniSpeak added Ask AI web search.",
             )
         ]
 
@@ -558,16 +558,16 @@ def test_ai_chat_endpoint_includes_web_search_context_when_enabled(monkeypatch, 
             "provider": "custom",
             "base_url": "http://127.0.0.1:11434/v1",
             "model": "local-qwen",
-            "messages": [{"role": "user", "content": "What changed in OmniVoice?"}],
+            "messages": [{"role": "user", "content": "What changed in OmniSpeak?"}],
             "web_search_enabled": True,
         },
     )
 
     assert response.status_code == 200
-    assert captured["query"] == "What changed in OmniVoice?"
+    assert captured["query"] == "What changed in OmniSpeak?"
     assert "Web search results" in captured["messages"][1]["content"]
     assert "https://example.com/omnivoice-release" in captured["messages"][1]["content"]
-    assert "OmniVoice added Ask AI web search." in captured["messages"][1]["content"]
+    assert "OmniSpeak added Ask AI web search." in captured["messages"][1]["content"]
     assert any(event.kind == "ai_chat.web_search.completed" for event in store.recent_events(10))
 
 
@@ -593,7 +593,7 @@ def test_ai_chat_endpoint_sends_openai_image_parts(monkeypatch, tmp_path):
                 {
                     "kind": "image",
                     "title": "dashboard.png",
-                    "text": "Screenshot from OmniVoice.",
+                    "text": "Screenshot from OmniSpeak.",
                     "mime_type": "image/png",
                     "data_url": "data:image/png;base64,iVBORw0KGgo=",
                 }
@@ -733,13 +733,13 @@ event: response.output_text.delta
 data: {"type":"response.output_text.delta","delta":"Omni"}
 
 event: response.output_text.delta
-data: {"type":"response.output_text.delta","delta":"Voice passed."}
+data: {"type":"response.output_text.delta","delta":"Speak passed."}
 
 event: response.completed
 data: {"type":"response.completed","response":{"output":[]}}
 """
 
-    assert engine_main.extract_chat_text(body) == "OmniVoice passed."
+    assert engine_main.extract_chat_text(body) == "OmniSpeak passed."
 
 
 def test_ai_handoff_endpoint_posts_github_copilot_oauth_request(monkeypatch, tmp_path):

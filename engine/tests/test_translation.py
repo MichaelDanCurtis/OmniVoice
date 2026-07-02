@@ -16,7 +16,7 @@ from omnivoice_engine.translation import (
 
 
 def test_translategemma_provider_uses_default_model_manager_path(tmp_path: Path, monkeypatch) -> None:
-    project_root = tmp_path / "OmniVoice"
+    project_root = tmp_path / "OmniSpeak"
     package_dir = project_root / "engine" / "omnivoice_engine"
     model_dir = project_root / "models" / "translategemma-mlx"
     package_dir.mkdir(parents=True)
@@ -35,7 +35,7 @@ def test_translategemma_provider_uses_default_model_manager_path(tmp_path: Path,
 
 
 def test_translategemma_provider_accepts_sharded_mlx_weights(tmp_path: Path, monkeypatch) -> None:
-    project_root = tmp_path / "OmniVoice"
+    project_root = tmp_path / "OmniSpeak"
     package_dir = project_root / "engine" / "omnivoice_engine"
     model_dir = project_root / "models" / "translategemma-mlx"
     package_dir.mkdir(parents=True)
@@ -54,7 +54,7 @@ def test_translategemma_provider_accepts_sharded_mlx_weights(tmp_path: Path, mon
 
 
 def test_translategemma_provider_reports_missing_default_model_files(tmp_path: Path, monkeypatch) -> None:
-    project_root = tmp_path / "OmniVoice"
+    project_root = tmp_path / "OmniSpeak"
     package_dir = project_root / "engine" / "omnivoice_engine"
     model_dir = project_root / "models" / "translategemma-mlx"
     package_dir.mkdir(parents=True)

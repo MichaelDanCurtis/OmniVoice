@@ -8,7 +8,7 @@ from .translation import TranslationRegistry, validate_translation_targets
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Translate text with a local OmniVoice translation provider.")
+    parser = argparse.ArgumentParser(description="Translate text with a local OmniSpeak translation provider.")
     parser.add_argument("--text", required=True, help="Text to translate.")
     parser.add_argument("--provider", default="fake", choices=["fake", "translategemma-mlx", "nllb-200-distilled-600m"])
     parser.add_argument("--source-language", default="auto", help="Source language code, or auto.")
