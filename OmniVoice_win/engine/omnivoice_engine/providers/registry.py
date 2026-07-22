@@ -4,6 +4,7 @@ from omnivoice_engine.schemas import ProviderInfo
 
 from .base import ASRProvider, UnavailableASRProvider
 from .fake import FakeASRProvider
+from .moonshine_sherpa import MoonshineSherpaProvider
 from .parakeet_sherpa import ParakeetSherpaProvider
 
 
@@ -12,6 +13,7 @@ class ProviderRegistry:
         self._providers: dict[str, ASRProvider] = {
             "fake": FakeASRProvider(),
             "parakeet-tdt": ParakeetSherpaProvider(),
+            "moonshine-base-en": MoonshineSherpaProvider(),
             "canary-qwen-2.5b": UnavailableASRProvider(
                 "canary-qwen-2.5b",
                 "Canary-Qwen-2.5B",
