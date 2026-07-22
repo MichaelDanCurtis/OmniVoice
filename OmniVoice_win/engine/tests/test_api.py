@@ -342,7 +342,13 @@ def test_providers_endpoint_includes_fake():
     response = client.get("/providers")
 
     assert response.status_code == 200
-    assert {"id": "fake", "label": "Fake ASR", "available": True, "reason": None} in response.json()
+    assert {
+        "id": "fake",
+        "label": "Fake ASR",
+        "available": True,
+        "reason": None,
+        "device": None,
+    } in response.json()
 
 
 def test_models_endpoint_lists_hugging_face_model_status(monkeypatch):

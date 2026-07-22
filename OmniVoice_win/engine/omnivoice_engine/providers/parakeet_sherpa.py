@@ -7,6 +7,8 @@ from omnivoice_engine.paths import default_model_root
 from omnivoice_engine.schemas import ProviderInfo
 
 from .base import ASRProvider
+from .device import available_onnx_providers, requested_device_from_env, resolve_device
+from .sherpa_runtime import build_recognizer
 
 
 class ParakeetSherpaProvider(ASRProvider):
@@ -17,10 +19,29 @@ class ParakeetSherpaProvider(ASRProvider):
         ("encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"),
     ]
 
-    def __init__(self, model_dir: str | None = None) -> None:
+    def __init__(
+        self,
+        model_dir: str | None = None,
+        device: str | None = None,
+        available_providers: list[str] | None = None,
+    ) -> None:
         configured = model_dir or os.environ.get("OMNIVOICE_PARAKEET_MODEL_DIR")
         self.model_dir = Path(configured).expanduser() if configured else default_model_root(__file__) / "parakeet-tdt"
         self._recognizer = None
+        requested = device if device is not None else requested_device_from_env(os.environ)
+        detected = available_providers if available_providers is not None else available_onnx_providers()
+        # The device we intend to use; `device` becomes the *actual* one after the
+        # recognizer is built (a failed CUDA build silently degrades to CPU).
+        self._device = resolve_device(requested, detected)
+        self._fallback_reason: str | None = None
+
+    @property
+    def device(self) -> str:
+        return self._device
+
+    @property
+    def fallback_reason(self) -> str | None:
+        return self._fallback_reason
 
     def info(self) -> ProviderInfo:
         missing = [path.name for path in self._required_paths() if not path.exists()]
@@ -30,19 +51,33 @@ class ParakeetSherpaProvider(ASRProvider):
                 label=self.label,
                 available=False,
                 reason=f"model files not found in {self.model_dir}: {', '.join(missing)}",
+                device=self._device,
             )
 
-        try:
-            import sherpa_onnx  # noqa: F401
-        except Exception as exc:
+        import_error = self._sherpa_import_error()
+        if import_error:
             return ProviderInfo(
                 id=self.id,
                 label=self.label,
                 available=False,
-                reason=f"sherpa-onnx import failed: {exc}",
+                reason=f"sherpa-onnx import failed: {import_error}",
+                device=self._device,
             )
 
-        return ProviderInfo(id=self.id, label=self.label, available=True)
+        return ProviderInfo(
+            id=self.id,
+            label=self.label,
+            available=True,
+            reason=self._fallback_reason,
+            device=self._device,
+        )
+
+    def _sherpa_import_error(self) -> str | None:
+        try:
+            import sherpa_onnx  # noqa: F401
+        except Exception as exc:
+            return str(exc)
+        return None
 
     def transcribe(self, audio_bytes: bytes) -> str:
         info = self.info()
@@ -84,22 +119,29 @@ class ParakeetSherpaProvider(ASRProvider):
         return stream.result.text.strip()
 
     def _get_recognizer(self):
+        if self._recognizer is None:
+            built = build_recognizer(self._build_recognizer, self._device)
+            self._recognizer = built.recognizer
+            self._device = built.device
+            self._fallback_reason = built.fallback_reason
+        return self._recognizer
+
+    def _build_recognizer(self, execution_provider: str):
         import sherpa_onnx
 
-        if self._recognizer is None:
-            model_files = self._model_files()
-            self._recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
-                encoder=str(model_files["encoder"]),
-                decoder=str(model_files["decoder"]),
-                joiner=str(model_files["joiner"]),
-                tokens=str(model_files["tokens"]),
-                num_threads=4,
-                sample_rate=16000,
-                feature_dim=80,
-                decoding_method="greedy_search",
-                model_type="nemo_transducer",
-            )
-        return self._recognizer
+        model_files = self._model_files()
+        return sherpa_onnx.OfflineRecognizer.from_transducer(
+            encoder=str(model_files["encoder"]),
+            decoder=str(model_files["decoder"]),
+            joiner=str(model_files["joiner"]),
+            tokens=str(model_files["tokens"]),
+            num_threads=4,
+            sample_rate=16000,
+            feature_dim=80,
+            decoding_method="greedy_search",
+            model_type="nemo_transducer",
+            provider=execution_provider,
+        )
 
     def _normalize_audio(self, samples, sample_rate: int):
         import numpy as np
