@@ -12,6 +12,12 @@ public sealed class EngineSupervisor
     private Process? _process;
     private bool _didAttemptStart;
 
+    /// <summary>
+    /// Execution device handed to the engine on launch. Set from preferences
+    /// before starting; the engine still falls back to CPU if CUDA can't load.
+    /// </summary>
+    public AsrDeviceKind AsrDevice { get; set; } = AsrDeviceKind.Auto;
+
     public async Task<EngineStartResult> StartIfNeededAsync(CancellationToken ct = default)
     {
         if (await IsHealthyAsync(ct))
@@ -91,7 +97,10 @@ public sealed class EngineSupervisor
         startInfo.Environment["OMNIVOICE_APP_SUPPORT_DIR"] = supportDir;
         startInfo.Environment["OMNIVOICE_MODEL_ROOT"] = modelRoot;
         startInfo.Environment["OMNIVOICE_PARAKEET_MODEL_DIR"] = Path.Combine(modelRoot, "parakeet-tdt");
+        startInfo.Environment["OMNIVOICE_MOONSHINE_MODEL_DIR"] = Path.Combine(modelRoot, "moonshine-base-en");
         startInfo.Environment["OMNIVOICE_CANARY_MODEL_DIR"] = Path.Combine(modelRoot, "canary-qwen-2.5b");
+        startInfo.Environment["OMNIVOICE_ASR_DEVICE"] =
+            Environment.GetEnvironmentVariable("OMNIVOICE_ASR_DEVICE") ?? AsrDevice.WireValue();
         startInfo.Environment["OMNIVOICE_ENGINE_DATA_DIR"] = dataDir;
         startInfo.Environment["OMNIVOICE_DESKTOP_APP_PATH"] = Environment.ProcessPath ?? "";
         startInfo.Environment["OMNIVOICE_INSTALL_ASR"] = Environment.GetEnvironmentVariable("OMNIVOICE_INSTALL_ASR") ?? "1";

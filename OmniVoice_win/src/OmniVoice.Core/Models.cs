@@ -41,6 +41,9 @@ public enum AsrProviderKind
     [JsonPropertyName("parakeet-tdt")]
     ParakeetTdt,
 
+    [JsonPropertyName("moonshine-base-en")]
+    MoonshineBaseEn,
+
     [JsonPropertyName("canary-qwen-2.5b")]
     CanaryQwen25B,
 }
@@ -51,8 +54,38 @@ public static class AsrProviderKindExtensions
     {
         AsrProviderKind.Fake => "fake",
         AsrProviderKind.ParakeetTdt => "parakeet-tdt",
+        AsrProviderKind.MoonshineBaseEn => "moonshine-base-en",
         AsrProviderKind.CanaryQwen25B => "canary-qwen-2.5b",
         _ => provider.ToString().ToLowerInvariant(),
+    };
+}
+
+/// <summary>
+/// Which onnxruntime execution provider the engine should use. The same model
+/// files run on either; CUDA needs onnxruntime-gpu plus a matching CUDA runtime,
+/// and the engine falls back to CPU if that turns out to be unusable.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum AsrDeviceKind
+{
+    [JsonPropertyName("auto")]
+    Auto,
+
+    [JsonPropertyName("cpu")]
+    Cpu,
+
+    [JsonPropertyName("cuda")]
+    Cuda,
+}
+
+public static class AsrDeviceKindExtensions
+{
+    public static string WireValue(this AsrDeviceKind device) => device switch
+    {
+        AsrDeviceKind.Auto => "auto",
+        AsrDeviceKind.Cpu => "cpu",
+        AsrDeviceKind.Cuda => "cuda",
+        _ => device.ToString().ToLowerInvariant(),
     };
 }
 
@@ -116,7 +149,12 @@ public sealed record TranscribeResult(string Text, [property: JsonPropertyName("
 
 public sealed record EngineHealth(string Status);
 
-public sealed record EngineProviderInfo(string Id, string Label, bool Available, string? Reason);
+public sealed record EngineProviderInfo(
+    string Id,
+    string Label,
+    bool Available,
+    string? Reason,
+    string? Device = null);
 
 public sealed record EngineModelStatus(
     [property: JsonPropertyName("provider_id")] string ProviderId,
@@ -172,6 +210,10 @@ public sealed class OmniVoicePreferences
     [JsonPropertyName("asr_provider")]
     public AsrProviderKind AsrProvider { get; set; } = AsrProviderKind.ParakeetTdt;
 
+    /// <summary>Execution device for local ASR. Auto uses the GPU when one is usable.</summary>
+    [JsonPropertyName("asr_device")]
+    public AsrDeviceKind AsrDevice { get; set; } = AsrDeviceKind.Auto;
+
     public StyleProfile Style { get; set; } = StyleProfile.Neutral;
 
     [JsonPropertyName("dictionary_terms")]
@@ -211,7 +253,8 @@ public sealed class OmniVoicePreferences
 
     public void CycleAsrProvider() => AsrProvider = AsrProvider switch
     {
-        AsrProviderKind.ParakeetTdt => AsrProviderKind.CanaryQwen25B,
+        AsrProviderKind.ParakeetTdt => AsrProviderKind.MoonshineBaseEn,
+        AsrProviderKind.MoonshineBaseEn => AsrProviderKind.CanaryQwen25B,
         AsrProviderKind.CanaryQwen25B => AsrProviderKind.Fake,
         _ => AsrProviderKind.ParakeetTdt,
     };

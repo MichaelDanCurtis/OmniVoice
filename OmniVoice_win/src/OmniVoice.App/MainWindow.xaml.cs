@@ -127,6 +127,7 @@ public partial class MainWindow : Window
         }
         catch
         {
+            EngineSupervisor.Shared.AsrDevice = _preferences.AsrDevice;
             var result = await EngineSupervisor.Shared.StartIfNeededAsync();
             EngineTextBlock.Text = $"Engine: {result.Detail}";
         }
