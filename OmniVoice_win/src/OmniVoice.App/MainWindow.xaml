@@ -32,9 +32,38 @@
                         <TextBlock Text="ASR Provider" />
                         <ComboBox x:Name="ProviderCombo" Margin="0,4,0,8" SelectionChanged="ProviderCombo_SelectionChanged">
                             <ComboBoxItem Content="Parakeet TDT" Tag="parakeet-tdt" />
+                            <ComboBoxItem Content="Moonshine Base (English)" Tag="moonshine-base-en" />
+                            <ComboBoxItem Content="SenseVoice Small FunASR" Tag="sensevoice-small-funasr" />
                             <ComboBoxItem Content="Canary Qwen 2.5B" Tag="canary-qwen-2.5b" />
-                            <ComboBoxItem Content="Fake (testing)" Tag="fake" />
                         </ComboBox>
+                        <Border Background="#111827"
+                                BorderBrush="#334155"
+                                BorderThickness="1"
+                                CornerRadius="10"
+                                Padding="12"
+                                Margin="0,0,0,10">
+                            <StackPanel>
+                                <TextBlock x:Name="ProviderCapabilityTitle"
+                                           FontWeight="SemiBold"
+                                           Foreground="#F8FAFC" />
+                                <TextBlock x:Name="ProviderCapabilityPills"
+                                           Margin="0,4,0,8"
+                                           Foreground="#67E8F9"
+                                           FontSize="12" />
+                                <TextBlock x:Name="ProviderCapabilityLanguages"
+                                           Foreground="#CBD5E1"
+                                           TextWrapping="Wrap" />
+                                <TextBlock x:Name="ProviderCapabilityPicker"
+                                           Margin="0,4,0,0"
+                                           Foreground="#CBD5E1"
+                                           TextWrapping="Wrap" />
+                                <TextBlock x:Name="ProviderCapabilityLimit"
+                                           Margin="0,4,0,0"
+                                           Foreground="#94A3B8"
+                                           FontSize="12"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
                         <TextBlock Text="Style" />
                         <ComboBox x:Name="StyleCombo" Margin="0,4,0,8" SelectionChanged="StyleCombo_SelectionChanged">
                             <ComboBoxItem Content="Neutral" Tag="Neutral" />

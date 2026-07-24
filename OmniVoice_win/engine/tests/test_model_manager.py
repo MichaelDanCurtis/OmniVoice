@@ -28,7 +28,23 @@ class FakeSnapshotDownloader:
         self.calls.append(kwargs)
         local_dir = Path(kwargs["local_dir"])
         local_dir.mkdir(parents=True, exist_ok=True)
-        for filename in ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"]:
+        required_files = {
+            "parakeet-tdt": ["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"],
+            "moonshine-base-en": [
+                "preprocess.onnx",
+                "encode.int8.onnx",
+                "uncached_decode.int8.onnx",
+                "cached_decode.int8.onnx",
+                "tokens.txt",
+            ],
+            "sensevoice-small-funasr": ["config.yaml", "model.pt", "am.mvn", "chn_jpn_yue_eng_ko_spectok.bpe.model"],
+            "whisperx-pyannote": ["config.yaml"],
+        }
+        provider_id = next(
+            (key for key in required_files if key in str(local_dir)),
+            "parakeet-tdt",
+        )
+        for filename in required_files[provider_id]:
             (local_dir / filename).write_text("model")
         return str(local_dir)
 
@@ -88,6 +104,32 @@ def test_model_manager_detects_remote_updates(tmp_path: Path) -> None:
     assert update.installed_revision == "installed-sha"
     assert update.remote_revision == "remote-sha"
     assert update.update_available is True
+
+
+def test_model_manager_reports_sensevoice_funasr_source(tmp_path: Path) -> None:
+    manager = ModelManager(model_root=tmp_path, hub_api=FakeHubApi(), snapshot_downloader=FakeSnapshotDownloader())
+
+    status = manager.status("sensevoice-small-funasr")
+
+    assert status.provider_id == "sensevoice-small-funasr"
+    assert status.label == "SenseVoice Small FunASR"
+    assert status.repo_id == "FunAudioLLM/SenseVoiceSmall"
+    assert status.local_path == str(tmp_path / "sensevoice-small-funasr")
+    assert status.installed is False
+    assert status.missing_files == ["config.yaml", "model.pt", "am.mvn", "chn_jpn_yue_eng_ko_spectok.bpe.model"]
+
+
+def test_model_manager_reports_whisperx_pyannote_source(tmp_path: Path) -> None:
+    manager = ModelManager(model_root=tmp_path, hub_api=FakeHubApi(), snapshot_downloader=FakeSnapshotDownloader())
+
+    status = manager.status("whisperx-pyannote")
+
+    assert status.provider_id == "whisperx-pyannote"
+    assert status.label == "WhisperX + pyannote"
+    assert status.repo_id == "pyannote/speaker-diarization-3.1"
+    assert status.local_path == str(tmp_path / "whisperx-pyannote")
+    assert status.installed is False
+    assert status.missing_files == ["config.yaml"]
 
 
 def test_model_manager_rejects_unknown_provider(tmp_path: Path) -> None:

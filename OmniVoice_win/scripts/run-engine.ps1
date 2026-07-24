@@ -26,6 +26,15 @@ if ($installGpu -eq "1") {
     & $venvPython -m pip install -e ".[gpu]" | Out-Null
 }
 
+$installSenseVoiceAsr = if ($env:OMNIVOICE_INSTALL_SENSEVOICE_ASR) { $env:OMNIVOICE_INSTALL_SENSEVOICE_ASR } else { "0" }
+if ($installSenseVoiceAsr -eq "1") {
+    & $venvPython -m pip install -e ".[sensevoice-asr]" | Out-Null
+}
+$installWhisperXPyannote = if ($env:OMNIVOICE_INSTALL_WHISPERX_PYANNOTE) { $env:OMNIVOICE_INSTALL_WHISPERX_PYANNOTE } else { "0" }
+if ($installWhisperXPyannote -eq "1") {
+    & $venvPython -m pip install -e ".[whisperx-pyannote]" | Out-Null
+}
+
 if (-not $env:OMNIVOICE_MODEL_ROOT) {
     $env:OMNIVOICE_MODEL_ROOT = Join-Path $RootDir "models"
 }
@@ -37,6 +46,12 @@ if (-not $env:OMNIVOICE_MOONSHINE_MODEL_DIR) {
 }
 if (-not $env:OMNIVOICE_CANARY_MODEL_DIR) {
     $env:OMNIVOICE_CANARY_MODEL_DIR = Join-Path $env:OMNIVOICE_MODEL_ROOT "canary-qwen-2.5b"
+}
+if (-not $env:OMNIVOICE_SENSEVOICE_MODEL_DIR) {
+    $env:OMNIVOICE_SENSEVOICE_MODEL_DIR = Join-Path $env:OMNIVOICE_MODEL_ROOT "sensevoice-small-funasr"
+}
+if (-not $env:OMNIVOICE_WHISPERX_PYANNOTE_DIR) {
+    $env:OMNIVOICE_WHISPERX_PYANNOTE_DIR = Join-Path $env:OMNIVOICE_MODEL_ROOT "whisperx-pyannote"
 }
 if (-not $env:OMNIVOICE_ENGINE_DATA_DIR) {
     $env:OMNIVOICE_ENGINE_DATA_DIR = Join-Path $RootDir "dist\engine-data"

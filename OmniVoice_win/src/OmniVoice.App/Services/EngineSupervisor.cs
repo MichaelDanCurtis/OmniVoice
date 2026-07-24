@@ -99,6 +99,8 @@ public sealed class EngineSupervisor
         startInfo.Environment["OMNIVOICE_PARAKEET_MODEL_DIR"] = Path.Combine(modelRoot, "parakeet-tdt");
         startInfo.Environment["OMNIVOICE_MOONSHINE_MODEL_DIR"] = Path.Combine(modelRoot, "moonshine-base-en");
         startInfo.Environment["OMNIVOICE_CANARY_MODEL_DIR"] = Path.Combine(modelRoot, "canary-qwen-2.5b");
+        startInfo.Environment["OMNIVOICE_SENSEVOICE_MODEL_DIR"] = Path.Combine(modelRoot, "sensevoice-small-funasr");
+        startInfo.Environment["OMNIVOICE_WHISPERX_PYANNOTE_DIR"] = Path.Combine(modelRoot, "whisperx-pyannote");
         startInfo.Environment["OMNIVOICE_ASR_DEVICE"] =
             Environment.GetEnvironmentVariable("OMNIVOICE_ASR_DEVICE") ?? AsrDevice.WireValue();
         startInfo.Environment["OMNIVOICE_ENGINE_DATA_DIR"] = dataDir;

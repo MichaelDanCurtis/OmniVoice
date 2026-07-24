@@ -44,19 +44,108 @@ public enum AsrProviderKind
     [JsonPropertyName("moonshine-base-en")]
     MoonshineBaseEn,
 
+    [JsonPropertyName("sensevoice-small-funasr")]
+    SenseVoiceSmallFunAsr,
+
     [JsonPropertyName("canary-qwen-2.5b")]
     CanaryQwen25B,
 }
 
+/// <summary>
+/// User-facing description of what an ASR model is good at, shown as a capability
+/// card in Settings so switching models is an informed choice.
+/// </summary>
+public sealed record ModelCapabilityProfile(
+    string PrimaryUse,
+    string LanguageCoverage,
+    string AutoDetectBehavior,
+    string LanguagePickerBehavior,
+    string DataPath,
+    string Setup,
+    string Limitation,
+    IReadOnlyList<string> Pills,
+    bool SupportsSourceLanguagePicker,
+    bool IsTestOnly = false);
+
 public static class AsrProviderKindExtensions
 {
+    public static string DisplayName(this AsrProviderKind provider) => provider switch
+    {
+        AsrProviderKind.Fake => "Fake",
+        AsrProviderKind.ParakeetTdt => "Parakeet TDT",
+        AsrProviderKind.MoonshineBaseEn => "Moonshine Base (English)",
+        AsrProviderKind.SenseVoiceSmallFunAsr => "SenseVoice Small FunASR",
+        AsrProviderKind.CanaryQwen25B => "Canary Qwen 2.5B",
+        _ => provider.ToString(),
+    };
+
     public static string WireValue(this AsrProviderKind provider) => provider switch
     {
         AsrProviderKind.Fake => "fake",
         AsrProviderKind.ParakeetTdt => "parakeet-tdt",
         AsrProviderKind.MoonshineBaseEn => "moonshine-base-en",
+        AsrProviderKind.SenseVoiceSmallFunAsr => "sensevoice-small-funasr",
         AsrProviderKind.CanaryQwen25B => "canary-qwen-2.5b",
         _ => provider.ToString().ToLowerInvariant(),
+    };
+
+    public static ModelCapabilityProfile CapabilityProfile(this AsrProviderKind provider) => provider switch
+    {
+        AsrProviderKind.ParakeetTdt => new(
+            PrimaryUse: "Fast local dictation",
+            LanguageCoverage: "English and 24 more European languages",
+            AutoDetectBehavior: "No language detection; optimized for European languages.",
+            LanguagePickerBehavior: "Source language is fixed. Translation target can still be changed.",
+            DataPath: "Microphone -> local ASR -> cleanup/translation -> text insertion.",
+            Setup: "Best default for day-to-day push-to-talk dictation.",
+            Limitation: "Use SenseVoice when the spoken input is Mandarin, Cantonese, Japanese, or Korean.",
+            Pills: ["Fastest", "Local", "Best default"],
+            SupportsSourceLanguagePicker: false),
+
+        AsrProviderKind.MoonshineBaseEn => new(
+            PrimaryUse: "Lowest-latency English dictation",
+            LanguageCoverage: "English speech input",
+            AutoDetectBehavior: "No language detection; English only.",
+            LanguagePickerBehavior: "Source language is fixed to English. Translation target can still be changed.",
+            DataPath: "Microphone -> local ASR -> cleanup/translation -> text insertion.",
+            Setup: "Pick this on low-end CPUs where responsiveness matters most.",
+            Limitation: "English only; use Parakeet or SenseVoice for other languages.",
+            Pills: ["Lowest latency", "Small", "CPU-friendly"],
+            SupportsSourceLanguagePicker: false),
+
+        AsrProviderKind.SenseVoiceSmallFunAsr => new(
+            PrimaryUse: "Fast multilingual dictation",
+            LanguageCoverage: "Mandarin, Cantonese, English, Japanese, and Korean-focused speech input",
+            AutoDetectBehavior: "FunASR/SenseVoice language identification can infer supported source languages.",
+            LanguagePickerBehavior: "Source language can be automatic or manually selected for supported languages.",
+            DataPath: "Microphone -> local FunASR/SenseVoice -> cleanup/translation -> text insertion.",
+            Setup: "Download SenseVoiceSmall from Hugging Face and install the optional FunASR runtime.",
+            Limitation: "Not MLX-native; Windows performance depends on local CPU/GPU Torch runtime.",
+            Pills: ["Fast", "FunASR", "CJK-ready"],
+            SupportsSourceLanguagePicker: true),
+
+        AsrProviderKind.CanaryQwen25B => new(
+            PrimaryUse: "Multilingual transcription",
+            LanguageCoverage: "Multilingual speech input with automatic language support from the model runtime.",
+            AutoDetectBehavior: "Model runtime can infer supported source languages.",
+            LanguagePickerBehavior: "Source language may be automatic or manually selected when the runtime exposes supported languages.",
+            DataPath: "Microphone -> local ASR -> cleanup/translation -> text insertion.",
+            Setup: "Good fallback when the speaker may not be using English.",
+            Limitation: "Higher latency and heavier resource use than Parakeet.",
+            Pills: ["Multilingual", "Translation-ready", "Heavier"],
+            SupportsSourceLanguagePicker: true),
+
+        _ => new(
+            PrimaryUse: "Testing only",
+            LanguageCoverage: "Synthetic English output",
+            AutoDetectBehavior: "No real speech recognition.",
+            LanguagePickerBehavior: "Not available.",
+            DataPath: "Local test stub -> text insertion.",
+            Setup: "Used by development tests and diagnostics.",
+            Limitation: "This provider is for testing and should not appear as a normal user-facing model.",
+            Pills: ["Test only"],
+            SupportsSourceLanguagePicker: false,
+            IsTestOnly: true),
     };
 }
 
@@ -251,11 +340,13 @@ public sealed class OmniVoicePreferences
 
     public void CycleStyle() => Style = Style.Next();
 
+    // Fake is test-only (IsTestOnly) and deliberately excluded from the cycle.
     public void CycleAsrProvider() => AsrProvider = AsrProvider switch
     {
         AsrProviderKind.ParakeetTdt => AsrProviderKind.MoonshineBaseEn,
-        AsrProviderKind.MoonshineBaseEn => AsrProviderKind.CanaryQwen25B,
-        AsrProviderKind.CanaryQwen25B => AsrProviderKind.Fake,
+        AsrProviderKind.MoonshineBaseEn => AsrProviderKind.SenseVoiceSmallFunAsr,
+        AsrProviderKind.SenseVoiceSmallFunAsr => AsrProviderKind.CanaryQwen25B,
+        AsrProviderKind.CanaryQwen25B => AsrProviderKind.ParakeetTdt,
         _ => AsrProviderKind.ParakeetTdt,
     };
 }
