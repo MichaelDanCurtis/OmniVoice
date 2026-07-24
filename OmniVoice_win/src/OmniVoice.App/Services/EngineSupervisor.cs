@@ -144,17 +144,8 @@ public sealed class EngineSupervisor
         }
     }
 
-    private static string? FindLauncher()
-    {
-        var repoRoot = FindRepoRoot();
-        var candidates = new[]
-        {
-            Path.Combine(repoRoot, "scripts", "run-engine.ps1"),
-            Path.Combine(repoRoot, "scripts", "run-engine.bat"),
-        };
-
-        return candidates.FirstOrDefault(File.Exists);
-    }
+    private static string? FindLauncher() =>
+        EngineLauncherLocator.Resolve(AppContext.BaseDirectory, FindRepoRoot());
 
     private static string FindRepoRoot()
     {

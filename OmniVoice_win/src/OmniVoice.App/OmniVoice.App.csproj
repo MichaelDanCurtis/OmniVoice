@@ -21,4 +21,16 @@
     <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
 
+  <!-- Packaged builds: scripts/package-windows.ps1 freezes the Python engine to
+       dist/engine/omnispeak-engine.exe first; publishing with PublishSingleFile +
+       IncludeAllContentForSelfExtract then embeds it inside OmniSpeak.exe and
+       extracts it next to the app at first run, where EngineLauncherLocator
+       prefers it over the dev launcher scripts. Dev builds simply skip this. -->
+  <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)\..\..\dist\engine\omnispeak-engine.exe')">
+    <Content Include="$(MSBuildProjectDirectory)\..\..\dist\engine\omnispeak-engine.exe"
+             Link="omnispeak-engine.exe"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
