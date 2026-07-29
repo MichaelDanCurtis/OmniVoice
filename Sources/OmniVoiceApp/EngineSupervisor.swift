@@ -41,7 +41,7 @@ final class EngineSupervisor {
         }
 
         guard !didAttemptStart else {
-            return .unavailable("Engine is offline. Use the dashboard or relaunch OmniVoice after checking the engine log.")
+            return .unavailable("Engine is offline. Use the dashboard or relaunch OmniSpeak after checking the engine log.")
         }
         didAttemptStart = true
 
@@ -110,7 +110,7 @@ final class EngineSupervisor {
 
         let logHandle = try FileHandle(forWritingTo: logURL)
         try logHandle.seekToEnd()
-        logHandle.write(Data("\n--- OmniVoice engine launch \(Date()) ---\n".utf8))
+        logHandle.write(Data("\n--- OmniSpeak engine launch \(Date()) ---\n".utf8))
 
         var environment = ProcessInfo.processInfo.environment
         environment["OMNIVOICE_APP_SUPPORT_DIR"] = supportURL.path
@@ -200,8 +200,8 @@ final class EngineSupervisor {
 
     private func isOmniVoiceEngineCommand(_ command: String) -> Bool {
         command.contains("omnivoice_engine.main:app")
-            || command.contains("Application Support/OmniVoice/engine-venv")
-            || command.contains("/OmniVoice/engine/.venv/bin/uvicorn")
+            || command.contains("Application Support/OmniSpeak/engine-venv")
+            || command.contains("/OmniSpeak/engine/.venv/bin/uvicorn")
             || command.contains("scripts/run-engine.sh")
     }
 
@@ -244,7 +244,7 @@ final class EngineSupervisor {
             appropriateFor: nil,
             create: true
         )
-        let url = baseURL.appending(path: "OmniVoice", directoryHint: .isDirectory)
+        let url = baseURL.appending(path: "OmniSpeak", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

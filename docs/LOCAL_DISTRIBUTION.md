@@ -1,4 +1,4 @@
-# OmniVoice Local Distribution
+# OmniSpeak Local Distribution
 
 ## Build
 
@@ -10,8 +10,8 @@ Create the V3 local DMG:
 
 The output is:
 
-- `dist/OmniVoice.app`
-- `dist/OmniVoice.dmg`
+- `dist/OmniSpeak.app`
+- `dist/OmniSpeak.dmg`
 
 ## What Is Bundled
 
@@ -27,7 +27,7 @@ The app bundle includes:
 
 On first launch, if no engine is already running at `http://127.0.0.1:8765`, the app starts the bundled launcher. That launcher creates a virtual environment and installs the engine under:
 
-`~/Library/Application Support/OmniVoice`
+`~/Library/Application Support/OmniSpeak`
 
 The launcher installs normal runtime packages from the bundled wheelhouse by default, so users do not need a system Python installation for the packaged app.
 
@@ -44,7 +44,7 @@ Canary-Qwen remains an advanced optional runtime because its NeMo dependency is 
 
 ## Signing Status
 
-The current DMG is locally signed for development with the generated `OmniVoice Local Development` identity. That is enough for local testing on this machine and for handoff to trusted testers who explicitly accept the local build.
+The current DMG is locally signed for development with the generated `OmniSpeak Local Development` identity. That is enough for local testing on this machine and for handoff to trusted testers who explicitly accept the local build.
 
 Public distribution still requires:
 
@@ -64,12 +64,12 @@ swift test
 engine/.venv/bin/python -m pytest engine/tests
 ./script/build_and_run.sh --dmg
 ./script/build_and_run.sh --verify
-/usr/bin/codesign --verify --deep --strict --verbose=2 dist/OmniVoice.app
-/usr/bin/hdiutil verify dist/OmniVoice.dmg
+/usr/bin/codesign --verify --deep --strict --verbose=2 dist/OmniSpeak.app
+/usr/bin/hdiutil verify dist/OmniSpeak.dmg
 ```
 
 For V3 release candidates, also verify the app version in the bundle:
 
 ```bash
-/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' dist/OmniVoice.app/Contents/Info.plist
+/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' dist/OmniSpeak.app/Contents/Info.plist
 ```

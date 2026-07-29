@@ -15,7 +15,7 @@ struct AuthSession: Codable, Equatable {
 /// Persists the ``AuthSession`` in the macOS Keychain as a JSON blob. Mirrors
 /// `HuggingFaceTokenStore`: update-then-add, device-only after first unlock.
 struct AuthSessionStore {
-    private let service = "com.omnivoice.auth"
+    private let service = "com.omnispeak.auth"
     private let account = "session"
 
     func load() -> AuthSession? {

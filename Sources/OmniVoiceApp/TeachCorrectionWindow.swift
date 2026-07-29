@@ -3,7 +3,7 @@ import SwiftUI
 import OmniVoiceCore
 
 /// Fallback for apps where the Accessibility auto-detect can't read the field. Invoked by a
-/// hotkey (⌃⌥T) after a dictation: shows a small panel pre-filled with what OmniVoice inserted;
+/// hotkey (⌃⌥T) after a dictation: shows a small panel pre-filled with what OmniSpeak inserted;
 /// the user types the correct form and it's learned the same way as an auto-detected correction.
 @MainActor
 final class TeachCorrectionWindow {

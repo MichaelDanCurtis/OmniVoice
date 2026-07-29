@@ -53,11 +53,11 @@ def test_spoken_basic_punctuation_commands_become_punctuation():
 def test_dictionary_terms_preserve_configured_casing():
     assert clean_transcript(
         CleanupRequest(
-            raw_transcript="omnivoice works with qwen",
+            raw_transcript="omnispeak works with qwen",
             style="neutral",
-            dictionary_terms=["OmniVoice", "Qwen"],
+            dictionary_terms=["OmniSpeak", "Qwen"],
         )
-    ).text == "OmniVoice works with Qwen."
+    ).text == "OmniSpeak works with Qwen."
 
 
 def test_concise_removes_leading_filler():

@@ -613,7 +613,7 @@ final class PreferencesStoreTests: XCTestCase {
             openAICompatibleModel: "local-qwen",
             openAICompatibleAPIKey: "test-key",
             liveDraftInsertionEnabled: true,
-            conversationArchiveFolderPath: "/Users/tester/Documents/OmniVoice",
+            conversationArchiveFolderPath: "/Users/tester/Documents/OmniSpeak",
             automaticallyArchiveConversations: false,
             firstRunSetupCompleted: true
         )

@@ -2,7 +2,7 @@ import Foundation
 
 public enum ConversationInsightSynthesis {
     public static let systemPrompt = """
-    You create concise live conversation insight cards for OmniVoice.
+    You create concise live conversation insight cards for OmniSpeak.
     Only use evidence from the provided transcript. Do not invent facts, sources, or names.
     Prefer useful cards: detected questions, direct answers, time-zone conversions, follow-ups, action items, and warnings.
     """
@@ -10,7 +10,7 @@ public enum ConversationInsightSynthesis {
     public static func userPrompt(for detail: ConversationDetail, maxCards: Int = 6) -> String {
         let transcript = transcriptLines(for: detail)
         return """
-        Analyze this OmniVoice conversation and create up to \(maxCards) useful insight rail cards.
+        Analyze this OmniSpeak conversation and create up to \(maxCards) useful insight rail cards.
 
         Return only JSON with this exact shape:
         {

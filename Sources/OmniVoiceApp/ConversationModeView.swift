@@ -1078,7 +1078,7 @@ private struct ConversationEditorSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Edit Conversation")
                         .font(.title3.weight(.bold))
-                    Text("Rename speakers once and OmniVoice applies it across the saved transcript.")
+                    Text("Rename speakers once and OmniSpeak applies it across the saved transcript.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

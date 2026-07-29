@@ -2,7 +2,7 @@ import ApplicationServices
 import AppKit
 import OmniVoiceCore
 
-/// After OmniVoice inserts dictated text, briefly watches that field (Accessibility) for the
+/// After OmniSpeak inserts dictated text, briefly watches that field (Accessibility) for the
 /// user correcting the inserted word, and reports a learnable correction. All reads are bounded
 /// to one element for a short window; nothing is stored or transmitted. The decision logic is
 /// the pure `CorrectionClassifier` — this class is just the plumbing (manual-tested).

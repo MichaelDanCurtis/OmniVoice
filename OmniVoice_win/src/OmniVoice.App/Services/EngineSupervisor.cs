@@ -21,7 +21,7 @@ public sealed class EngineSupervisor
             return await WaitForHealthAsync(ct);
 
         if (_didAttemptStart)
-            return EngineStartResult.Unavailable("Engine is offline. Check engine.log in %LOCALAPPDATA%\\OmniVoice.");
+            return EngineStartResult.Unavailable("Engine is offline. Check engine.log in %LOCALAPPDATA%\\OmniSpeak.");
 
         _didAttemptStart = true;
         var launcher = FindLauncher();
@@ -64,7 +64,7 @@ public sealed class EngineSupervisor
     {
         var supportDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "OmniVoice");
+            "OmniSpeak");
         Directory.CreateDirectory(supportDir);
 
         var modelRoot = Path.Combine(supportDir, "models");
@@ -72,7 +72,7 @@ public sealed class EngineSupervisor
         var logPath = Path.Combine(supportDir, "engine.log");
         Directory.CreateDirectory(modelRoot);
         Directory.CreateDirectory(dataDir);
-        File.AppendAllText(logPath, $"\n--- OmniVoice engine launch {DateTime.Now:u} ---\n");
+        File.AppendAllText(logPath, $"\n--- OmniSpeak engine launch {DateTime.Now:u} ---\n");
 
         var repoRoot = FindRepoRoot();
         var startInfo = new ProcessStartInfo
@@ -115,7 +115,7 @@ public sealed class EngineSupervisor
 
         var logPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "OmniVoice",
+            "OmniSpeak",
             "engine.log");
         return EngineStartResult.StillStarting(logPath);
     }

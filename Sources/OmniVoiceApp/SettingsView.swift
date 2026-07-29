@@ -192,7 +192,7 @@ struct SettingsView: View {
         if !model.preferences.firstRunSetupCompleted {
             Section("First Run Setup") {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("OmniVoice needs permissions and the local MLX speech model before dictation feels instant.")
+                    Text("OmniSpeak needs permissions and the local MLX speech model before dictation feels instant.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -201,7 +201,7 @@ struct SettingsView: View {
                         title: "Microphone",
                         detail: model.microphoneAuthorized
                             ? "Allowed"
-                            : "Allow microphone capture so OmniVoice can hear dictation.",
+                            : "Allow microphone capture so OmniSpeak can hear dictation.",
                         state: model.microphoneAuthorized ? .passed : .failed
                     )
 
@@ -209,7 +209,7 @@ struct SettingsView: View {
                         title: "Accessibility",
                         detail: model.accessibilityTrusted
                             ? "Allowed"
-                            : "Allow Accessibility so OmniVoice can insert text at the cursor.",
+                            : "Allow Accessibility so OmniSpeak can insert text at the cursor.",
                         state: model.accessibilityTrusted ? .passed : .failed
                     )
 
@@ -429,7 +429,7 @@ struct SettingsView: View {
 
             HStack {
                 Button("Choose Folder") {
-                    chooseDirectory(title: "Choose OmniVoice Archive Folder", onSelect: model.setConversationArchiveFolderPath)
+                    chooseDirectory(title: "Choose OmniSpeak Archive Folder", onSelect: model.setConversationArchiveFolderPath)
                 }
 
                 Button("Use Documents") {
@@ -464,7 +464,7 @@ struct SettingsView: View {
                 .help("Remove Ask AI chat threads without deleting editor documents or notes.")
             }
 
-            Text("Conversation transcripts are mirrored here as Markdown and JSON. OmniVoice keeps its internal engine database in Application Support.")
+            Text("Conversation transcripts are mirrored here as Markdown and JSON. OmniSpeak keeps its internal engine database in Application Support.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1107,7 +1107,7 @@ struct SettingsView: View {
                 }
             }
 
-            Text("Custom model paths override managed downloads when you want OmniVoice to use a manually installed model folder.")
+            Text("Custom model paths override managed downloads when you want OmniSpeak to use a manually installed model folder.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -1580,7 +1580,7 @@ struct SettingsView: View {
                         Text("API Key")
                             .foregroundStyle(.secondary)
 
-                        SecureField("Stored locally in OmniVoice preferences", text: textLLMAPIKeyBinding(provider))
+                        SecureField("Stored locally in OmniSpeak preferences", text: textLLMAPIKeyBinding(provider))
                             .textFieldStyle(.roundedBorder)
                     }
                 }
@@ -1595,7 +1595,7 @@ struct SettingsView: View {
             if provider == .githubCopilot {
                 DisclosureGroup("Advanced OAuth App") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Device Sync uses OmniVoice's built-in GitHub Copilot device client. Override this only for development or a registered OmniVoice OAuth app.")
+                        Text("Device Sync uses OmniSpeak's built-in GitHub Copilot device client. Override this only for development or a registered OmniSpeak OAuth app.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -1735,7 +1735,7 @@ struct SettingsView: View {
             TextEditor(text: dictionaryTermsBinding)
                 .font(.system(.body, design: .monospaced))
                 .frame(minHeight: 140)
-            Text("Add names, products, acronyms, and terms OmniVoice should preserve. Use one term per line.")
+            Text("Add names, products, acronyms, and terms OmniSpeak should preserve. Use one term per line.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -1743,7 +1743,7 @@ struct SettingsView: View {
 
             let learned = model.preferences.dictionaryEntries.filter { $0.source == .learned }
             if learned.isEmpty {
-                Text("Learned words appear here after OmniVoice picks up a correction (say a word, fix it, and it remembers). Undo within 5s, or remove one here anytime. ⌃⌥T teaches one manually.")
+                Text("Learned words appear here after OmniSpeak picks up a correction (say a word, fix it, and it remembers). Undo within 5s, or remove one here anytime. ⌃⌥T teaches one manually.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -2740,7 +2740,7 @@ private struct HelpHeroCard: View {
                 Text("Speak once. Use it anywhere.")
                     .font(.title3.weight(.bold))
 
-                Text("OmniVoice listens locally, shows captions while you talk, cleans the result, and puts the final text where your cursor already is.")
+                Text("OmniSpeak listens locally, shows captions while you talk, cleans the result, and puts the final text where your cursor already is.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -2926,7 +2926,7 @@ private enum HelpWorkflow: String, CaseIterable, Identifiable {
         case .dictate:
             "Hold the dictation hotkey, talk naturally, release to insert polished text at the cursor."
         case .translate:
-            "Enable live translation, pick a target language, and OmniVoice captions the translated result."
+            "Enable live translation, pick a target language, and OmniSpeak captions the translated result."
         case .converse:
             "Record a meeting, split speaker turns when diarization is enabled, then ask questions about the transcript."
         case .write:
@@ -3526,7 +3526,7 @@ private enum CapabilityInfo: String, CaseIterable, Identifiable {
         case .dictation:
             "Hold the hotkey, speak, release to insert cleaned text."
         case .liveCaptions:
-            "See streaming text while OmniVoice listens."
+            "See streaming text while OmniSpeak listens."
         case .corrections:
             "Replace mistakes with no-wait, scratch-that, and correction phrasing."
         case .quotes:
@@ -3534,7 +3534,7 @@ private enum CapabilityInfo: String, CaseIterable, Identifiable {
         case .punctuation:
             "Speak punctuation and paragraph controls naturally."
         case .commandMode:
-            "Open apps and run safe OmniVoice actions by voice."
+            "Open apps and run safe OmniSpeak actions by voice."
         case .literalMode:
             "Preserve exact words, paths, names, and code-like text."
         case .personalDictionary:
@@ -3619,7 +3619,7 @@ private enum CapabilityInfo: String, CaseIterable, Identifiable {
             ]
         case .personalDictionary:
             [
-                "Add OmniVoice, MLX, Parakeet TDT, or client names one per line.",
+                "Add OmniSpeak, MLX, Parakeet TDT, or client names one per line.",
                 "Dictionary terms are sent into cleanup so casing and names are preserved.",
             ]
         case .modelControl:
@@ -3683,7 +3683,7 @@ private enum CapabilityInfo: String, CaseIterable, Identifiable {
         case .dictation:
             "Turns a held hotkey into a local speech-to-text session, cleans the result, and inserts the final text into the foreground app."
         case .liveCaptions:
-            "Shows a lightweight caption overlay while audio is being processed, so you can see that OmniVoice is hearing you before final insertion."
+            "Shows a lightweight caption overlay while audio is being processed, so you can see that OmniSpeak is hearing you before final insertion."
         case .corrections:
             "Detects self-correction phrases and rewrites the previous clause instead of blindly appending every word you spoke."
         case .quotes:
@@ -3720,7 +3720,7 @@ private enum CapabilityInfo: String, CaseIterable, Identifiable {
         case .punctuation:
             "The words that name punctuation are transformed into formatting, giving you readable prose without manual cleanup."
         case .commandMode:
-            "OmniVoice performs the action, reports status, and avoids dumping the command words into the active text field."
+            "OmniSpeak performs the action, reports status, and avoids dumping the command words into the active text field."
         case .literalMode:
             "Cleanup backs off and preserves spacing, symbols, casing, and command-shaped text as closely as possible."
         case .personalDictionary:

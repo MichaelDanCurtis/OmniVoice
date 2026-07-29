@@ -66,7 +66,7 @@ from .schemas import (
 )
 from .translation import TranslationRegistry, validate_translation_targets
 
-app = FastAPI(title="OmniVoice Local Engine")
+app = FastAPI(title="OmniSpeak Local Engine")
 registry = ProviderRegistry()
 diarization_registry = DiarizationRegistry()
 translation_registry = TranslationRegistry()
@@ -75,7 +75,7 @@ runtime_store = RuntimeStore()
 STARTED_MONOTONIC = time.monotonic()
 STATIC_DIR = Path(__file__).parent / "static"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DESKTOP_APP_PATH = REPO_ROOT / "dist" / "OmniVoice.app"
+DEFAULT_DESKTOP_APP_PATH = REPO_ROOT / "dist" / "OmniSpeak.app"
 DEFAULT_THEME_CSS_VARIABLES = {
     "--ov-accent": "#38BDF8",
     "--ov-accent-text": "#38BDF8",
@@ -101,7 +101,7 @@ class WebSearchResult:
 
 
 AI_CHAT_SYSTEM_PROMPT = (
-    "You are OmniVoice Ask AI, a full chat assistant inside a local dictation app. "
+    "You are OmniSpeak Ask AI, a full chat assistant inside a local dictation app. "
     "Answer naturally and directly. Use attached files, transcripts, conversations, "
     "and images when they are provided. If the user asks for editing or drafting, "
     "produce useful finished text and explain briefly only when that helps."
@@ -1612,7 +1612,7 @@ def duckduckgo_web_search(query: str, limit: int = 5) -> list[WebSearchResult]:
     request = urllib.request.Request(
         endpoint,
         headers={
-            "User-Agent": "OmniVoice/1.0 (+https://localhost)",
+            "User-Agent": "OmniSpeak/1.0 (+https://localhost)",
             "Accept": "text/html,application/xhtml+xml",
         },
         method="GET",
@@ -2412,7 +2412,7 @@ def desktop_app_path() -> Path:
 
     candidates = [
         DEFAULT_DESKTOP_APP_PATH,
-        Path("/Applications/OmniVoice.app"),
+        Path("/Applications/OmniSpeak.app"),
     ]
     for candidate in candidates:
         if candidate.exists():

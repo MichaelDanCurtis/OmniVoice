@@ -46,7 +46,7 @@ def test_model_manager_reports_parakeet_hugging_face_source(tmp_path: Path) -> N
 
 
 def test_model_manager_default_root_uses_project_models_when_started_from_engine_dir(tmp_path: Path, monkeypatch) -> None:
-    project_root = tmp_path / "OmniVoice"
+    project_root = tmp_path / "OmniSpeak"
     package_dir = project_root / "engine" / "omnivoice_engine"
     package_dir.mkdir(parents=True)
     model_root = project_root / "models"

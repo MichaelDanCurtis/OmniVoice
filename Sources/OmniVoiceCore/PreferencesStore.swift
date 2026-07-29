@@ -959,7 +959,7 @@ public struct PreferencesStore {
 
     public init(
         userDefaults: UserDefaults = .standard,
-        key: String = "omnivoice.preferences"
+        key: String = "omnispeak.preferences"
     ) {
         self.userDefaults = userDefaults
         self.key = key

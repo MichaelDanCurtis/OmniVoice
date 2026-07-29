@@ -1,7 +1,7 @@
 <Window x:Class="OmniVoice.App.Windows.CaptionOverlayWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="OmniVoice Caption"
+        Title="OmniSpeak Caption"
         Width="520"
         Height="120"
         WindowStyle="None"

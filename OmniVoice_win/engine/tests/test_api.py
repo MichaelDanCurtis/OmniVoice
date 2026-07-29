@@ -82,7 +82,7 @@ def test_dashboard_root_returns_engine_console():
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "OmniVoice Engine" in response.text
+    assert "OmniSpeak Engine" in response.text
     assert "/assets/dashboard.js" in response.text
 
 
