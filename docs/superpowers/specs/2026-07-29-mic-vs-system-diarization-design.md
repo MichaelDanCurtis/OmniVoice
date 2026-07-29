@@ -45,9 +45,13 @@ microphone track is *the user*; the system-audio track is *everyone else*.
 - System-audio taps require the **Audio Capture** TCC permission
   (`NSAudioCaptureUsageDescription`); prompt on first use of
   `.microphoneAndSystem`, mirroring the Accessibility permission UX.
-- Echo double-capture: the mic may pick up speaker output when not using
-  headphones. v1 accepts this (quill does); the merge can later drop
-  near-duplicate overlapping text between tracks.
+- Echo double-capture: without headphones the mic picks up speaker output.
+  **Handled** by `EchoSuppression` (Core): a settled "Me" segment is dropped
+  before persisting when it overlaps a "Them" segment in time and ≥80% of its
+  distinct words appear there. Tuned to fail open — utterances under three
+  words are never suppressed, and substantial unique words survive as
+  double-talk — because losing real speech is worse than a duplicated line.
+  Deliberately a text-level fix, not `setVoiceProcessingEnabled` (see below).
 - The process tap captures *all* system audio (music etc.), not just the call.
   v1 accepts this; per-process taps are a refinement.
 
@@ -58,5 +62,12 @@ microphone track is *the user*; the system-audio track is *everyone else*.
   `speaker-me`/`speaker-them` labels.
 - Engine diarization applied to the system track when the user enables it.
 
-Out of scope: per-app tap selection, echo dedup, Windows (WASAPI loopback is
-the analogous method there — note for the port).
+Out of scope: per-app tap selection, sortformer refinement of the "Them" track
+into multiple remote speakers, Windows (WASAPI loopback is the analogous method
+there — note for the port).
+
+Not attempted on purpose: hardware echo cancellation via
+`setVoiceProcessingEnabled(true)`. quill's RCA documents it yielding a silent
+(-91 dB) mic track with no error when the VoiceProcessingIO graph isn't fully
+configured; the text-level suppression above achieves the same goal with no
+risk to the capture path.
