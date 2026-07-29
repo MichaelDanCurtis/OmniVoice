@@ -645,6 +645,22 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertNil(OmniVoicePreferences.defaults.entitlementSnapshotData)
     }
 
+    func testConversationCaptureModeDefaultsToMicrophoneOnlyAndRoundTrips() throws {
+        XCTAssertEqual(OmniVoicePreferences.defaults.conversationCaptureMode, .microphoneOnly)
+
+        let suiteName = "OmniVoicePreferencesStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = PreferencesStore(userDefaults: defaults)
+        var preferences = OmniVoicePreferences.defaults
+        preferences.conversationCaptureMode = .microphoneAndSystemAudio
+
+        try store.save(preferences)
+
+        XCTAssertEqual(try store.load().conversationCaptureMode, .microphoneAndSystemAudio)
+    }
+
     func testModifierOnlyHotkeysRoundTripThroughStore() throws {
         let suiteName = "OmniVoicePreferencesStoreTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
