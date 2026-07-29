@@ -2881,6 +2881,13 @@ final class AppModel {
             return
         }
 
+        // Drop speaker bleed before it is persisted, so the saved transcript
+        // never contains the far side's words twice.
+        if isEchoOfSystemAudio(request) {
+            removeLiveConversationSegment(sessionID: sessionID)
+            return
+        }
+
         do {
             let segment = try await engineClient.addConversationSegment(sessionID: sessionID, request: request)
             guard isConversationRecording, self.activeConversation?.id == sessionID else { return }
@@ -3039,6 +3046,22 @@ final class AppModel {
             systemConversationRecorder = nil
             statusText = "System audio unavailable (\(error.localizedDescription)) — recording mic only"
         }
+    }
+
+    /// True when a settled mic segment only repeats what the system lane already
+    /// captured — the speakers bleeding into the microphone during two-track
+    /// capture without headphones. Only applies while the system lane is
+    /// actually running, so a mic-only session never suppresses anything.
+    private func isEchoOfSystemAudio(_ request: ConversationSegmentCreateRequest) -> Bool {
+        guard systemConversationRecorder != nil,
+              request.speakerID == TwoTrackSpeaker.me.speakerID else { return false }
+
+        return EchoSuppression.isEchoOfSystemAudio(
+            micText: request.text,
+            micStartMs: request.startMs,
+            micEndMs: request.endMs,
+            segments: conversationSegments
+        )
     }
 
     private func stopSystemAudioLane() async {
