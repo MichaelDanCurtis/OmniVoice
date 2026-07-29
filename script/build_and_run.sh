@@ -534,6 +534,8 @@ cat >"$INFO_PLIST" <<PLIST
   <string>NSApplication</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>OmniSpeak uses the microphone for push-to-talk dictation.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>OmniSpeak captures system audio during Mic + System conversations so the other side of a call can be transcribed and labeled.</string>
   <key>SUFeedURL</key>
   <string>https://github.com/MichaelDanCurtis/OmniSpeak/releases/latest/download/appcast.xml</string>
   <key>SUPublicEDKey</key>
