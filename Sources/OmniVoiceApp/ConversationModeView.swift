@@ -529,6 +529,13 @@ struct ConversationModeView: View {
         .padding(24)
     }
 
+    private var captureModeBinding: Binding<ConversationCaptureMode> {
+        Binding(
+            get: { model.preferences.conversationCaptureMode },
+            set: { model.setConversationCaptureMode($0) }
+        )
+    }
+
     private var recordingControls: some View {
         HStack(spacing: 12) {
             recordingIndicator
@@ -564,6 +571,14 @@ struct ConversationModeView: View {
                 .keyboardShortcut(.return, modifiers: [.command])
                 .help("Stop and save the current conversation recording")
             } else {
+                Picker("Capture", selection: captureModeBinding) {
+                    Text("Mic only").tag(ConversationCaptureMode.microphoneOnly)
+                    Text("Mic + System").tag(ConversationCaptureMode.microphoneAndSystemAudio)
+                }
+                .pickerStyle(.menu)
+                .fixedSize()
+                .help("Mic + System also transcribes what your Mac plays (calls, meetings) and labels segments Me/Them automatically")
+
                 Button {
                     Task {
                         await model.startConversationRecording()

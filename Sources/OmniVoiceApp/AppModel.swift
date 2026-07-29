@@ -191,6 +191,9 @@ final class AppModel {
     /// True when saved preferences couldn't be decoded at launch and defaults were used.
     @ObservationIgnored private(set) var preferencesLoadFailed = false
     @ObservationIgnored private let conversationRecorder = ConversationRecorderService()
+    /// Second lane for two-track capture: transcribes the system-audio tap with
+    /// the fixed "Them" speaker. Created per recording (macOS 14.2+ only).
+    @ObservationIgnored private var systemConversationRecorder: ConversationRecorderService?
     @ObservationIgnored private let recordingCuePlayer = RecordingCuePlayer.shared
     @ObservationIgnored private var isConversationStartInFlight = false
     @ObservationIgnored private var isConversationStopInFlight = false
@@ -2882,7 +2885,9 @@ final class AppModel {
             let segment = try await engineClient.addConversationSegment(sessionID: sessionID, request: request)
             guard isConversationRecording, self.activeConversation?.id == sessionID else { return }
             removeLiveConversationSegment(sessionID: sessionID)
-            conversationSegments.append(segment)
+            // Two lanes finalize independently, so arrival order isn't
+            // chronological; keep the live transcript sorted by start time.
+            ConversationSegmentOrdering.insert(segment, into: &conversationSegments)
         } catch {
             statusText = "Conversation segment failed"
         }
@@ -2984,12 +2989,76 @@ final class AppModel {
         }
     }
 
+    /// The capture mode this machine can actually honor: system-audio taps need
+    /// macOS 14.2+; below that the preference quietly records mic-only.
+    private func resolvedConversationCaptureMode() -> ConversationCaptureMode {
+        guard preferences.conversationCaptureMode == .microphoneAndSystemAudio else {
+            return .microphoneOnly
+        }
+        if #available(macOS 14.2, *) {
+            return .microphoneAndSystemAudio
+        }
+        return .microphoneOnly
+    }
+
+    func setConversationCaptureMode(_ mode: ConversationCaptureMode) {
+        guard preferences.conversationCaptureMode != mode else { return }
+        preferences.conversationCaptureMode = mode
+        _ = persistPreferences()
+        statusText = mode == .microphoneAndSystemAudio
+            ? "Conversations capture mic + system audio"
+            : "Conversations capture microphone only"
+    }
+
+    /// Starts the "Them" lane on the system-audio tap. A failure here (most
+    /// likely the user declining the System Audio Recording permission) keeps
+    /// the mic lane recording rather than aborting the session.
+    private func startSystemAudioLane(sessionID: String, provider: ASRProviderKind, referenceDate: Date) async {
+        guard #available(macOS 14.2, *) else { return }
+        let recorder = ConversationRecorderService(
+            audioCapture: SystemAudioCaptureService(),
+            streamingClient: EngineStreamingClient()
+        )
+        systemConversationRecorder = recorder
+        do {
+            try await recorder.start(
+                sessionID: sessionID,
+                provider: provider,
+                microphoneID: nil,
+                liveDiarizationEnabled: false,
+                speakerOverride: .them,
+                referenceDate: referenceDate,
+                onSegment: { [weak self] request in
+                    await self?.appendConversationSegment(request)
+                },
+                onAssistCard: { [weak self] request in
+                    await self?.appendConversationAssistCard(request)
+                }
+            )
+        } catch {
+            systemConversationRecorder = nil
+            statusText = "System audio unavailable (\(error.localizedDescription)) — recording mic only"
+        }
+    }
+
+    private func stopSystemAudioLane() async {
+        guard let recorder = systemConversationRecorder else { return }
+        systemConversationRecorder = nil
+        try? await recorder.stop()
+    }
+
+    private func cancelSystemAudioLane() {
+        systemConversationRecorder?.cancel()
+        systemConversationRecorder = nil
+    }
+
     func startConversationRecording() async {
         if !isEntitled(to: .conversationMode) {
             presentPaywall(for: .conversationMode)
             return
         }
-        guard !isConversationStartInFlight, !isConversationRecording, !isConversationFinalizing, !conversationRecorder.recordingActive else {
+        guard !isConversationStartInFlight, !isConversationRecording, !isConversationFinalizing,
+              !conversationRecorder.recordingActive, systemConversationRecorder?.recordingActive != true else {
             statusText = isConversationFinalizing ? "Conversation finalizing" : "Conversation already recording"
             return
         }
@@ -2998,7 +3067,15 @@ final class AppModel {
         liveDiarizationPreviewGeneration = 0
         defer { isConversationStartInFlight = false }
 
-        guard let session = await createConversationSession(captureMode: .microphoneOnly) else {
+        let captureMode = resolvedConversationCaptureMode()
+        let twoTrack = captureMode == .microphoneAndSystemAudio
+        // Conversation lanes stream through the engine; apple-speech is native-only,
+        // so fall back to the default engine model for conversations.
+        let conversationProvider = preferences.asrProvider.isEngineBacked
+            ? preferences.asrProvider
+            : .parakeetTDTMLX
+
+        guard let session = await createConversationSession(captureMode: captureMode) else {
             return
         }
 
@@ -3007,12 +3084,17 @@ final class AppModel {
             return
         }
 
+        // One clock origin for both lanes: their segment timestamps interleave
+        // chronologically with no cross-track offset arithmetic.
+        let referenceDate = Date()
         do {
             try await conversationRecorder.start(
                 sessionID: session.id,
-                provider: preferences.asrProvider,
+                provider: conversationProvider,
                 microphoneID: preferences.microphoneID,
-                liveDiarizationEnabled: usesLiveConversationDiarizationStream,
+                liveDiarizationEnabled: usesLiveConversationDiarizationStream && !twoTrack,
+                speakerOverride: twoTrack ? .me : nil,
+                referenceDate: referenceDate,
                 onBeforeAudioStart: { [recordingCuePlayer, preferences] in
                     recordingCuePlayer.playStartCue(preferences: preferences)
                 },
@@ -3026,6 +3108,13 @@ final class AppModel {
             if let deferredConversationAction {
                 await completeDeferredConversationAction(deferredConversationAction, sessionID: session.id, recorderStarted: true)
                 return
+            }
+            if twoTrack {
+                await startSystemAudioLane(
+                    sessionID: session.id,
+                    provider: conversationProvider,
+                    referenceDate: referenceDate
+                )
             }
             statusText = "Conversation recording"
         } catch {
@@ -3062,6 +3151,7 @@ final class AppModel {
         } catch {
             recorderError = error
         }
+        await stopSystemAudioLane()
         recordingCuePlayer.playStopCue(preferences: preferences)
 
         await stopConversationSession()
@@ -3081,6 +3171,7 @@ final class AppModel {
         let sessionID = activeConversation?.id
         liveDiarizationPreviewGeneration += 1
         conversationRecorder.cancel()
+        cancelSystemAudioLane()
         recordingCuePlayer.playStopCue(preferences: preferences)
         activeConversation = nil
         isConversationRecording = false
@@ -3116,6 +3207,7 @@ final class AppModel {
                 } catch {
                     recorderError = error
                 }
+                await stopSystemAudioLane()
                 recordingCuePlayer.playStopCue(preferences: preferences)
             }
             await stopConversationSession()
@@ -3125,6 +3217,7 @@ final class AppModel {
         case .cancel:
             if recorderStarted {
                 conversationRecorder.cancel()
+                cancelSystemAudioLane()
                 recordingCuePlayer.playStopCue(preferences: preferences)
             }
             _ = try? await engineClient.stopConversation(sessionID: sessionID)

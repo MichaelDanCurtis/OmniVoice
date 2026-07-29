@@ -1,7 +1,7 @@
 # Mic-vs-System Two-Track Diarization — Design
 
 **Date:** 2026-07-29
-**Status:** Approved direction; implementation not started
+**Status:** Implemented (branch `feat/two-track-diarization`); pending manual mic+system round-trip
 **Origin:** Method adopted from [digimata/quill](https://github.com/digimata/quill):
 "mic-vs-system is free two-party diarization — `me` vs `them` with no
 speaker-identification model."
