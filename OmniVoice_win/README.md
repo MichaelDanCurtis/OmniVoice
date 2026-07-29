@@ -45,6 +45,27 @@ dotnet publish src/OmniVoice.App/OmniVoice.App.csproj -c Release -r win-x64 --se
 
 Runtime data is stored under `%LOCALAPPDATA%\OmniSpeak\`.
 
+## Package as one executable
+
+```powershell
+.\scripts\package-windows.ps1
+```
+
+Produces `dist\OmniSpeak.exe` — a single self-contained file. It embeds the
+PyInstaller-frozen Python engine (`omnispeak-engine.exe`); .NET extracts it next to
+the app on first run and `EngineLauncherLocator` launches it directly — no Python,
+no venv, no scripts on the user's machine. Speech models download to
+`%LOCALAPPDATA%\OmniSpeak\models\` on first use (they are far too large to embed).
+
+Notes:
+- The packaged engine is the **CPU** build (Parakeet + Moonshine via sherpa-onnx).
+  GPU (`[gpu]`), FunASR SenseVoice (`[sensevoice-asr]`) and diarization
+  (`[whisperx-pyannote]`) remain dev-install extras; their providers report
+  unavailable in a packaged install.
+- CI builds the artifact on `windows-latest` (`.github/workflows/windows-package.yml`
+  at the repo root) and uploads `OmniSpeak-win-x64`; the workflow also smoke-tests
+  the frozen engine's `/health` and `/providers` before uploading.
+
 ## Speech models (CPU by default, NVIDIA optional)
 
 Windows runs ASR through [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). The same ONNX

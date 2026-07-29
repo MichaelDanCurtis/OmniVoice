@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from .cleanup import clean_transcript
+from .diarization import DiarizationRegistry
 from .model_manager import ModelManager
 from .providers.registry import ProviderRegistry
 from .runtime_store import RuntimeStore
@@ -36,6 +37,7 @@ from .schemas import (
 
 app = FastAPI(title="OmniSpeak Local Engine")
 registry = ProviderRegistry()
+diarization_registry = DiarizationRegistry()
 model_manager = ModelManager()
 runtime_store = RuntimeStore()
 STARTED_MONOTONIC = time.monotonic()
@@ -109,6 +111,11 @@ def default_theme() -> ThemePayload:
 @app.get("/providers", response_model=list[ProviderInfo])
 def providers() -> list[ProviderInfo]:
     return registry.list_providers()
+
+
+@app.get("/diarization/providers", response_model=list[ProviderInfo])
+def diarization_providers() -> list[ProviderInfo]:
+    return diarization_registry.list_providers()
 
 
 @app.get("/models", response_model=list[ModelStatus])

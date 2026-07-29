@@ -6,6 +6,7 @@ from .base import ASRProvider, UnavailableASRProvider
 from .fake import FakeASRProvider
 from .moonshine_sherpa import MoonshineSherpaProvider
 from .parakeet_sherpa import ParakeetSherpaProvider
+from .sensevoice_funasr import SenseVoiceFunASRProvider
 
 
 class ProviderRegistry:
@@ -14,6 +15,7 @@ class ProviderRegistry:
             "fake": FakeASRProvider(),
             "parakeet-tdt": ParakeetSherpaProvider(),
             "moonshine-base-en": MoonshineSherpaProvider(),
+            "sensevoice-small-funasr": SenseVoiceFunASRProvider(),
             "canary-qwen-2.5b": UnavailableASRProvider(
                 "canary-qwen-2.5b",
                 "Canary-Qwen-2.5B",

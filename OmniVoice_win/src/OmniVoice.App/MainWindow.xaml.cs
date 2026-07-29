@@ -71,6 +71,7 @@ public partial class MainWindow : Window
     private void ApplyPreferencesToUi()
     {
         SelectComboByTag(ProviderCombo, _preferences.AsrProvider.WireValue());
+        UpdateProviderCapabilityCard();
         SelectComboByTag(StyleCombo, _preferences.Style.ToString());
         SelectComboByTag(PresetCombo, _preferences.AiProviderPresetId.ToString());
         BaseUrlBox.Text = _preferences.OpenAiCompatibleBaseUrl;
@@ -138,11 +139,23 @@ public partial class MainWindow : Window
         if (_isLoading || ProviderCombo.SelectedItem is not ComboBoxItem item) return;
         _preferences.AsrProvider = item.Tag?.ToString() switch
         {
+            "moonshine-base-en" => AsrProviderKind.MoonshineBaseEn,
+            "sensevoice-small-funasr" => AsrProviderKind.SenseVoiceSmallFunAsr,
             "canary-qwen-2.5b" => AsrProviderKind.CanaryQwen25B,
-            "fake" => AsrProviderKind.Fake,
             _ => AsrProviderKind.ParakeetTdt,
         };
+        UpdateProviderCapabilityCard();
         Persist();
+    }
+
+    private void UpdateProviderCapabilityCard()
+    {
+        var profile = _preferences.AsrProvider.CapabilityProfile();
+        ProviderCapabilityTitle.Text = $"{_preferences.AsrProvider.DisplayName()} - {profile.PrimaryUse}";
+        ProviderCapabilityPills.Text = string.Join("  /  ", profile.Pills);
+        ProviderCapabilityLanguages.Text = $"Languages: {profile.LanguageCoverage}";
+        ProviderCapabilityPicker.Text = $"Picker: {profile.LanguagePickerBehavior}";
+        ProviderCapabilityLimit.Text = profile.Limitation;
     }
 
     private void StyleCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)

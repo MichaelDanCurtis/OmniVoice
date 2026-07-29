@@ -26,6 +26,17 @@ asr = [
 gpu = [
   "onnxruntime-gpu>=1.17.1",
 ]
+# Optional multilingual (CJK-focused) ASR via FunASR; heavy Torch dependency.
+sensevoice-asr = [
+  "funasr>=1.2.6",
+  "torch>=2.3.0",
+  "torchaudio>=2.3.0",
+]
+# Optional speaker diarization stack for conversation mode.
+whisperx-pyannote = [
+  "whisperx>=3.3.0",
+  "pyannote.audio>=3.1.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from omnivoice_engine.providers.registry import ProviderRegistry
 from omnivoice_engine.providers.parakeet_sherpa import ParakeetSherpaProvider
+from omnivoice_engine.providers.sensevoice_funasr import SenseVoiceFunASRProvider
 
 
 def test_fake_provider_is_available():
@@ -119,3 +120,51 @@ def test_canary_qwen_provider_is_visible_as_installable_accuracy_mode():
     canary = next(provider for provider in providers if provider.id == "canary-qwen-2.5b")
     assert canary.available is False
     assert canary.reason == "Canary-Qwen-2.5B runtime is not installed in this MVP build"
+
+
+def test_sensevoice_provider_is_visible_as_fast_multilingual_backend(monkeypatch):
+    monkeypatch.setenv("OMNIVOICE_SENSEVOICE_MODEL_DIR", "/tmp/omnivoice-missing-sensevoice-model")
+    registry = ProviderRegistry()
+
+    providers = registry.list_providers()
+
+    sensevoice = next(provider for provider in providers if provider.id == "sensevoice-small-funasr")
+    assert sensevoice.label == "SenseVoice Small FunASR"
+    assert sensevoice.available is False
+    assert "model files not found" in sensevoice.reason
+
+
+def test_sensevoice_provider_reports_missing_runtime(tmp_path, monkeypatch):
+    for filename in ["config.yaml", "model.pt", "am.mvn", "chn_jpn_yue_eng_ko_spectok.bpe.model"]:
+        (tmp_path / filename).write_text("model")
+    monkeypatch.delitem(sys.modules, "funasr", raising=False)
+
+    info = SenseVoiceFunASRProvider(str(tmp_path)).info()
+
+    assert info.available is False
+    assert info.reason == "FunASR runtime is not installed"
+
+
+def test_sensevoice_provider_transcribes_with_local_model_dir(tmp_path, monkeypatch):
+    captured = {}
+    for filename in ["config.yaml", "model.pt", "am.mvn", "chn_jpn_yue_eng_ko_spectok.bpe.model"]:
+        (tmp_path / filename).write_text("model")
+
+    class FakeAutoModel:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def generate(self, **_kwargs):
+            return [{"text": "<|en|><|NEUTRAL|><|Speech|><|woitn|>hello from sensevoice"}]
+
+    monkeypatch.setitem(sys.modules, "funasr", SimpleNamespace(AutoModel=FakeAutoModel))
+    monkeypatch.setitem(
+        sys.modules,
+        "funasr.utils.postprocess_utils",
+        SimpleNamespace(rich_transcription_postprocess=lambda text: text.replace("<|en|>", "").strip()),
+    )
+
+    result = SenseVoiceFunASRProvider(str(tmp_path)).transcribe(b"RIFF fake wav")
+
+    assert result == "hello from sensevoice"
+    assert captured["model"] == str(tmp_path)

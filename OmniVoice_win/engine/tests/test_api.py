@@ -351,6 +351,15 @@ def test_providers_endpoint_includes_fake():
     } in response.json()
 
 
+def test_diarization_providers_endpoint_exposes_installable_stacks():
+    response = client.get("/diarization/providers")
+
+    assert response.status_code == 200
+    providers = response.json()
+    assert any(provider["id"] == "off" for provider in providers)
+    assert any(provider["id"] == "whisperx-pyannote" for provider in providers)
+
+
 def test_models_endpoint_lists_hugging_face_model_status(monkeypatch):
     monkeypatch.setattr("omnivoice_engine.main.model_manager", FakeModelManager(), raising=False)
 

@@ -45,6 +45,12 @@ class ModelManager:
         parakeet_dir = Path(os.environ.get("OMNIVOICE_PARAKEET_MODEL_DIR", root / "parakeet-tdt")).expanduser()
         moonshine_dir = Path(os.environ.get("OMNIVOICE_MOONSHINE_MODEL_DIR", root / "moonshine-base-en")).expanduser()
         canary_dir = Path(os.environ.get("OMNIVOICE_CANARY_MODEL_DIR", root / "canary-qwen-2.5b")).expanduser()
+        sensevoice_dir = Path(
+            os.environ.get("OMNIVOICE_SENSEVOICE_MODEL_DIR", root / "sensevoice-small-funasr")
+        ).expanduser()
+        whisperx_pyannote_dir = Path(
+            os.environ.get("OMNIVOICE_WHISPERX_PYANNOTE_DIR", root / "whisperx-pyannote")
+        ).expanduser()
 
         self.hub_api = hub_api or HfApi()
         self.snapshot_downloader = snapshot_downloader or snapshot_download
@@ -78,6 +84,22 @@ class ModelManager:
                     "cached_decode.int8.onnx",
                     "tokens.txt",
                 ],
+            ),
+            "sensevoice-small-funasr": ModelSpec(
+                provider_id="sensevoice-small-funasr",
+                label="SenseVoice Small FunASR",
+                repo_id="FunAudioLLM/SenseVoiceSmall",
+                local_dir=sensevoice_dir,
+                required_files=["config.yaml", "model.pt", "am.mvn", "chn_jpn_yue_eng_ko_spectok.bpe.model"],
+                allow_patterns=sensevoice_allow_patterns(),
+            ),
+            "whisperx-pyannote": ModelSpec(
+                provider_id="whisperx-pyannote",
+                label="WhisperX + pyannote",
+                repo_id="pyannote/speaker-diarization-3.1",
+                local_dir=whisperx_pyannote_dir,
+                required_files=["config.yaml"],
+                allow_patterns=pyannote_allow_patterns(),
             ),
             "canary-qwen-2.5b": ModelSpec(
                 provider_id="canary-qwen-2.5b",
@@ -234,3 +256,18 @@ class ModelManager:
             "downloaded_at": datetime.now(timezone.utc).isoformat(),
         }
         self._metadata_path(spec).write_text(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def sensevoice_allow_patterns() -> list[str]:
+    return [
+        "config.yaml",
+        "configuration.json",
+        "model.pt",
+        "am.mvn",
+        "chn_jpn_yue_eng_ko_spectok.bpe.model",
+        "README.md",
+    ]
+
+
+def pyannote_allow_patterns() -> list[str]:
+    return ["config.yaml", "handler.py", "requirements.txt", "README.md"]
