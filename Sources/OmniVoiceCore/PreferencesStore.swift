@@ -528,6 +528,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case .whisperLargeV3TurboMLX6Bit:
             asrProvider = .canaryQwen25B
         case .canaryQwen25B:
+            asrProvider = .appleSpeech
+        case .appleSpeech:
             asrProvider = .parakeetTDTMLX
         case .fake, .parakeetTDT:
             asrProvider = .parakeetTDTMLX
