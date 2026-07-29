@@ -517,6 +517,10 @@ final class PreferencesStoreTests: XCTestCase {
 
         preferences.cycleASRProvider()
 
+        XCTAssertEqual(preferences.asrProvider, .appleSpeech)
+
+        preferences.cycleASRProvider()
+
         XCTAssertEqual(preferences.asrProvider, .parakeetTDTMLX)
     }
 

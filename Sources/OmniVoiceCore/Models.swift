@@ -35,12 +35,25 @@ public enum ASRProviderKind: String, CaseIterable, Codable, Equatable, Sendable 
     case parakeetTDTMLX = "parakeet-tdt-mlx"
     case whisperLargeV3TurboMLX6Bit = "whisper-large-v3-turbo-mlx-6bit"
     case canaryQwen25B = "canary-qwen-2.5b"
+    /// Apple's built-in on-device SpeechAnalyzer/SpeechTranscriber (macOS 26+).
+    /// Native Swift — transcription bypasses the Python engine entirely; the OS
+    /// downloads and manages the model, so dictation works even with the engine
+    /// offline (cleanup then degrades to light punctuation).
+    case appleSpeech = "apple-speech"
 
     public static let userSelectableCases: [ASRProviderKind] = [
         .parakeetTDTMLX,
         .whisperLargeV3TurboMLX6Bit,
         .canaryQwen25B,
+        .appleSpeech,
     ]
+
+    /// Whether transcription for this provider is served by the local Python
+    /// engine. `appleSpeech` runs natively in the app, so the engine must never
+    /// be asked for it — neither for transcription nor in provider-sync checks.
+    public var isEngineBacked: Bool {
+        self != .appleSpeech
+    }
 
     public var normalizedForUserSelection: ASRProviderKind {
         Self.userSelectableCases.contains(self) ? self : .parakeetTDTMLX
@@ -58,6 +71,8 @@ public enum ASRProviderKind: String, CaseIterable, Codable, Equatable, Sendable 
             "Whisper Large v3 Turbo MLX 6-bit"
         case .canaryQwen25B:
             "Canary-Qwen-2.5B"
+        case .appleSpeech:
+            "Apple Speech (Built-in)"
         }
     }
 }
@@ -108,7 +123,8 @@ public enum SpeechModelRecommendation: String, CaseIterable, Codable, Equatable,
 }
 
 public enum EngineProviderContract {
-    public static let requiredASRProviderIDs: [String] = ASRProviderKind.userSelectableCases.map(\.rawValue)
+    public static let requiredASRProviderIDs: [String] =
+        ASRProviderKind.userSelectableCases.filter(\.isEngineBacked).map(\.rawValue)
 
     public static func missingRequiredASRProviderIDs(in providers: [EngineProviderInfo]) -> [String] {
         let availableIDs = Set(providers.map(\.id))

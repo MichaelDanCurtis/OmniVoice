@@ -30,6 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastLevelOverlayUpdate = Date.distantPast
     private var insertionTarget: TextInsertionService.Target?
     private var liveDraft: TextInsertionService.LiveDraft?
+    // AppleSpeechTranscriber on macOS 26+; stored as Any because stored
+    // properties cannot be availability-gated.
+    private var appleSpeechSession: Any?
+    private var activeDictationUsesAppleSpeech = false
     private var didPromptForAccessibility = false
     private var permissionRefreshTimer: Timer?
     private var lastLoggedMicStatus: AVAuthorizationStatus?
@@ -459,6 +463,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dictationTriggerState.cancel()
         _ = try? audioCapture.stopWAVData()   // stop capture, drop the audio
         streamingClient.cancel()
+        cancelAppleSpeechIfNeeded()
         cancelLiveDraftIfNeeded()
         model.session.reset()
         insertionTarget = nil
@@ -767,6 +772,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func cancelAppleSpeechIfNeeded() {
+        if #available(macOS 26.0, *), let session = appleSpeechSession as? AppleSpeechTranscriber {
+            session.cancel()
+        }
+        appleSpeechSession = nil
+        activeDictationUsesAppleSpeech = false
+    }
+
+    /// Starts a native SpeechAnalyzer session: partials drive the same caption
+    /// path as engine streaming; audio chunks bypass the engine entirely.
+    private func startAppleSpeechSession(model: AppModel, sampleRate: Double) throws {
+        guard #available(macOS 26.0, *) else {
+            struct AppleSpeechUnsupported: LocalizedError {
+                var errorDescription: String? { "Apple Speech requires macOS 26 or later" }
+            }
+            throw AppleSpeechUnsupported()
+        }
+
+        let session = AppleSpeechTranscriber()
+        appleSpeechSession = session
+        session.onPartial = { [weak self] text in
+            Task { @MainActor [weak self] in
+                guard let self, let model = self.model else { return }
+                guard model.session.state == .listening else { return }
+                let displayText = TextInsertionEdit.sanitizedInsertionText(text)
+                model.session.receivePartial(displayText)
+                self.updateLiveDraft(with: displayText)
+                model.captionText = displayText
+                self.showOverlay(
+                    text: displayText,
+                    styleName: model.preferences.style.displayName,
+                    level: self.lastInputLevel,
+                    anchorFrame: self.activeOverlayAnchor
+                )
+            }
+        }
+        audioCapture.onPCMChunk = { data in
+            session.append(pcm: data)
+        }
+        Task {
+            do {
+                try await session.start(locale: Locale.current, captureSampleRate: sampleRate)
+            } catch {
+                await MainActor.run { [weak self] in
+                    guard let self, let model = self.model else { return }
+                    guard model.session.state == .listening else { return }
+                    model.session.fail("Apple Speech failed: \(error.localizedDescription)")
+                    model.statusText = "Apple Speech unavailable"
+                    _ = try? self.audioCapture.stopWAVData()
+                    self.dictationTriggerState.cancel()
+                    self.cancelAppleSpeechIfNeeded()
+                    self.cancelLiveDraftIfNeeded()
+                    self.hideOverlay()
+                }
+            }
+        }
+    }
+
+    /// Final transcript for the just-finished dictation: the native Apple Speech
+    /// session when active, otherwise the engine.
+    private func transcribeFinishedDictation(audio: Data, model: AppModel) async throws -> TranscribeResult {
+        if activeDictationUsesAppleSpeech, #available(macOS 26.0, *),
+           let session = appleSpeechSession as? AppleSpeechTranscriber {
+            defer {
+                appleSpeechSession = nil
+                activeDictationUsesAppleSpeech = false
+            }
+            let text = try await session.finish()
+            return TranscribeResult(text: text, provider: .appleSpeech)
+        }
+        return try await engineClient.transcribe(audio: audio, provider: model.preferences.asrProvider)
+    }
+
     private func startDictation(model: AppModel) {
         insertionTarget = insertionService.captureTarget()
         liveDraft = model.preferences.liveDraftInsertionEnabled
@@ -802,8 +880,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 )
             }
         }
-        audioCapture.onPCMChunk = { [weak self] data in
-            self?.streamingClient.sendPCMFloat32(data)
+        let usesAppleSpeech = model.preferences.asrProvider == .appleSpeech
+        activeDictationUsesAppleSpeech = usesAppleSpeech
+        if !usesAppleSpeech {
+            audioCapture.onPCMChunk = { [weak self] data in
+                self?.streamingClient.sendPCMFloat32(data)
+            }
         }
         audioCapture.onLevel = { [weak self] level in
             Task { @MainActor [weak self] in
@@ -813,11 +895,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         do {
             let sampleRate = audioCapture.inputSampleRate(deviceUID: model.preferences.microphoneID)
-            streamingClient.connect(
-                provider: model.preferences.asrProvider,
-                sampleRate: sampleRate,
-                translation: streamingTranslationConfiguration(for: model)
-            )
+            if usesAppleSpeech {
+                try startAppleSpeechSession(model: model, sampleRate: Double(sampleRate))
+            } else {
+                streamingClient.connect(
+                    provider: model.preferences.asrProvider,
+                    sampleRate: sampleRate,
+                    translation: streamingTranslationConfiguration(for: model)
+                )
+            }
             let cueDuration = recordingCuePlayer.playStartCue(preferences: model.preferences)
             if cueDuration > 0 {
                 Thread.sleep(forTimeInterval: min(cueDuration + 0.03, 0.30))
@@ -830,6 +916,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pendingDictationFinishTask?.cancel()
             pendingDictationFinishTask = nil
             streamingClient.cancel()
+            cancelAppleSpeechIfNeeded()
             cancelLiveDraftIfNeeded()
             hideOverlay()
         }
@@ -873,6 +960,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.session.fail("Audio capture failed: \(error.localizedDescription)")
             model.statusText = "Audio capture failed"
             streamingClient.cancel()
+            cancelAppleSpeechIfNeeded()
             cancelLiveDraftIfNeeded()
             hideOverlay()
             return
@@ -880,13 +968,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let transcript: TranscribeResult
         do {
-            transcript = try await engineClient.transcribe(audio: audio, provider: model.preferences.asrProvider)
+            transcript = try await transcribeFinishedDictation(audio: audio, model: model)
         } catch {
             await model.refreshProviderAndModelStatus()
             let message = model.transcriptionFailureMessage(for: error)
             model.session.fail("Transcription failed: \(message)")
             model.statusText = message
             streamingClient.cancel()
+            cancelAppleSpeechIfNeeded()
             cancelLiveDraftIfNeeded()
             showOverlay(text: message, styleName: "Transcription failed", level: 0, anchorFrame: activeOverlayAnchor)
             return
@@ -897,6 +986,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.session.fail("No speech detected")
             model.statusText = "No speech detected"
             streamingClient.cancel()
+            cancelAppleSpeechIfNeeded()
             cancelLiveDraftIfNeeded()
             showOverlay(
                 text: "No speech detected",
@@ -912,6 +1002,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if askController.handle(transcript: rawTranscript, captureTarget: insertionTarget) {
             model.session.reset()
             streamingClient.cancel()
+            cancelAppleSpeechIfNeeded()
             cancelLiveDraftIfNeeded()
             hideOverlay()
             return

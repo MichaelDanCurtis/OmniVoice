@@ -1172,6 +1172,9 @@ final class AppModel {
 
     func cycleASRProvider() {
         preferences.cycleASRProvider()
+        if preferences.asrProvider == .appleSpeech, !AppleSpeechAvailability.isSupported {
+            preferences.cycleASRProvider()
+        }
         persistPreferences()
         statusText = "ASR: \(preferences.asrProvider.rawValue)"
     }
