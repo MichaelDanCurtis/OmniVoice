@@ -63,6 +63,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var recordingCueSet: RecordingCueSet
     public var recordingCueVolume: Double
     public var firstRunSetupCompleted: Bool
+    /// Cached premium-entitlement answer (JSON-encoded ``EntitlementSnapshot``), used by the
+    /// offline-grace gate. Not a secret — the auth session token itself lives in the Keychain.
+    public var entitlementSnapshotData: Data?
 
     public var microphoneID: String? {
         get { microphoneId }
@@ -234,7 +237,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         recordingStopCueEnabled: Bool = true,
         recordingCueSet: RecordingCueSet = .glassTap,
         recordingCueVolume: Double = 0.28,
-        firstRunSetupCompleted: Bool = false
+        firstRunSetupCompleted: Bool = false,
+        entitlementSnapshotData: Data? = nil
     ) {
         self.asrProvider = asrProvider.normalizedForUserSelection
         self.style = style
@@ -314,6 +318,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         self.recordingCueSet = recordingCueSet
         self.recordingCueVolume = Self.clampedRecordingCueVolume(recordingCueVolume)
         self.firstRunSetupCompleted = firstRunSetupCompleted
+        self.entitlementSnapshotData = entitlementSnapshotData
         self.normalizeRecordingCueTiming()
         self.migrateLegacyHotMenuDefaultsIfNeeded()
     }
@@ -425,7 +430,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             recordingStopCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStopCueEnabled) ?? true,
             recordingCueSet: try container.decodeIfPresent(RecordingCueSet.self, forKey: .recordingCueSet) ?? .glassTap,
             recordingCueVolume: try container.decodeIfPresent(Double.self, forKey: .recordingCueVolume) ?? 0.28,
-            firstRunSetupCompleted: try container.decodeIfPresent(Bool.self, forKey: .firstRunSetupCompleted) ?? false
+            firstRunSetupCompleted: try container.decodeIfPresent(Bool.self, forKey: .firstRunSetupCompleted) ?? false,
+            entitlementSnapshotData: try container.decodeIfPresent(Data.self, forKey: .entitlementSnapshotData)
         )
     }
 
@@ -506,7 +512,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             recordingStopCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStopCueEnabled) ?? true,
             recordingCueSet: try container.decodeIfPresent(RecordingCueSet.self, forKey: .recordingCueSet) ?? .glassTap,
             recordingCueVolume: try container.decodeIfPresent(Double.self, forKey: .recordingCueVolume) ?? 0.28,
-            firstRunSetupCompleted: try container.decodeIfPresent(Bool.self, forKey: .firstRunSetupCompleted) ?? false
+            firstRunSetupCompleted: try container.decodeIfPresent(Bool.self, forKey: .firstRunSetupCompleted) ?? false,
+            entitlementSnapshotData: try container.decodeIfPresent(Data.self, forKey: .entitlementSnapshotData)
         )
     }
 
@@ -795,6 +802,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case recordingCueSet = "recording_cue_set"
         case recordingCueVolume = "recording_cue_volume"
         case firstRunSetupCompleted = "first_run_setup_completed"
+        case entitlementSnapshotData = "entitlement_snapshot_data"
     }
 
     private enum ConvertedCodingKeys: String, CodingKey {
@@ -851,6 +859,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case recordingCueSet
         case recordingCueVolume
         case firstRunSetupCompleted
+        case entitlementSnapshotData
     }
 
     private enum AcronymCodingKeys: String, CodingKey {

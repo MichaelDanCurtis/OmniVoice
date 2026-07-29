@@ -20,6 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let correctionWatcher = CorrectionWatcher()
     private let learnedWordToast = LearnedWordToast()
     private let teachCorrectionWindow = TeachCorrectionWindow()
+    private let authLogin = AuthLoginController()
+    private let paywallWindow = PaywallWindow()
     private var lastLearnableInsertion: String?
     private let recordingCuePlayer = RecordingCuePlayer.shared
     private let dockIconController = DynamicDockIconController()
@@ -97,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         updatePermissionStatus()
+        Task { [weak self] in await self?.model?.refreshEntitlement() }
     }
 
     func attach(model: AppModel) {
@@ -163,10 +166,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        wireEntitlement(model: model)
+
         startPermissionRefreshTimer()
         applyHotkeys(preferences: model.preferences)
         applyMouseShortcuts(preferences: model.preferences)
         dockIconController.apply(theme: model.activeTheme, appearanceMode: model.preferences.appearanceMode)
+    }
+
+    private func wireEntitlement(model: AppModel) {
+        model.onPresentPaywall = { [weak self] feature in
+            self?.presentPaywall(for: feature)
+        }
+        model.onRequestSignIn = { [weak self] in self?.beginSignIn() }
+        model.onRequestSignOut = { [weak self] in self?.authLogin.signOut() }
+        model.onUpgrade = { [weak self] in self?.openBilling(path: "billing/checkout") }
+        model.onManageBilling = { [weak self] in self?.openBilling(path: "billing/portal") }
+
+        askController.isEntitledToAskAI = { [weak model] in
+            model?.isEntitled(to: .askAI) ?? false
+        }
+        askController.onAskAIPaywall = { [weak self] in
+            self?.presentPaywall(for: .askAI)
+        }
+
+        authLogin.onSignOut = { [weak model] in
+            model?.accountEmail = nil
+            Task { await model?.refreshEntitlement() }
+        }
+
+        model.accountEmail = authLogin.currentSession?.email
+        Task { [weak model] in await model?.refreshEntitlement() }
+    }
+
+    private func presentPaywall(for feature: PremiumFeature) {
+        paywallWindow.show(
+            feature: feature,
+            onStartTrial: { [weak self] in self?.beginSignIn() },
+            onManageBilling: { [weak self] in self?.openBilling(path: "billing/portal") }
+        )
+    }
+
+    private func beginSignIn() {
+        guard let model else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let session = try await self.authLogin.signIn()
+                model.accountEmail = session.email
+                await model.refreshEntitlement()
+                model.statusText = "Signed in as \(session.email)"
+            } catch {
+                model.statusText = (error as? AuthError)?.errorDescription ?? "Sign-in failed"
+            }
+        }
+    }
+
+    private func openBilling(path: String) {
+        guard let base = WorkerConfig.baseURL else {
+            model?.statusText = "Billing isn’t available yet."
+            return
+        }
+        NSWorkspace.shared.open(base.appendingPathComponent(path))
     }
 
     func refreshPermissionStatus() {

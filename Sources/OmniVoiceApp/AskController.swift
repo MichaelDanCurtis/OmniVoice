@@ -24,6 +24,11 @@ final class AskController {
     /// register/unregister the global Insert/Copy/Dismiss hotkeys only while it's up.
     var onBubbleVisibilityChanged: ((Bool) -> Void)?
 
+    /// Entitlement gate for Ask AI. When set and returning false, a new ask/follow-up is
+    /// blocked and `onAskAIPaywall` is invoked instead. Nil means "not wired yet" (allow).
+    var isEntitledToAskAI: (() -> Bool)?
+    var onAskAIPaywall: (() -> Void)?
+
     private(set) var bubbleOpen = false {
         didSet {
             if oldValue != bubbleOpen { onBubbleVisibilityChanged?(bubbleOpen) }
@@ -50,6 +55,10 @@ final class AskController {
         switch AskAICommandParser.parse(transcript, knownKeywords: keywords, bubbleOpen: bubbleOpen) {
         case .ask(let keyword, let question):
             guard let target = AskKeywordResolver.resolve(keyword, in: bindings) else { return false }
+            if let isEntitledToAskAI, !isEntitledToAskAI() {
+                onAskAIPaywall?()
+                return true // consumed: don't type the "ask …" transcript
+            }
             history = []
             activeTarget = target
             capturedTarget = captureTarget
@@ -57,6 +66,10 @@ final class AskController {
             return true
         case .followUp(let question):
             guard let target = activeTarget else { return false }
+            if let isEntitledToAskAI, !isEntitledToAskAI() {
+                onAskAIPaywall?()
+                return true
+            }
             ask(target: target, question: question)
             return true
         case .action(.insert): insertAnswer(); return true

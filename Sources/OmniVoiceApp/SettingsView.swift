@@ -132,6 +132,7 @@ struct SettingsView: View {
         case .overview:
             tabPage {
                 firstRunSetupSection
+                accountSection
                 statusSection
                 startupPreflightSection
                 storageSection
@@ -180,6 +181,10 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .padding(.horizontal, 12)
         .padding(.bottom, 12)
+    }
+
+    private var accountSection: some View {
+        AccountSettingsSection(model: model, entitlement: model.entitlement)
     }
 
     @ViewBuilder
@@ -2423,6 +2428,58 @@ struct SettingsView: View {
 
         if panel.runModal() == .OK, let url = panel.url {
             onSelect(url.path)
+        }
+    }
+}
+
+/// Account + subscription section. Observes the `EntitlementService` directly so the
+/// status label updates as the entitlement refreshes.
+private struct AccountSettingsSection: View {
+    @Bindable var model: AppModel
+    @ObservedObject var entitlement: EntitlementService
+
+    var body: some View {
+        Section("Account") {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.accountEmail ?? "Not signed in")
+                        .font(.body)
+                    Text(statusLabel)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                if model.accountEmail == nil {
+                    Button("Sign In") { model.onRequestSignIn?() }
+                } else {
+                    Button("Sign Out") { model.onRequestSignOut?() }
+                }
+            }
+
+            HStack {
+                Button("Upgrade") { model.onUpgrade?() }
+                    .disabled(entitlement.status == .active)
+                Button("Manage Billing") { model.onManageBilling?() }
+                    .disabled(model.accountEmail == nil)
+            }
+        }
+    }
+
+    private var statusLabel: String {
+        switch entitlement.status {
+        case .active:
+            return "Subscribed"
+        case .trialing(let endsAt):
+            let days = Int(ceil(endsAt.timeIntervalSinceNow / 86_400))
+            if days <= 0 {
+                return "Trial ending today"
+            }
+            return "Trial — \(days) day\(days == 1 ? "" : "s") left"
+        case .expired:
+            return "Subscription expired"
+        case .none:
+            return "Local dictation is free. Premium features require a subscription."
         }
     }
 }
