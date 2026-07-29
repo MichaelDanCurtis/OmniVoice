@@ -43,6 +43,7 @@ class ModelManager:
     ) -> None:
         root = Path(model_root).expanduser() if model_root is not None else default_model_root(__file__)
         parakeet_dir = Path(os.environ.get("OMNIVOICE_PARAKEET_MODEL_DIR", root / "parakeet-tdt")).expanduser()
+        moonshine_dir = Path(os.environ.get("OMNIVOICE_MOONSHINE_MODEL_DIR", root / "moonshine-base-en")).expanduser()
         canary_dir = Path(os.environ.get("OMNIVOICE_CANARY_MODEL_DIR", root / "canary-qwen-2.5b")).expanduser()
 
         self.hub_api = hub_api or HfApi()
@@ -57,6 +58,26 @@ class ModelManager:
                 local_dir=parakeet_dir,
                 required_files=["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"],
                 allow_patterns=["encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"],
+            ),
+            "moonshine-base-en": ModelSpec(
+                provider_id="moonshine-base-en",
+                label="Moonshine Base (English)",
+                repo_id="csukuangfj/sherpa-onnx-moonshine-base-en-int8",
+                local_dir=moonshine_dir,
+                required_files=[
+                    "preprocess.onnx",
+                    "encode.int8.onnx",
+                    "uncached_decode.int8.onnx",
+                    "cached_decode.int8.onnx",
+                    "tokens.txt",
+                ],
+                allow_patterns=[
+                    "preprocess.onnx",
+                    "encode.int8.onnx",
+                    "uncached_decode.int8.onnx",
+                    "cached_decode.int8.onnx",
+                    "tokens.txt",
+                ],
             ),
             "canary-qwen-2.5b": ModelSpec(
                 provider_id="canary-qwen-2.5b",

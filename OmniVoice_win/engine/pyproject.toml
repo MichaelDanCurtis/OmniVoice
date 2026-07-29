@@ -19,6 +19,13 @@ asr = [
   "soundfile>=0.12.1",
   "numpy>=1.26.0",
 ]
+# Optional NVIDIA acceleration. sherpa-onnx runs the *same* model files on the
+# CUDA execution provider; this only swaps in the GPU onnxruntime build. The
+# version must match the installed CUDA runtime (see README) — when it doesn't,
+# the engine logs the failure and falls back to CPU.
+gpu = [
+  "onnxruntime-gpu>=1.17.1",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

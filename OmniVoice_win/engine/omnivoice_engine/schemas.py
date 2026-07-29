@@ -51,6 +51,9 @@ class ProviderInfo(BaseModel):
     label: str
     available: bool
     reason: str | None = None
+    # Execution device actually in use ("cpu" / "cuda"); None for providers that
+    # don't run a local model. Optional so older clients keep deserializing.
+    device: str | None = None
 
 
 class TranscribeResponse(BaseModel):
