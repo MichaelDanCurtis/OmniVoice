@@ -431,9 +431,15 @@ public enum OmniWorkspaceArchive {
         let base = applicationSupportURL ?? URL(filePath: NSHomeDirectory(), directoryHint: .isDirectory)
             .appending(path: "Library", directoryHint: .isDirectory)
             .appending(path: "Application Support", directoryHint: .isDirectory)
-        return base
-            .appending(path: "OmniVoice", directoryHint: .isDirectory)
-            .appending(path: "Workspace", directoryHint: .isDirectory)
+        let preferred = base.appending(path: ProductBrand.applicationSupportDirectoryName, directoryHint: .isDirectory)
+        let legacy = base.appending(path: ProductBrand.legacyApplicationSupportDirectoryName, directoryHint: .isDirectory)
+        let root = if FileManager.default.fileExists(atPath: legacy.path),
+                      !FileManager.default.fileExists(atPath: preferred.path) {
+            legacy
+        } else {
+            preferred
+        }
+        return root.appending(path: "Workspace", directoryHint: .isDirectory)
     }
 
     public static func writeMarkdown(

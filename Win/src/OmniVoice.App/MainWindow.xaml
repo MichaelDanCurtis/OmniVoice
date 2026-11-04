@@ -1,0 +1,128 @@
+<Window x:Class="OmniVoice.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="OmniVoice Settings"
+        Height="720"
+        Width="760"
+        MinHeight="560"
+        MinWidth="640">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="OmniVoice" FontSize="24" FontWeight="SemiBold" />
+            <TextBlock x:Name="StatusTextBlock" Margin="0,6,0,0" Foreground="#666" Text="Ready" />
+            <TextBlock x:Name="EngineTextBlock" Margin="0,4,0,0" Foreground="#666" Text="Engine: unknown" />
+            <StackPanel x:Name="PendingHandoffPanel" Orientation="Horizontal" Margin="0,8,0,0" Visibility="Collapsed">
+                <TextBlock x:Name="PendingHandoffText" VerticalAlignment="Center" Foreground="#B45309" Margin="0,0,12,0" />
+                <Button Content="Retry" Padding="10,4" Margin="0,0,6,0" Click="RetryHandoff_Click" />
+                <Button Content="Copy Prompt" Padding="10,4" Margin="0,0,6,0" Click="CopyPrompt_Click" />
+                <Button Content="Insert Original" Padding="10,4" Click="InsertOriginal_Click" />
+            </StackPanel>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <GroupBox Header="Dictation" Margin="0,0,0,12">
+                    <StackPanel Margin="8">
+                        <TextBlock Text="ASR Provider" />
+                        <ComboBox x:Name="ProviderCombo" Margin="0,4,0,8" SelectionChanged="ProviderCombo_SelectionChanged">
+                            <ComboBoxItem Content="Parakeet TDT" Tag="parakeet-tdt" />
+                            <ComboBoxItem Content="SenseVoice Small FunASR" Tag="sensevoice-small-funasr" />
+                            <ComboBoxItem Content="Canary Qwen 2.5B" Tag="canary-qwen-2.5b" />
+                        </ComboBox>
+                        <Border Background="#111827"
+                                BorderBrush="#334155"
+                                BorderThickness="1"
+                                CornerRadius="10"
+                                Padding="12"
+                                Margin="0,0,0,10">
+                            <StackPanel>
+                                <TextBlock x:Name="ProviderCapabilityTitle"
+                                           FontWeight="SemiBold"
+                                           Foreground="#F8FAFC" />
+                                <TextBlock x:Name="ProviderCapabilityPills"
+                                           Margin="0,4,0,8"
+                                           Foreground="#67E8F9"
+                                           FontSize="12" />
+                                <TextBlock x:Name="ProviderCapabilityLanguages"
+                                           Foreground="#CBD5E1"
+                                           TextWrapping="Wrap" />
+                                <TextBlock x:Name="ProviderCapabilityPicker"
+                                           Margin="0,4,0,0"
+                                           Foreground="#CBD5E1"
+                                           TextWrapping="Wrap" />
+                                <TextBlock x:Name="ProviderCapabilityLimit"
+                                           Margin="0,4,0,0"
+                                           Foreground="#94A3B8"
+                                           FontSize="12"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Text="Style" />
+                        <ComboBox x:Name="StyleCombo" Margin="0,4,0,8" SelectionChanged="StyleCombo_SelectionChanged">
+                            <ComboBoxItem Content="Neutral" Tag="Neutral" />
+                            <ComboBoxItem Content="Professional" Tag="Professional" />
+                            <ComboBoxItem Content="Concise" Tag="Concise" />
+                            <ComboBoxItem Content="Expanded" Tag="Expanded" />
+                            <ComboBoxItem Content="Raw Dictation" Tag="Raw" />
+                        </ComboBox>
+                        <TextBlock Text="Microphone" />
+                        <ComboBox x:Name="MicrophoneCombo" Margin="0,4,0,0" SelectionChanged="MicrophoneCombo_SelectionChanged" />
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Hotkeys" Margin="0,0,0,12">
+                    <StackPanel Margin="8">
+                        <TextBlock Text="Dictation: Ctrl+Alt+Space (hold to speak)" />
+                        <TextBlock Text="Style cycle: Ctrl+Alt+S" Margin="0,4,0,0" />
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Personal Dictionary" Margin="0,0,0,12">
+                    <TextBox x:Name="DictionaryBox"
+                             AcceptsReturn="True"
+                             Height="100"
+                             Margin="8"
+                             TextChanged="DictionaryBox_TextChanged"
+                             TextWrapping="Wrap" />
+                </GroupBox>
+
+                <GroupBox Header="Integrations" Margin="0,0,0,12">
+                    <StackPanel Margin="8">
+                        <TextBlock Text="AI provider preset" />
+                        <ComboBox x:Name="PresetCombo" Margin="0,4,0,8" SelectionChanged="PresetCombo_SelectionChanged" />
+                        <TextBlock Text="OpenAI-compatible base URL" />
+                        <TextBox x:Name="BaseUrlBox" Margin="0,4,0,8" TextChanged="Integration_TextChanged" />
+                        <TextBlock Text="Model" />
+                        <TextBox x:Name="ModelBox" Margin="0,4,0,8" TextChanged="Integration_TextChanged" />
+                        <TextBlock Text="API key (stored securely, not in preferences.json)" />
+                        <PasswordBox x:Name="ApiKeyBox" Margin="0,4,0,8" PasswordChanged="ApiKeyBox_PasswordChanged" />
+                        <CheckBox x:Name="LiveDraftCheck" Content="Live draft typing while listening" Margin="0,0,0,8" Checked="Integration_TextChanged" Unchecked="Integration_TextChanged" />
+                        <Button Content="Test AI handoff" Padding="10,4" HorizontalAlignment="Left" Click="TestAiHandoff_Click" />
+                    </StackPanel>
+                </GroupBox>
+
+                <GroupBox Header="Translation">
+                    <StackPanel Margin="8">
+                        <CheckBox x:Name="TranslationCheck" Content="Live translation on insert" Margin="0,0,0,8" Checked="Integration_TextChanged" Unchecked="Integration_TextChanged" />
+                        <TextBlock Text="Source language" />
+                        <TextBox x:Name="SourceLanguageBox" Margin="0,4,0,8" TextChanged="Integration_TextChanged" />
+                        <TextBlock Text="Target language" />
+                        <TextBox x:Name="TargetLanguageBox" Margin="0,4,0,0" TextChanged="Integration_TextChanged" />
+                    </StackPanel>
+                </GroupBox>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Open Engine Dashboard" Margin="0,0,8,0" Padding="12,6" Click="OpenDashboard_Click" />
+            <Button Content="Restart Engine" Margin="0,0,8,0" Padding="12,6" Click="RestartEngine_Click" />
+            <Button Content="Run Cleanup Test" Padding="12,6" Click="CleanupTest_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

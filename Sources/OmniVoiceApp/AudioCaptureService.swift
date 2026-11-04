@@ -5,6 +5,11 @@ import Foundation
 import OmniVoiceCore
 
 final class AudioCaptureService: @unchecked Sendable {
+    struct CaptureResult {
+        let wavData: Data
+        let speechActivity: SpeechActivitySummary
+    }
+
     enum CaptureError: LocalizedError {
         case microphoneNotFound(String)
         case inputNodeUnavailable
@@ -28,6 +33,7 @@ final class AudioCaptureService: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private let queue = DispatchQueue(label: "omnivoice.audio.capture")
     private var buffers: [AVAudioPCMBuffer] = []
+    private var speechActivity = SpeechActivitySummary()
 
     var onLevel: ((Float) -> Void)?
     var onPCMChunk: ((Data) -> Void)?
@@ -44,6 +50,7 @@ final class AudioCaptureService: @unchecked Sendable {
     func start(deviceUID: String?) throws -> Double {
         queue.sync {
             buffers.removeAll()
+            speechActivity = SpeechActivitySummary()
         }
 
         try configureInputDevice(uid: deviceUID)
@@ -62,6 +69,7 @@ final class AudioCaptureService: @unchecked Sendable {
                 if let copied {
                     self.buffers.append(copied)
                 }
+                self.speechActivity.observe(level: level)
                 self.onLevel?(level)
                 if let chunk {
                     self.onPCMChunk?(chunk)
@@ -75,19 +83,31 @@ final class AudioCaptureService: @unchecked Sendable {
     }
 
     func stopWAVData() throws -> Data {
+        try stopCapture().wavData
+    }
+
+    func stopCapture() throws -> CaptureResult {
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
 
-        let captured = queue.sync { buffers }
+        let snapshot = queue.sync { (buffers, speechActivity) }
+        let captured = snapshot.0
+        let activity = snapshot.1
         guard let first = captured.first else {
-            return PCM16WAVEncoder.encode(samples: [], sampleRate: 16_000)
+            return CaptureResult(
+                wavData: PCM16WAVEncoder.encode(samples: [], sampleRate: 16_000),
+                speechActivity: activity
+            )
         }
 
         var samples: [Int16] = []
         for buffer in captured {
             Self.appendMonoPCM16Samples(from: buffer, to: &samples)
         }
-        return PCM16WAVEncoder.encode(samples: samples, sampleRate: Int(first.format.sampleRate.rounded()))
+        return CaptureResult(
+            wavData: PCM16WAVEncoder.encode(samples: samples, sampleRate: Int(first.format.sampleRate.rounded())),
+            speechActivity: activity
+        )
     }
 
     private static func copy(buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {

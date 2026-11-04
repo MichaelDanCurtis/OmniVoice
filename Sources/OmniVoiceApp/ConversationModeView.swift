@@ -413,7 +413,7 @@ struct ConversationModeView: View {
                 .disabled(model.isConversationRecording || model.isConversationFinalizing)
 
                 Menu {
-                    Picker("Precision", selection: conversationDiarizationPrecisionBinding) {
+                    Picker("Diarization Model", selection: conversationDiarizationPrecisionBinding) {
                         ForEach(DiarizationPrecision.allCases, id: \.self) { precision in
                             Text("\(precision.displayName) - \(precision.detail)").tag(precision)
                         }
@@ -424,7 +424,7 @@ struct ConversationModeView: View {
                 .menuStyle(.button)
                 .controlSize(.small)
                 .disabled(!model.conversationDiarizationEnabled || model.isConversationRecording || model.isConversationFinalizing)
-                .help("Choose the local diarization precision model")
+                .help("Choose the local diarization model")
 
                 Spacer(minLength: 0)
             }
@@ -790,6 +790,8 @@ struct ConversationModeView: View {
             return "MLX Sortformer diarization (FP16)"
         case "mlx-sortformer-streaming-fp32":
             return "MLX Sortformer diarization (FP32)"
+        case "whisperx-pyannote":
+            return "WhisperX + pyannote diarization"
         case "pyannote":
             return "pyannote diarization"
         default:
@@ -1078,7 +1080,7 @@ private struct ConversationEditorSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Edit Conversation")
                         .font(.title3.weight(.bold))
-                    Text("Rename speakers once and OmniVoice applies it across the saved transcript.")
+                    Text("Rename speakers once and OmniSpeak applies it across the saved transcript.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

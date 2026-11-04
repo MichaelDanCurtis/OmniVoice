@@ -84,6 +84,23 @@ def test_model_manager_reports_whisper_large_v3_turbo_mlx_6bit_source(tmp_path: 
     assert status.precision == "6-bit"
 
 
+def test_model_manager_reports_sensevoice_funasr_source(tmp_path: Path) -> None:
+    manager = ModelManager(model_root=tmp_path, hub_api=FakeHubApi(), snapshot_downloader=FakeSnapshotDownloader())
+
+    status = manager.status("sensevoice-small-funasr")
+
+    assert status.provider_id == "sensevoice-small-funasr"
+    assert status.label == "SenseVoice Small FunASR"
+    assert status.repo_id == "FunAudioLLM/SenseVoiceSmall"
+    assert status.local_path == str(tmp_path / "sensevoice-small-funasr")
+    assert status.installed is False
+    assert status.missing_files == ["config.yaml", "model.pt", "am.mvn", "chn_jpn_yue_eng_ko_spectok.bpe.model"]
+    assert status.recommendation == "Fast Multilingual"
+    assert status.detail == "Fast local multilingual ASR through FunASR/SenseVoice with CJK coverage and rich tags."
+    assert status.size == "900 MB"
+    assert status.precision == "FP32"
+
+
 def test_model_manager_reports_canary_qwen_source_as_advanced_asr(tmp_path: Path) -> None:
     manager = ModelManager(model_root=tmp_path, hub_api=FakeHubApi(), snapshot_downloader=FakeSnapshotDownloader())
 
@@ -164,6 +181,24 @@ def test_model_manager_reports_mlx_sortformer_fp32_hugging_face_source(tmp_path:
     assert status.missing_files == ["config.json", "model.safetensors"]
 
 
+def test_model_manager_reports_whisperx_pyannote_bundle_source(tmp_path: Path) -> None:
+    manager = ModelManager(model_root=tmp_path, hub_api=FakeHubApi(), snapshot_downloader=FakeSnapshotDownloader())
+
+    status = manager.status("whisperx-pyannote")
+
+    assert status.provider_id == "whisperx-pyannote"
+    assert status.label == "WhisperX + pyannote"
+    assert status.repo_id == "pyannote/speaker-diarization-3.1"
+    assert status.local_path == str(tmp_path / "whisperx-pyannote")
+    assert status.installed is False
+    assert status.category == "diarization"
+    assert status.recommendation == "Offline Accuracy"
+    assert status.detail == "High-quality offline transcription alignment and speaker diarization for saved conversations."
+    assert status.requires_hf_auth is True
+    assert status.agreement_url == "https://huggingface.co/pyannote/speaker-diarization-3.1"
+    assert status.missing_files == ["config.yaml"]
+
+
 def test_model_manager_default_root_uses_project_models_when_started_from_engine_dir(tmp_path: Path, monkeypatch) -> None:
     project_root = tmp_path / "OmniVoice"
     package_dir = project_root / "engine" / "omnivoice_engine"
@@ -212,6 +247,27 @@ def test_model_manager_downloads_mlx_sortformer_model(tmp_path: Path) -> None:
     assert manager.status("mlx-sortformer-streaming-fp16").installed is True
 
 
+def test_model_manager_downloads_whisperx_pyannote_pipeline(tmp_path: Path) -> None:
+    hub_api = FakeHubApi(sha="pyannote-sha")
+    downloader = FakeSnapshotDownloader()
+    manager = ModelManager(model_root=tmp_path, hub_api=hub_api, snapshot_downloader=downloader)
+
+    status = manager.download("whisperx-pyannote", token="hf_test")
+
+    assert status.state == "completed"
+    assert status.revision == "pyannote-sha"
+    assert status.local_path == str(tmp_path / "whisperx-pyannote")
+    assert downloader.calls[0]["repo_id"] == "pyannote/speaker-diarization-3.1"
+    assert downloader.calls[0]["token"] == "hf_test"
+    assert downloader.calls[0]["allow_patterns"] == [
+        "config.yaml",
+        "handler.py",
+        "requirements.txt",
+        "README.md",
+    ]
+    assert manager.status("whisperx-pyannote").installed is True
+
+
 def test_model_manager_downloads_mlx_parakeet_model(tmp_path: Path) -> None:
     hub_api = FakeHubApi(sha="mlx-parakeet-sha")
     downloader = FakeSnapshotDownloader()
@@ -254,6 +310,28 @@ def test_model_manager_downloads_whisper_large_v3_turbo_mlx_6bit_model(tmp_path:
         "README.md",
     ]
     assert manager.status("whisper-large-v3-turbo-mlx-6bit").installed is True
+
+
+def test_model_manager_downloads_sensevoice_funasr_model(tmp_path: Path) -> None:
+    hub_api = FakeHubApi(sha="sensevoice-sha")
+    downloader = FakeSnapshotDownloader()
+    manager = ModelManager(model_root=tmp_path, hub_api=hub_api, snapshot_downloader=downloader)
+
+    status = manager.download("sensevoice-small-funasr")
+
+    assert status.state == "completed"
+    assert status.revision == "sensevoice-sha"
+    assert status.local_path == str(tmp_path / "sensevoice-small-funasr")
+    assert downloader.calls[0]["repo_id"] == "FunAudioLLM/SenseVoiceSmall"
+    assert downloader.calls[0]["allow_patterns"] == [
+        "config.yaml",
+        "configuration.json",
+        "model.pt",
+        "am.mvn",
+        "chn_jpn_yue_eng_ko_spectok.bpe.model",
+        "README.md",
+    ]
+    assert manager.status("sensevoice-small-funasr").installed is True
 
 
 def test_model_manager_downloads_canary_qwen_model(tmp_path: Path) -> None:

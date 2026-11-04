@@ -24,6 +24,20 @@ public struct TranscribeResult: Codable, Equatable, Sendable {
     }
 }
 
+public struct EngineProviderWarmupResult: Codable, Equatable, Sendable {
+    public let provider: String
+    public let warmed: Bool
+    public let durationMs: Int
+
+    public var durationMS: Int { durationMs }
+
+    public init(provider: String, warmed: Bool, durationMS: Int) {
+        self.provider = provider
+        self.warmed = warmed
+        self.durationMs = durationMS
+    }
+}
+
 public struct EngineHealth: Codable, Equatable, Sendable {
     public let status: String
 
@@ -380,6 +394,44 @@ public struct EngineTranscriptRecord: Codable, Equatable, Identifiable, Sendable
         return cleaned.isEmpty ? rawText : cleaned
     }
 
+    public static func userVisibleHistory(from records: [EngineTranscriptRecord], limit: Int = .max) -> [EngineTranscriptRecord] {
+        var visible: [EngineTranscriptRecord] = []
+        var seenKeys = Set<String>()
+
+        for record in records where record.source != "stream" {
+            let keys = record.historyDedupeKeys
+            guard !keys.isEmpty, keys.isDisjoint(with: seenKeys) else {
+                continue
+            }
+
+            visible.append(record)
+            seenKeys.formUnion(keys)
+            if visible.count >= limit {
+                break
+            }
+        }
+
+        return visible
+    }
+
+    private var historyDedupeKeys: Set<String> {
+        let values = [
+            displayText,
+            rawText,
+            cleanedText ?? "",
+        ]
+        return Set(values.compactMap(Self.historyDedupeKey(for:)))
+    }
+
+    private static func historyDedupeKey(for value: String) -> String? {
+        let normalized = value
+            .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
     public init(
         id: String,
         createdAt: String,
@@ -656,6 +708,23 @@ public struct EngineClient: Sendable {
         let (data, response) = try await urlSession.data(for: urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(EngineModelStatus.self, from: data)
+    }
+
+    public func warmUpProvider(_ provider: ASRProviderKind) async throws -> EngineProviderWarmupResult {
+        try await warmUpProvider(providerID: provider.rawValue)
+    }
+
+    public func warmUpProvider(providerID: String) async throws -> EngineProviderWarmupResult {
+        let endpoint = baseURL
+            .appending(path: "providers")
+            .appending(path: providerID)
+            .appending(path: "warmup")
+        var urlRequest = URLRequest(url: endpoint)
+        urlRequest.httpMethod = "POST"
+
+        let (data, response) = try await urlSession.data(for: urlRequest)
+        try validate(response, data: data)
+        return try EngineCoding.decoder.decode(EngineProviderWarmupResult.self, from: data)
     }
 
     public func validateHuggingFaceAccess(_ request: HuggingFaceTokenValidationRequest) async throws -> HuggingFaceAuthStatus {

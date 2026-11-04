@@ -32,7 +32,7 @@ def test_bundled_engine_launcher_uses_embedded_python_and_wheels_by_default():
     assert "--no-index" in script
     assert "--find-links" in script
     assert "Bundled Python runtime is missing" in script
-    assert "Bundled OmniVoice Python wheelhouse is missing" in script
+    assert "Bundled OmniSpeak Python wheelhouse is missing" in script
     assert "Canary-Qwen runtime is not part of the bundled wheelhouse" in script
     assert "PYTHONDONTWRITEBYTECODE" in script
     assert "PYTHONPYCACHEPREFIX" in script
@@ -41,7 +41,7 @@ def test_bundled_engine_launcher_uses_embedded_python_and_wheels_by_default():
 def test_dmg_readme_no_longer_requires_user_installed_python():
     script = (ROOT / "script" / "build_and_run.sh").read_text()
 
-    assert "OmniVoice includes its own Python runtime" in script
+    assert "OmniSpeak includes its own Python runtime" in script
     assert "Python 3.12 or newer is required." not in script
     assert 'make_bundle_writable_for_rebuild "$DMG_STAGING/$APP_DISPLAY_NAME.app"' in script
 

@@ -2,10 +2,11 @@ import Foundation
 
 public enum DiarizationProviderResolution {
     public static let noDiarizationProviderID = "none"
-    public static let mlxSortformerProviderIDs = Set(DiarizationPrecision.allCases.map(\.providerID))
+    public static let enabledProviderIDs = Set(DiarizationPrecision.allCases.map(\.providerID))
+    public static let mlxSortformerProviderIDs = enabledProviderIDs
 
     public static func isEnabledProviderID(_ providerID: String) -> Bool {
-        mlxSortformerProviderIDs.contains(providerID.trimmingCharacters(in: .whitespacesAndNewlines))
+        enabledProviderIDs.contains(providerID.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     public static func effectiveProviderID(

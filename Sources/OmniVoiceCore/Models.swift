@@ -34,11 +34,13 @@ public enum ASRProviderKind: String, CaseIterable, Codable, Equatable, Sendable 
     case parakeetTDT = "parakeet-tdt"
     case parakeetTDTMLX = "parakeet-tdt-mlx"
     case whisperLargeV3TurboMLX6Bit = "whisper-large-v3-turbo-mlx-6bit"
+    case senseVoiceSmall = "sensevoice-small-funasr"
     case canaryQwen25B = "canary-qwen-2.5b"
 
     public static let userSelectableCases: [ASRProviderKind] = [
         .parakeetTDTMLX,
         .whisperLargeV3TurboMLX6Bit,
+        .senseVoiceSmall,
         .canaryQwen25B,
     ]
 
@@ -56,15 +58,49 @@ public enum ASRProviderKind: String, CaseIterable, Codable, Equatable, Sendable 
             "Parakeet TDT MLX"
         case .whisperLargeV3TurboMLX6Bit:
             "Whisper Large v3 Turbo MLX 6-bit"
+        case .senseVoiceSmall:
+            "SenseVoice Small FunASR"
         case .canaryQwen25B:
             "Canary-Qwen-2.5B"
         }
     }
 }
 
+public struct ModelCapabilityProfile: Codable, Equatable, Sendable {
+    public let primaryUse: String
+    public let languageCoverage: String
+    public let autoDetectBehavior: String
+    public let languageHintBehavior: String
+    public let dataPath: String
+    public let setup: String
+    public let limitation: String
+    public let pills: [String]
+
+    public init(
+        primaryUse: String,
+        languageCoverage: String,
+        autoDetectBehavior: String,
+        languageHintBehavior: String,
+        dataPath: String,
+        setup: String,
+        limitation: String,
+        pills: [String]
+    ) {
+        self.primaryUse = primaryUse
+        self.languageCoverage = languageCoverage
+        self.autoDetectBehavior = autoDetectBehavior
+        self.languageHintBehavior = languageHintBehavior
+        self.dataPath = dataPath
+        self.setup = setup
+        self.limitation = limitation
+        self.pills = pills
+    }
+}
+
 public enum SpeechModelRecommendation: String, CaseIterable, Codable, Equatable, Identifiable, Sendable {
     case parakeetTDTMLX = "parakeet-tdt-mlx"
     case whisperLargeV3TurboMLX6Bit = "whisper-large-v3-turbo-mlx-6bit"
+    case senseVoiceSmall = "sensevoice-small-funasr"
     case canaryQwen25B = "canary-qwen-2.5b"
 
     public static let defaultProviderID = Self.parakeetTDTMLX.providerID
@@ -90,6 +126,8 @@ public enum SpeechModelRecommendation: String, CaseIterable, Codable, Equatable,
             "Fast / Default"
         case .whisperLargeV3TurboMLX6Bit:
             "Multilingual"
+        case .senseVoiceSmall:
+            "Fast Multilingual"
         case .canaryQwen25B:
             "English Accuracy"
         }
@@ -101,8 +139,59 @@ public enum SpeechModelRecommendation: String, CaseIterable, Codable, Equatable,
             "Best daily driver for low-latency English dictation on Apple Silicon."
         case .whisperLargeV3TurboMLX6Bit:
             "Local MLX Whisper path for multilingual speech input and Chinese/Japanese/Korean captions."
+        case .senseVoiceSmall:
+            "Fast FunASR/SenseVoice path for multilingual dictation, CJK speech, emotion tags, and audio-event tags."
         case .canaryQwen25B:
             "NVIDIA NeMo-backed English ASR accuracy mode. Heavier than the MLX models and requires the Canary runtime."
+        }
+    }
+
+    public var capabilityProfile: ModelCapabilityProfile {
+        switch self {
+        case .parakeetTDTMLX:
+            ModelCapabilityProfile(
+                primaryUse: "Fastest English-first dictation",
+                languageCoverage: "English-first with limited European-language auto-detect",
+                autoDetectBehavior: "Model-controlled auto-detect",
+                languageHintBehavior: "Language picker is ignored by this model",
+                dataPath: "Local MLX speech-to-text",
+                setup: "Download from Hugging Face",
+                limitation: "Use Whisper for Chinese, Japanese, Korean, or broad multilingual input.",
+                pills: ["Local", "Fastest", "English-first"]
+            )
+        case .whisperLargeV3TurboMLX6Bit:
+            ModelCapabilityProfile(
+                primaryUse: "Multilingual speech input",
+                languageCoverage: "Broad Whisper multilingual coverage",
+                autoDetectBehavior: "True multilingual auto-detect",
+                languageHintBehavior: "Language hint is supported when the runtime exposes it",
+                dataPath: "Local MLX speech-to-text",
+                setup: "Download from Hugging Face",
+                limitation: "Slower than Parakeet for daily English dictation.",
+                pills: ["Local", "Multilingual", "Chinese-ready"]
+            )
+        case .senseVoiceSmall:
+            ModelCapabilityProfile(
+                primaryUse: "Fast multilingual dictation",
+                languageCoverage: "Mandarin, Cantonese, English, Japanese, and Korean-focused speech input",
+                autoDetectBehavior: "FunASR/SenseVoice language identification",
+                languageHintBehavior: "Language can remain auto; manual hints may be added once exposed by the runtime",
+                dataPath: "Local FunASR speech-to-text",
+                setup: "Download SenseVoiceSmall from Hugging Face and install the optional FunASR runtime",
+                limitation: "Best used as a fast multilingual ASR path; not an MLX-native Apple Silicon model.",
+                pills: ["Local", "FunASR", "Emotion tags", "CJK-ready"]
+            )
+        case .canaryQwen25B:
+            ModelCapabilityProfile(
+                primaryUse: "High-accuracy English dictation",
+                languageCoverage: "English ASR",
+                autoDetectBehavior: "English-only",
+                languageHintBehavior: "Language picker is not used for this model",
+                dataPath: "Local NeMo speech-to-text",
+                setup: "Requires the optional Canary runtime",
+                limitation: "Best treated as an accuracy mode, not the fastest default.",
+                pills: ["Local", "Accuracy", "Advanced"]
+            )
         }
     }
 }
@@ -205,6 +294,66 @@ public enum TranslationModelRecommendation: String, CaseIterable, Codable, Equat
         }
     }
 
+    public var capabilityProfile: ModelCapabilityProfile {
+        switch self {
+        case .translateGemma4B4Bit:
+            ModelCapabilityProfile(
+                primaryUse: "Fast local translation",
+                languageCoverage: "Target languages are read from model capability metadata",
+                autoDetectBehavior: "Source language can be auto or model-locked",
+                languageHintBehavior: "Translation language menus come from the selected model",
+                dataPath: "Local MLX translation",
+                setup: "Requires Hugging Face agreement acceptance",
+                limitation: "Best default balance; larger models may produce cleaner output.",
+                pills: ["Local", "Fast", "Gated"]
+            )
+        case .translateGemma4B8Bit:
+            ModelCapabilityProfile(
+                primaryUse: "Balanced local translation",
+                languageCoverage: "Target languages are read from model capability metadata",
+                autoDetectBehavior: "Source language can be auto or model-locked",
+                languageHintBehavior: "Translation language menus come from the selected model",
+                dataPath: "Local MLX translation",
+                setup: "Requires Hugging Face agreement acceptance",
+                limitation: "Larger download and memory footprint than the 4-bit model.",
+                pills: ["Local", "Balanced", "Gated"]
+            )
+        case .translateGemma12B4Bit:
+            ModelCapabilityProfile(
+                primaryUse: "Higher-quality local translation",
+                languageCoverage: "Target languages are read from model capability metadata",
+                autoDetectBehavior: "Source language can be auto or model-locked",
+                languageHintBehavior: "Translation language menus come from the selected model",
+                dataPath: "Local MLX translation",
+                setup: "Requires Hugging Face agreement acceptance",
+                limitation: "Intended for high-memory Macs.",
+                pills: ["Local", "Quality", "Gated"]
+            )
+        case .sarvamTranslate4Bit:
+            ModelCapabilityProfile(
+                primaryUse: "Indic-language translation",
+                languageCoverage: "Best for Indic-language coverage",
+                autoDetectBehavior: "Source language depends on model metadata",
+                languageHintBehavior: "Translation language menus come from the selected model",
+                dataPath: "Local MLX translation",
+                setup: "Download from Hugging Face",
+                limitation: "Specialized model; not the default broad translation path.",
+                pills: ["Local", "Indic", "Specialist"]
+            )
+        case .plamo2Translate:
+            ModelCapabilityProfile(
+                primaryUse: "Japanese-English translation",
+                languageCoverage: "Specialized Japanese and English translation",
+                autoDetectBehavior: "Source language depends on model metadata",
+                languageHintBehavior: "Translation language menus come from the selected model",
+                dataPath: "Local MLX translation",
+                setup: "Download from Hugging Face",
+                limitation: "Specialized model; use TranslateGemma for broader language work.",
+                pills: ["Local", "Japanese", "Specialist"]
+            )
+        }
+    }
+
     public var agreementURL: String? {
         switch self {
         case .translateGemma4B4Bit:
@@ -224,9 +373,17 @@ public enum TranslationModelRecommendation: String, CaseIterable, Codable, Equat
 public enum DiarizationPrecision: String, CaseIterable, Codable, Equatable, Sendable {
     case fp16
     case fp32
+    case whisperXPyannote = "whisperx-pyannote"
 
     public init(providerID: String) {
-        self = providerID == Self.fp32.providerID ? .fp32 : .fp16
+        switch providerID {
+        case Self.fp32.providerID:
+            self = .fp32
+        case Self.whisperXPyannote.providerID:
+            self = .whisperXPyannote
+        default:
+            self = .fp16
+        }
     }
 
     public var providerID: String {
@@ -235,6 +392,8 @@ public enum DiarizationPrecision: String, CaseIterable, Codable, Equatable, Send
             "mlx-sortformer-streaming-fp16"
         case .fp32:
             "mlx-sortformer-streaming-fp32"
+        case .whisperXPyannote:
+            "whisperx-pyannote"
         }
     }
 
@@ -244,6 +403,8 @@ public enum DiarizationPrecision: String, CaseIterable, Codable, Equatable, Send
             "FP16"
         case .fp32:
             "FP32"
+        case .whisperXPyannote:
+            "WhisperX + pyannote"
         }
     }
 
@@ -253,6 +414,8 @@ public enum DiarizationPrecision: String, CaseIterable, Codable, Equatable, Send
             "Faster, lower memory"
         case .fp32:
             "Higher precision, more memory"
+        case .whisperXPyannote:
+            "Offline accuracy, heavier"
         }
     }
 }
@@ -1140,6 +1303,17 @@ public struct TranscriptCacheSelectionState: Equatable, Sendable {
         }
         let next = (selectedIndex + delta) % count
         selectedIndex = next >= 0 ? next : next + count
+    }
+
+    public mutating func select(index: Int, count: Int) {
+        guard count > 0 else {
+            selectedIndex = 0
+            return
+        }
+        guard index >= 0, index < count else {
+            return
+        }
+        selectedIndex = index
     }
 
     public func selected<Item>(from items: [Item]) -> Item? {

@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OmniVoice.App/OmniVoice.App.csproj" />
+    <Project Path="src/OmniVoice.Core/OmniVoice.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OmniVoice.Core.Tests/OmniVoice.Core.Tests.csproj" />
+  </Folder>
+</Solution>

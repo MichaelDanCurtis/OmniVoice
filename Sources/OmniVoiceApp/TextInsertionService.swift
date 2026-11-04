@@ -36,7 +36,7 @@ final class TextInsertionService {
             case .accessibilityPermissionRequired:
                 "Accessibility permission is required to insert dictated text."
             case .noInsertionToUndo:
-                "There is no recent OmniVoice insertion to undo."
+                "There is no recent OmniSpeak insertion to undo."
             case .pasteboardUnavailable:
                 "The pasteboard was unavailable."
             case .syntheticTypingUnavailable:
@@ -157,7 +157,16 @@ final class TextInsertionService {
 
     @discardableResult
     func commitLiveDraft(_ text: String, draft: inout LiveDraft) -> Bool {
-        applyLiveDraftText(text, draft: &draft, recordUndo: true)
+        if TextInsertionEdit.liveDraftAlreadyMatchesFinal(draftText: draft.currentText, finalText: text) {
+            lastDirectInsertion = DirectInsertionRecord(
+                application: draft.application,
+                element: draft.element,
+                previousText: draft.originalText,
+                previousCursorLocation: draft.selectedRange.location
+            )
+            return true
+        }
+        return applyLiveDraftText(text, draft: &draft, recordUndo: true)
     }
 
     func cancelLiveDraft(_ draft: LiveDraft) {

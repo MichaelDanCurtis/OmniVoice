@@ -1,4 +1,4 @@
-# OmniVoice V3 Release Notes
+# OmniSpeak V3 Release Notes
 
 V3 is the multilingual, model-capability, and packaged-runtime release.
 

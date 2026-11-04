@@ -1,4 +1,4 @@
-# OmniVoice V3 Release Checklist
+# OmniSpeak V3 Release Checklist
 
 ## Required Before Tagging
 
@@ -11,9 +11,9 @@
 ## Required For Local DMG
 
 - `./script/build_and_run.sh --dmg`
-- `/usr/bin/codesign --verify --deep --strict --verbose=2 dist/OmniVoice.app`
-- `/usr/bin/hdiutil verify dist/OmniVoice.dmg`
-- `/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' dist/OmniVoice.app/Contents/Info.plist`
+- `/usr/bin/codesign --verify --deep --strict --verbose=2 dist/OmniSpeak.app`
+- `/usr/bin/hdiutil verify dist/OmniSpeak.dmg`
+- `/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' dist/OmniSpeak.app/Contents/Info.plist`
 
 ## Required For Public Distribution
 
@@ -25,6 +25,6 @@
 
 ## Local Runtime Packaging
 
-The local DMG bundles the Swift app, engine source launcher, embedded Python runtime, and a Python wheelhouse for the normal core/ASR/MLX runtime packages. First launch creates the engine venv under `~/Library/Application Support/OmniVoice` from bundled resources.
+The local DMG bundles the Swift app, engine source launcher, embedded Python runtime, and a Python wheelhouse for the normal core/ASR/MLX runtime packages. First launch creates the engine venv under `~/Library/Application Support/OmniSpeak` from bundled resources, unless an existing pre-rename OmniVoice support folder is present.
 
 Model weights are still external by design. Users download or select models through the app or engine dashboard.

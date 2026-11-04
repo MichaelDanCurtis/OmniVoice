@@ -41,7 +41,7 @@ final class EngineSupervisor {
         }
 
         guard !didAttemptStart else {
-            return .unavailable("Engine is offline. Use the dashboard or relaunch OmniVoice after checking the engine log.")
+            return .unavailable("Engine is offline. Use the dashboard or relaunch OmniSpeak after checking the engine log.")
         }
         didAttemptStart = true
 
@@ -110,7 +110,7 @@ final class EngineSupervisor {
 
         let logHandle = try FileHandle(forWritingTo: logURL)
         try logHandle.seekToEnd()
-        logHandle.write(Data("\n--- OmniVoice engine launch \(Date()) ---\n".utf8))
+        logHandle.write(Data("\n--- OmniSpeak engine launch \(Date()) ---\n".utf8))
 
         var environment = ProcessInfo.processInfo.environment
         environment["OMNIVOICE_APP_SUPPORT_DIR"] = supportURL.path
@@ -118,10 +118,13 @@ final class EngineSupervisor {
         environment["OMNIVOICE_PARAKEET_MODEL_DIR"] = modelRoot.appending(path: "parakeet-tdt").path
         environment["OMNIVOICE_PARAKEET_MLX_MODEL_DIR"] = modelRoot.appending(path: "parakeet-tdt-mlx").path
         environment["OMNIVOICE_WHISPER_MLX_MODEL_DIR"] = modelRoot.appending(path: "whisper-large-v3-turbo-mlx-6bit").path
+        environment["OMNIVOICE_SENSEVOICE_MODEL_DIR"] = modelRoot.appending(path: "sensevoice-small-funasr").path
         environment["OMNIVOICE_CANARY_MODEL_DIR"] = modelRoot.appending(path: "canary-qwen-2.5b").path
         environment["OMNIVOICE_MLX_SORTFORMER_FP16_DIR"] = modelRoot.appending(path: "mlx-sortformer-streaming-fp16").path
         environment["OMNIVOICE_MLX_SORTFORMER_FP32_DIR"] = modelRoot.appending(path: "mlx-sortformer-streaming-fp32").path
+        environment["OMNIVOICE_WHISPERX_PYANNOTE_DIR"] = modelRoot.appending(path: "whisperx-pyannote").path
         environment["OMNIVOICE_ENGINE_DATA_DIR"] = dataURL.path
+        environment["OMNISPEAK_DESKTOP_APP_PATH"] = Bundle.main.bundleURL.path
         environment["OMNIVOICE_DESKTOP_APP_PATH"] = Bundle.main.bundleURL.path
         environment["OMNIVOICE_INSTALL_ASR"] = environment["OMNIVOICE_INSTALL_ASR"] ?? "1"
         environment["OMNIVOICE_INSTALL_MLX_DIARIZATION"] = environment["OMNIVOICE_INSTALL_MLX_DIARIZATION"] ?? "1"
@@ -201,6 +204,7 @@ final class EngineSupervisor {
     private func isOmniVoiceEngineCommand(_ command: String) -> Bool {
         command.contains("omnivoice_engine.main:app")
             || command.contains("Application Support/OmniVoice/engine-venv")
+            || command.contains("Application Support/OmniSpeak/engine-venv")
             || command.contains("/OmniVoice/engine/.venv/bin/uvicorn")
             || command.contains("scripts/run-engine.sh")
     }
@@ -244,7 +248,14 @@ final class EngineSupervisor {
             appropriateFor: nil,
             create: true
         )
-        let url = baseURL.appending(path: "OmniVoice", directoryHint: .isDirectory)
+        let preferred = baseURL.appending(path: ProductBrand.applicationSupportDirectoryName, directoryHint: .isDirectory)
+        let legacy = baseURL.appending(path: ProductBrand.legacyApplicationSupportDirectoryName, directoryHint: .isDirectory)
+        let url = if FileManager.default.fileExists(atPath: legacy.path),
+                     !FileManager.default.fileExists(atPath: preferred.path) {
+            legacy
+        } else {
+            preferred
+        }
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

@@ -24,6 +24,17 @@ final class TextInsertionTargetPolicyTests: XCTestCase {
         XCTAssertEqual(strategy, .pasteboardOnly)
     }
 
+    func testRemoteDesktopTargetsUsePasteboardOnlyInsertion() {
+        let strategy = TextInsertionTargetPolicy.strategy(
+            bundleIdentifier: "com.microsoft.rdc.macos",
+            applicationName: "Windows App",
+            currentValue: "For some reason, the transcription keeps repeating twice.",
+            selectedRange: NSRange(location: 58, length: 0)
+        )
+
+        XCTAssertEqual(strategy, .pasteboardOnly)
+    }
+
     func testPlainNativeTextTargetUsesDirectAccessibilityInsertion() {
         let strategy = TextInsertionTargetPolicy.strategy(
             bundleIdentifier: "com.apple.TextEdit",

@@ -18,6 +18,8 @@ struct SettingsView: View {
     @State private var selectedTab: SettingsTab = .overview
     @State private var selectedCapability: CapabilityInfo?
     @State private var hotMenuAdvancedExpanded = false
+    @State private var overviewAdvancedExpanded = false
+    @State private var modelAdvancedExpanded = false
     @State private var confirmClearConversations = false
     @State private var confirmClearAIThreads = false
     @Namespace private var settingsTabNamespace
@@ -132,9 +134,8 @@ struct SettingsView: View {
         case .overview:
             tabPage {
                 firstRunSetupSection
-                statusSection
-                startupPreflightSection
-                storageSection
+                todaySection
+                overviewAdvancedSection
                 testSection
             }
         case .dictation:
@@ -154,8 +155,7 @@ struct SettingsView: View {
         case .models:
             tabPage {
                 modelSection
-                diarizationModelSection
-                customModelSection
+                advancedModelSection
             }
         case .translation:
             tabPage {
@@ -187,7 +187,7 @@ struct SettingsView: View {
         if !model.preferences.firstRunSetupCompleted {
             Section("First Run Setup") {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("OmniVoice needs permissions and the local MLX speech model before dictation feels instant.")
+                    Text("OmniSpeak needs permissions and the local MLX speech model before dictation feels instant.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -196,7 +196,7 @@ struct SettingsView: View {
                         title: "Microphone",
                         detail: model.microphoneAuthorized
                             ? "Allowed"
-                            : "Allow microphone capture so OmniVoice can hear dictation.",
+                            : "Allow microphone capture so OmniSpeak can hear dictation.",
                         state: model.microphoneAuthorized ? .passed : .failed
                     )
 
@@ -204,7 +204,7 @@ struct SettingsView: View {
                         title: "Accessibility",
                         detail: model.accessibilityTrusted
                             ? "Allowed"
-                            : "Allow Accessibility so OmniVoice can insert text at the cursor.",
+                            : "Allow Accessibility so OmniSpeak can insert text at the cursor.",
                         state: model.accessibilityTrusted ? .passed : .failed
                     )
 
@@ -263,8 +263,205 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
+    private var todaySection: some View {
+        Section("Today") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    todayStatusTile(
+                        title: "Model",
+                        value: todaySelectedModelName,
+                        systemImage: "waveform",
+                        tint: Color(themeColor: model.activeTheme.accentColor)
+                    )
+
+                    todayStatusTile(
+                        title: "Mic",
+                        value: model.microphoneAuthorized ? "Ready" : "Required",
+                        systemImage: model.microphoneAuthorized ? "mic.fill" : "mic.slash",
+                        tint: model.microphoneAuthorized ? .green : .orange
+                    )
+
+                    todayStatusTile(
+                        title: "Translate",
+                        value: todayTranslationStatus,
+                        systemImage: "globe",
+                        tint: model.preferences.liveTranslationEnabled ? Color(themeColor: model.activeTheme.accentColor) : .secondary
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Recent Dictations")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Open History") {
+                            showConversationHistory()
+                            Task { await model.refreshTranscripts() }
+                        }
+                        .font(.caption)
+                    }
+
+                    if model.transcripts.isEmpty {
+                        Text("Your latest dictations will appear here after the engine records them.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        ForEach(Array(model.transcripts.prefix(3))) { transcript in
+                            todayTranscriptRow(transcript)
+                        }
+                    }
+                }
+
+                HStack {
+                    Button {
+                        showTestCaption()
+                    } label: {
+                        Label("Test Caption", systemImage: "captions.bubble")
+                    }
+
+                    Button {
+                        openConversationMode()
+                    } label: {
+                        Label("Conversation", systemImage: "bubble.left.and.text.bubble.right")
+                    }
+
+                    Button {
+                        openEditor()
+                    } label: {
+                        Label("Editor", systemImage: "doc.richtext")
+                    }
+
+                    Button {
+                        openAskAI()
+                    } label: {
+                        Label("Ask AI", systemImage: "sparkles")
+                    }
+                }
+                .font(.caption)
+            }
+            .padding(.vertical, 3)
+        }
+    }
+
+    private func todayStatusTile(
+        title: String,
+        value: String,
+        systemImage: String,
+        tint: Color
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(tint)
+                Text(title)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(value)
+                .font(.callout.weight(.semibold))
+                .lineLimit(2)
+                .minimumScaleFactor(0.78)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
+        .help("\(title): \(value)")
+    }
+
+    private func todayTranscriptRow(_ transcript: EngineTranscriptRecord) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "text.bubble")
+                .font(.caption)
+                .foregroundStyle(Color(themeColor: model.activeTheme.accentColor))
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(transcript.displayText)
+                    .font(.caption)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(transcript.createdAt)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            Button {
+                copyToPasteboard(transcript.displayText)
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .buttonStyle(.borderless)
+            .help("Copy this dictation")
+        }
+        .padding(8)
+        .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
+    }
+
+    private var todaySelectedModelName: String {
+        selectedModelStatus?.label ?? model.label(for: model.preferences.asrProvider)
+    }
+
+    private var todayTranslationStatus: String {
+        guard model.preferences.liveTranslationEnabled else {
+            return "Off"
+        }
+        let target = model.preferences.translationTargetLanguage
+        return model.translationLanguageLabel(for: target, in: model.translationTargetLanguageOptions)
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    @ViewBuilder
+    private var overviewAdvancedSection: some View {
+        Section("Advanced") {
+            DisclosureGroup("Engine, preflight, and storage", isExpanded: $overviewAdvancedExpanded) {
+                VStack(alignment: .leading, spacing: 14) {
+                    GroupBox("Engine Status") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            statusContent
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    GroupBox("Startup Preflight") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            startupPreflightContent
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    GroupBox("Storage") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            storageContent
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.top, 8)
+            }
+            .help("Show engine details, startup checks, archive folder, and maintenance buttons.")
+        }
+    }
+
+    @ViewBuilder
     private var statusSection: some View {
         Section("Status") {
+            statusContent
+        }
+    }
+
+    @ViewBuilder
+    private var statusContent: some View {
             LabeledContent("Engine", value: model.engineState.label)
             LabeledContent("Endpoint", value: model.engineState.detail)
             LabeledContent("Selected Model", value: selectedProviderStatus)
@@ -337,78 +534,82 @@ struct SettingsView: View {
                     resetAccessibilityPermission()
                 }
             }
-        }
     }
 
     @ViewBuilder
     private var startupPreflightSection: some View {
         Section("Startup Preflight") {
-            if model.startupChecks.isEmpty {
-                Text("No startup check has run yet.")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(model.startupChecks) { check in
-                    startupCheckRow(check)
+            startupPreflightContent
+        }
+    }
+
+    @ViewBuilder
+    private var startupPreflightContent: some View {
+        if model.startupChecks.isEmpty {
+            Text("No startup check has run yet.")
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(model.startupChecks) { check in
+                startupCheckRow(check)
+            }
+        }
+
+        HStack {
+            Button("Refresh Checks") {
+                refreshPermissions()
+                Task {
+                    await model.refreshStartupChecks()
                 }
             }
 
-            HStack {
-                Button("Refresh Checks") {
-                    refreshPermissions()
+            if startupChecksContainAction(.accessibility) {
+                Button("Fix Accessibility") {
+                    requestAccessibilityPermission()
                     Task {
                         await model.refreshStartupChecks()
                     }
                 }
 
-                if startupChecksContainAction(.accessibility) {
-                    Button("Fix Accessibility") {
-                        requestAccessibilityPermission()
-                        Task {
-                            await model.refreshStartupChecks()
-                        }
-                    }
-
-                    Button("Reset Accessibility") {
-                        resetAccessibilityPermission()
-                        Task {
-                            await model.refreshStartupChecks()
-                        }
+                Button("Reset Accessibility") {
+                    resetAccessibilityPermission()
+                    Task {
+                        await model.refreshStartupChecks()
                     }
                 }
+            }
 
-                if startupChecksContainAction(.microphone) {
-                    Button("Fix Microphone") {
-                        openMicrophoneSettings()
-                        Task {
-                            await model.refreshStartupChecks()
-                        }
+            if startupChecksContainAction(.microphone) {
+                Button("Fix Microphone") {
+                    openMicrophoneSettings()
+                    Task {
+                        await model.refreshStartupChecks()
                     }
                 }
+            }
 
-                if startupChecksContainAction(.engine) {
-                    Button("Restart Engine") {
-                        Task {
-                            await model.restartEngine()
-                        }
+            if startupChecksContainAction(.engine) {
+                Button("Restart Engine") {
+                    Task {
+                        await model.restartEngine()
                     }
                 }
+            }
 
-                if startupChecksContainAction(.model) {
-                    Button("Download Model") {
-                        Task {
-                            await model.downloadSelectedModel()
-                            await model.refreshStartupChecks()
-                        }
+            if startupChecksContainAction(.model) {
+                Button("Download Model") {
+                    Task {
+                        await model.downloadSelectedModel()
+                        await model.refreshStartupChecks()
                     }
                 }
+            }
 
-                if startupChecksContainAction(.diarizationModel) {
-                    Button("Download Diarization") {
-                        selectedTab = .models
-                        Task {
-                            await model.downloadSelectedDiarizationModel()
-                            await model.refreshStartupChecks()
-                        }
+            if startupChecksContainAction(.diarizationModel) {
+                Button("Download Diarization") {
+                    selectedTab = .models
+                    Task {
+                        await model.downloadSelectedDiarizationModel()
+                        await model.refreshStartupChecks()
                     }
                 }
             }
@@ -418,52 +619,57 @@ struct SettingsView: View {
     @ViewBuilder
     private var storageSection: some View {
         Section("Storage") {
-            Toggle("Archive Conversations", isOn: automaticallyArchiveConversationsBinding)
-
-            LabeledContent("Folder", value: model.conversationArchiveRootURL.path)
-
-            HStack {
-                Button("Choose Folder") {
-                    chooseDirectory(title: "Choose OmniVoice Archive Folder", onSelect: model.setConversationArchiveFolderPath)
-                }
-
-                Button("Use Documents") {
-                    model.setConversationArchiveFolderPath(ConversationArchive.defaultRootURL().path)
-                }
-
-                Button("Reveal") {
-                    try? FileManager.default.createDirectory(
-                        at: model.conversationArchiveRootURL,
-                        withIntermediateDirectories: true
-                    )
-                    NSWorkspace.shared.activateFileViewerSelecting([model.conversationArchiveRootURL])
-                }
-
-                Button("Sync Archive") {
-                    Task { await model.syncConversationArchiveToDatabase() }
-                }
-                .help("Import archived conversation JSON files into the local engine database.")
-            }
-
-            HStack {
-                Button("Clear Conversations", role: .destructive) {
-                    confirmClearConversations = true
-                }
-                .disabled(model.isConversationRecording)
-                .help("Remove saved conversations from the local engine database while leaving archive files on disk.")
-
-                Button("Clear AI Threads", role: .destructive) {
-                    confirmClearAIThreads = true
-                }
-                .disabled(model.askAIThreads.isEmpty)
-                .help("Remove Ask AI chat threads without deleting editor documents or notes.")
-            }
-
-            Text("Conversation transcripts are mirrored here as Markdown and JSON. OmniVoice keeps its internal engine database in Application Support.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            storageContent
         }
+    }
+
+    @ViewBuilder
+    private var storageContent: some View {
+        Toggle("Archive Conversations", isOn: automaticallyArchiveConversationsBinding)
+
+        LabeledContent("Folder", value: model.conversationArchiveRootURL.path)
+
+        HStack {
+            Button("Choose Folder") {
+                chooseDirectory(title: "Choose OmniSpeak Archive Folder", onSelect: model.setConversationArchiveFolderPath)
+            }
+
+            Button("Use Documents") {
+                model.setConversationArchiveFolderPath(ConversationArchive.defaultRootURL().path)
+            }
+
+            Button("Reveal") {
+                try? FileManager.default.createDirectory(
+                    at: model.conversationArchiveRootURL,
+                    withIntermediateDirectories: true
+                )
+                NSWorkspace.shared.activateFileViewerSelecting([model.conversationArchiveRootURL])
+            }
+
+            Button("Sync Archive") {
+                Task { await model.syncConversationArchiveToDatabase() }
+            }
+            .help("Import archived conversation JSON files into the local engine database.")
+        }
+
+        HStack {
+            Button("Clear Conversations", role: .destructive) {
+                confirmClearConversations = true
+            }
+            .disabled(model.isConversationRecording)
+            .help("Remove saved conversations from the local engine database while leaving archive files on disk.")
+
+            Button("Clear AI Threads", role: .destructive) {
+                confirmClearAIThreads = true
+            }
+            .disabled(model.askAIThreads.isEmpty)
+            .help("Remove Ask AI chat threads without deleting editor documents or notes.")
+        }
+
+        Text("Conversation transcripts are mirrored here as Markdown and JSON. OmniSpeak keeps its internal engine database in Application Support.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func startupCheckRow(_ check: StartupCheckItem) -> some View {
@@ -589,6 +795,7 @@ struct SettingsView: View {
         let providerInfo = model.providerInfo(for: recommendation.providerKind)
         let isSelected = model.preferences.asrProvider == recommendation.providerKind
         let isRunning = isModelActionRunning(providerID: recommendation.providerID)
+        let capability = recommendation.capabilityProfile
         let cardState = speechModelCardState(
             status: status,
             providerInfo: providerInfo,
@@ -614,6 +821,17 @@ struct SettingsView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(cardState.color)
             }
+
+            capabilityPills(capability.pills)
+
+            VStack(alignment: .leading, spacing: 5) {
+                capabilityRow("Best for", capability.primaryUse, systemImage: "target")
+                capabilityRow("Languages", capability.languageCoverage, systemImage: "globe")
+                capabilityRow("Auto-detect", capability.autoDetectBehavior, systemImage: "wand.and.rays")
+                capabilityRow("Language picker", capability.languageHintBehavior, systemImage: "slider.horizontal.3")
+                capabilityRow("Limit", capability.limitation, systemImage: "exclamationmark.triangle")
+            }
+            .padding(.top, 2)
 
             if let status {
                 HStack(spacing: 12) {
@@ -676,6 +894,39 @@ struct SettingsView: View {
         }
         .padding(10)
         .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
+    }
+
+    private func capabilityPills(_ pills: [String]) -> some View {
+        HStack(spacing: 6) {
+            ForEach(pills, id: \.self) { pill in
+                Text(pill)
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(
+                        Capsule()
+                            .fill(Color(themeColor: model.activeTheme.accentColor).opacity(0.16))
+                    )
+                    .foregroundStyle(Color(themeColor: model.activeTheme.accentColor))
+            }
+        }
+    }
+
+    private func capabilityRow(_ title: String, _ value: String, systemImage: String) -> some View {
+        HStack(alignment: .top, spacing: 7) {
+            Image(systemName: systemImage)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 14)
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 82, alignment: .leading)
+            Text(value)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     @ViewBuilder
@@ -961,6 +1212,7 @@ struct SettingsView: View {
                     Text(model.label(for: provider)).tag(provider)
                 }
             }
+            .help("Choose the speech-to-text model used for dictation and captions.")
 
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(SpeechModelRecommendation.allCases) { recommendation in
@@ -968,56 +1220,94 @@ struct SettingsView: View {
                 }
             }
 
-            if let info = model.providerInfo(for: model.preferences.asrProvider) {
-                LabeledContent("Runtime", value: info.available ? "Available" : (info.reason ?? "Unavailable"))
+            DisclosureGroup("Selected model details") {
+                selectedSpeechModelDetails
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var selectedSpeechModelDetails: some View {
+        if let info = model.providerInfo(for: model.preferences.asrProvider) {
+            LabeledContent("Runtime", value: info.available ? "Available" : (info.reason ?? "Unavailable"))
+        }
+
+        if let modelStatus = selectedModelStatus {
+            LabeledContent("Hugging Face", value: modelStatus.repoID)
+            LabeledContent("Local Path", value: modelStatus.localPath)
+            LabeledContent("Installed", value: modelStatus.installed ? "Yes" : "No")
+            LabeledContent("Revision", value: modelStatus.installedRevision?.prefix(12).description ?? "Not installed")
+            LabeledContent("Update", value: selectedModelUpdateText)
+
+            HStack {
+                Button("Check Update") {
+                    Task {
+                        await model.checkSelectedModelUpdate()
+                    }
+                }
+                .disabled(isModelActionRunning)
+
+                Button(modelDownloadButtonTitle) {
+                    Task {
+                        await model.downloadSelectedModel()
+                    }
+                }
+                .disabled(isModelActionRunning)
             }
 
-            if let modelStatus = selectedModelStatus {
-                LabeledContent("Hugging Face", value: modelStatus.repoID)
-                LabeledContent("Local Path", value: modelStatus.localPath)
-                LabeledContent("Installed", value: modelStatus.installed ? "Yes" : "No")
-                LabeledContent("Revision", value: modelStatus.installedRevision?.prefix(12).description ?? "Not installed")
-                LabeledContent("Update", value: selectedModelUpdateText)
-
-                HStack {
-                    Button("Check Update") {
-                        Task {
-                            await model.checkSelectedModelUpdate()
-                        }
-                    }
-                    .disabled(isModelActionRunning)
-
-                    Button(modelDownloadButtonTitle) {
-                        Task {
-                            await model.downloadSelectedModel()
-                        }
-                    }
-                    .disabled(isModelActionRunning)
-                }
-
-                if let message = selectedModelMessage {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-
-                if model.selectedProviderIssue != nil {
-                    providerRecoveryActions
-                }
-            } else {
-                Text("No downloadable model is required for this provider.")
+            if let message = selectedModelMessage {
+                Text(message)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
+
+            if model.selectedProviderIssue != nil {
+                providerRecoveryActions
+            }
+        } else {
+            Text("No downloadable model is required for this provider.")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var advancedModelSection: some View {
+        Section("Advanced") {
+            DisclosureGroup("Diarization and local overrides", isExpanded: $modelAdvancedExpanded) {
+                VStack(alignment: .leading, spacing: 14) {
+                    GroupBox("Conversation Diarization") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            diarizationModelContent
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    GroupBox("External Local Models") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            customModelContent
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.top, 8)
+            }
+            .help("Show meeting speaker detection models and manually installed local model overrides.")
         }
     }
 
     @ViewBuilder
     private var diarizationModelSection: some View {
         Section("Conversation Diarization") {
+            diarizationModelContent
+        }
+    }
+
+    @ViewBuilder
+    private var diarizationModelContent: some View {
             Toggle("Speaker Diarization", isOn: conversationDiarizationEnabledBinding)
 
-            Picker("Precision", selection: conversationDiarizationPrecisionBinding) {
+            Picker("Diarization Model", selection: conversationDiarizationPrecisionBinding) {
                 ForEach(DiarizationPrecision.allCases, id: \.self) { precision in
                     Text("\(precision.displayName) - \(precision.detail)").tag(precision)
                 }
@@ -1074,12 +1364,17 @@ struct SettingsView: View {
                 .padding(10)
                 .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
             }
-        }
     }
 
     @ViewBuilder
     private var customModelSection: some View {
         Section("External Local Models") {
+            customModelContent
+        }
+    }
+
+    @ViewBuilder
+    private var customModelContent: some View {
             TextField("Custom Speech Model", text: customSpeechModelPathBinding)
                 .textFieldStyle(.roundedBorder)
             HStack {
@@ -1102,10 +1397,9 @@ struct SettingsView: View {
                 }
             }
 
-            Text("Custom model paths override managed downloads when you want OmniVoice to use a manually installed model folder.")
+            Text("Custom model paths override managed downloads when you want OmniSpeak to use a manually installed model folder.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-        }
     }
 
     @ViewBuilder
@@ -1128,6 +1422,10 @@ struct SettingsView: View {
                     Text(model.modelStatus(forProviderID: recommendation.providerID)?.label ?? recommendation.displayName)
                         .tag(recommendation.providerID)
                 }
+            }
+
+            if let recommendation = selectedTranslationModelRecommendation {
+                translationModelCapabilityCard(recommendation)
             }
 
             if let translationModelStatus = selectedTranslationModelStatus {
@@ -1318,6 +1616,26 @@ struct SettingsView: View {
         }
     }
 
+    private func translationModelCapabilityCard(_ recommendation: TranslationModelRecommendation) -> some View {
+        let capability = recommendation.capabilityProfile
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text(recommendation.badge)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color(themeColor: model.activeTheme.accentColor))
+                Spacer()
+                capabilityPills(capability.pills)
+            }
+            capabilityRow("Best for", capability.primaryUse, systemImage: "target")
+            capabilityRow("Languages", capability.languageCoverage, systemImage: "globe")
+            capabilityRow("Source", capability.autoDetectBehavior, systemImage: "wand.and.rays")
+            capabilityRow("Menus", capability.languageHintBehavior, systemImage: "list.bullet.rectangle")
+            capabilityRow("Setup", capability.setup, systemImage: "arrow.down.circle")
+        }
+        .padding(10)
+        .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
+    }
+
     @ViewBuilder
     private var integrationsSection: some View {
         Section("Text LLM Providers") {
@@ -1380,7 +1698,7 @@ struct SettingsView: View {
         }
 
         Section("MCP Servers") {
-            Text("Add local MCP server launch settings here. These are stored in OmniVoice preferences so AI actions can use them when the MCP runtime adapter is connected.")
+            Text("Add local MCP server launch settings here. These are stored in OmniSpeak preferences so AI actions can use them when the MCP runtime adapter is connected.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -1502,7 +1820,7 @@ struct SettingsView: View {
                         Text("API Key")
                             .foregroundStyle(.secondary)
 
-                        SecureField("Stored locally in OmniVoice preferences", text: textLLMAPIKeyBinding(provider))
+                        SecureField("Stored locally in OmniSpeak preferences", text: textLLMAPIKeyBinding(provider))
                             .textFieldStyle(.roundedBorder)
                     }
                 }
@@ -1517,7 +1835,7 @@ struct SettingsView: View {
             if provider == .githubCopilot {
                 DisclosureGroup("Advanced OAuth App") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Device Sync uses OmniVoice's built-in GitHub Copilot device client. Override this only for development or a registered OmniVoice OAuth app.")
+                        Text("Device Sync uses OmniSpeak's built-in GitHub Copilot device client. Override this only for development or a registered OmniSpeak OAuth app.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -1742,7 +2060,7 @@ struct SettingsView: View {
             TextEditor(text: dictionaryTermsBinding)
                 .font(.system(.body, design: .monospaced))
                 .frame(minHeight: 180)
-            Text("Add names, products, acronyms, and terms OmniVoice should preserve. Use one term per line.")
+            Text("Add names, products, acronyms, and terms OmniSpeak should preserve. Use one term per line.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -2341,6 +2659,10 @@ struct SettingsView: View {
         model.translationProviderInfo(for: model.preferences.translationProvider)
     }
 
+    private var selectedTranslationModelRecommendation: TranslationModelRecommendation? {
+        TranslationModelRecommendation.allCases.first { $0.providerID == model.selectedTranslationModelProviderID() }
+    }
+
     private var selectedTranslationModelStatus: EngineModelStatus? {
         return model.modelStatus(forProviderID: model.selectedTranslationModelProviderID())
     }
@@ -2786,7 +3108,7 @@ private struct HelpHeroCard: View {
                 Text("Speak once. Use it anywhere.")
                     .font(.title3.weight(.bold))
 
-                Text("OmniVoice listens locally, shows captions while you talk, cleans the result, and puts the final text where your cursor already is.")
+                Text("OmniSpeak listens locally, shows captions while you talk, cleans the result, and puts the final text where your cursor already is.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -2972,7 +3294,7 @@ private enum HelpWorkflow: String, CaseIterable, Identifiable {
         case .dictate:
             "Hold the dictation hotkey, talk naturally, release to insert polished text at the cursor."
         case .translate:
-            "Enable live translation, pick a target language, and OmniVoice captions the translated result."
+            "Enable live translation, pick a target language, and OmniSpeak captions the translated result."
         case .converse:
             "Record a meeting, split speaker turns when diarization is enabled, then ask questions about the transcript."
         case .write:
@@ -3589,7 +3911,7 @@ private enum CapabilityInfo: String, CaseIterable, Identifiable {
         case .dictation:
             "Hold the hotkey, speak, release to insert cleaned text."
         case .liveCaptions:
-            "See streaming text while OmniVoice listens."
+            "See streaming text while OmniSpeak listens."
         case .corrections:
             "Replace mistakes with no-wait, scratch-that, and correction phrasing."
         case .quotes:
@@ -3597,7 +3919,7 @@ private enum CapabilityInfo: String, CaseIterable, Identifiable {
         case .punctuation:
             "Speak punctuation and paragraph controls naturally."
         case .commandMode:
-            "Open apps and run safe OmniVoice actions by voice."
+            "Open apps and run safe OmniSpeak actions by voice."
         case .literalMode:
             "Preserve exact words, paths, names, and code-like text."
         case .personalDictionary:
@@ -3682,7 +4004,7 @@ private enum CapabilityInfo: String, CaseIterable, Identifiable {
             ]
         case .personalDictionary:
             [
-                "Add OmniVoice, MLX, Parakeet TDT, or client names one per line.",
+                "Add OmniSpeak, MLX, Parakeet TDT, or client names one per line.",
                 "Dictionary terms are sent into cleanup so casing and names are preserved.",
             ]
         case .modelControl:
@@ -3746,7 +4068,7 @@ private enum CapabilityInfo: String, CaseIterable, Identifiable {
         case .dictation:
             "Turns a held hotkey into a local speech-to-text session, cleans the result, and inserts the final text into the foreground app."
         case .liveCaptions:
-            "Shows a lightweight caption overlay while audio is being processed, so you can see that OmniVoice is hearing you before final insertion."
+            "Shows a lightweight caption overlay while audio is being processed, so you can see that OmniSpeak is hearing you before final insertion."
         case .corrections:
             "Detects self-correction phrases and rewrites the previous clause instead of blindly appending every word you spoke."
         case .quotes:
@@ -3783,7 +4105,7 @@ private enum CapabilityInfo: String, CaseIterable, Identifiable {
         case .punctuation:
             "The words that name punctuation are transformed into formatting, giving you readable prose without manual cleanup."
         case .commandMode:
-            "OmniVoice performs the action, reports status, and avoids dumping the command words into the active text field."
+            "OmniSpeak performs the action, reports status, and avoids dumping the command words into the active text field."
         case .literalMode:
             "Cleanup backs off and preserves spacing, symbols, casing, and command-shaped text as closely as possible."
         case .personalDictionary:

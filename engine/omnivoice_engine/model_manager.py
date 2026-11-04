@@ -62,6 +62,9 @@ class ModelManager:
         whisper_mlx_dir = Path(
             os.environ.get("OMNIVOICE_WHISPER_MLX_MODEL_DIR", root / "whisper-large-v3-turbo-mlx-6bit")
         ).expanduser()
+        sensevoice_dir = Path(
+            os.environ.get("OMNIVOICE_SENSEVOICE_MODEL_DIR", root / "sensevoice-small-funasr")
+        ).expanduser()
         canary_dir = Path(os.environ.get("OMNIVOICE_CANARY_MODEL_DIR", root / "canary-qwen-2.5b")).expanduser()
         translategemma_dir = Path(
             os.environ.get("OMNIVOICE_TRANSLATEGEMMA_MLX_MODEL_DIR", root / "translategemma-mlx")
@@ -83,6 +86,9 @@ class ModelManager:
         ).expanduser()
         mlx_sortformer_fp32_dir = Path(
             os.environ.get("OMNIVOICE_MLX_SORTFORMER_FP32_DIR", root / "mlx-sortformer-streaming-fp32")
+        ).expanduser()
+        whisperx_pyannote_dir = Path(
+            os.environ.get("OMNIVOICE_WHISPERX_PYANNOTE_DIR", root / "whisperx-pyannote")
         ).expanduser()
 
         self.hub_api = hub_api or HfApi()
@@ -118,6 +124,19 @@ class ModelManager:
                 size="664 MB",
                 precision="6-bit",
                 license="mit",
+            ),
+            "sensevoice-small-funasr": ModelSpec(
+                provider_id="sensevoice-small-funasr",
+                label="SenseVoice Small FunASR",
+                repo_id="FunAudioLLM/SenseVoiceSmall",
+                local_dir=sensevoice_dir,
+                required_files=["config.yaml", "model.pt", "am.mvn", "chn_jpn_yue_eng_ko_spectok.bpe.model"],
+                allow_patterns=sensevoice_allow_patterns(),
+                recommendation="Fast Multilingual",
+                detail="Fast local multilingual ASR through FunASR/SenseVoice with CJK coverage and rich tags.",
+                size="900 MB",
+                precision="FP32",
+                license="model-license",
             ),
             "canary-qwen-2.5b": ModelSpec(
                 provider_id="canary-qwen-2.5b",
@@ -227,6 +246,20 @@ class ModelManager:
                 local_dir=mlx_sortformer_fp32_dir,
                 required_files=["config.json", "model.safetensors"],
                 allow_patterns=["config.json", "model.safetensors", "README.md"],
+            ),
+            "whisperx-pyannote": ModelSpec(
+                provider_id="whisperx-pyannote",
+                label="WhisperX + pyannote",
+                repo_id="pyannote/speaker-diarization-3.1",
+                local_dir=whisperx_pyannote_dir,
+                required_files=["config.yaml"],
+                allow_patterns=pyannote_allow_patterns(),
+                category="diarization",
+                recommendation="Offline Accuracy",
+                detail="High-quality offline transcription alignment and speaker diarization for saved conversations.",
+                requires_hf_auth=True,
+                agreement_url="https://huggingface.co/pyannote/speaker-diarization-3.1",
+                license="mit",
             ),
         }
 
@@ -564,6 +597,26 @@ def whisper_mlx_allow_patterns() -> list[str]:
         "merges.txt",
         "added_tokens.json",
         "special_tokens_map.json",
+        "README.md",
+    ]
+
+
+def sensevoice_allow_patterns() -> list[str]:
+    return [
+        "config.yaml",
+        "configuration.json",
+        "model.pt",
+        "am.mvn",
+        "chn_jpn_yue_eng_ko_spectok.bpe.model",
+        "README.md",
+    ]
+
+
+def pyannote_allow_patterns() -> list[str]:
+    return [
+        "config.yaml",
+        "handler.py",
+        "requirements.txt",
         "README.md",
     ]
 

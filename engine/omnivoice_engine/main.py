@@ -1,19 +1,22 @@
 import asyncio
 import base64
 import binascii
+import functools
 import hashlib
 import json
 import os
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from http.client import HTTPMessage
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable, TypeVar
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
@@ -54,6 +57,7 @@ from .schemas import (
     ModelStatus,
     ModelUpdateInfo,
     ProviderInfo,
+    ProviderWarmupResponse,
     SpeakerTurnRecord,
     ThemePayload,
     TranscriptRecord,
@@ -66,7 +70,7 @@ from .schemas import (
 )
 from .translation import TranslationRegistry, validate_translation_targets
 
-app = FastAPI(title="OmniVoice Local Engine")
+app = FastAPI(title="OmniSpeak Local Engine")
 registry = ProviderRegistry()
 diarization_registry = DiarizationRegistry()
 translation_registry = TranslationRegistry()
@@ -75,7 +79,7 @@ runtime_store = RuntimeStore()
 STARTED_MONOTONIC = time.monotonic()
 STATIC_DIR = Path(__file__).parent / "static"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DESKTOP_APP_PATH = REPO_ROOT / "dist" / "OmniVoice.app"
+DEFAULT_DESKTOP_APP_PATH = REPO_ROOT / "dist" / "OmniSpeak.app"
 DEFAULT_THEME_CSS_VARIABLES = {
     "--ov-accent": "#38BDF8",
     "--ov-accent-text": "#38BDF8",
@@ -101,7 +105,7 @@ class WebSearchResult:
 
 
 AI_CHAT_SYSTEM_PROMPT = (
-    "You are OmniVoice Ask AI, a full chat assistant inside a local dictation app. "
+    "You are OmniSpeak Ask AI, a full chat assistant inside a local dictation app. "
     "Answer naturally and directly. Use attached files, transcripts, conversations, "
     "and images when they are provided. If the user asks for editing or drafting, "
     "produce useful finished text and explain briefly only when that helps."
@@ -115,7 +119,24 @@ OPENAI_CODEX_RECOMMENDED_MODELS = [
     "gpt-5.2",
 ]
 _github_copilot_token_cache: dict[str, tuple[str, float]] = {}
+_ASR_WORKER_LOCK = threading.Lock()
+_ASR_WORKERS: dict[str, ThreadPoolExecutor] = {}
+_T = TypeVar("_T")
 app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
+
+
+def _asr_worker(provider_id: str) -> ThreadPoolExecutor:
+    with _ASR_WORKER_LOCK:
+        worker = _ASR_WORKERS.get(provider_id)
+        if worker is None:
+            worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"omnivoice-asr-{provider_id}")
+            _ASR_WORKERS[provider_id] = worker
+        return worker
+
+
+async def _run_asr(provider_id: str, func: Callable[..., _T], *args: object) -> _T:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_asr_worker(provider_id), functools.partial(func, *args))
 
 
 @app.middleware("http")
@@ -170,6 +191,38 @@ def default_theme() -> ThemePayload:
 @app.get("/providers", response_model=list[ProviderInfo])
 def providers() -> list[ProviderInfo]:
     return registry.list_providers()
+
+
+@app.post("/providers/{provider_id}/warmup", response_model=ProviderWarmupResponse)
+async def provider_warmup(provider_id: str) -> ProviderWarmupResponse:
+    try:
+        asr = registry.get(provider_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"unknown provider: {provider_id}") from exc
+
+    info = asr.info()
+    if not info.available:
+        raise HTTPException(status_code=503, detail=info.reason or f"provider unavailable: {provider_id}")
+
+    started = time.monotonic()
+    try:
+        await _run_asr(provider_id, asr.warm_up)
+    except Exception as exc:
+        runtime_store.record_event(
+            "provider.warmup.failed",
+            f"Provider warm-up failed for {provider_id}",
+            level="error",
+            detail={"provider": provider_id, "error": str(exc)},
+        )
+        raise HTTPException(status_code=502, detail=f"provider warm-up failed: {exc}") from exc
+
+    duration_ms = int((time.monotonic() - started) * 1000)
+    runtime_store.record_event(
+        "provider.warmup.completed",
+        f"Provider warm-up completed for {provider_id}",
+        detail={"provider": provider_id, "duration_ms": duration_ms},
+    )
+    return ProviderWarmupResponse(provider=provider_id, warmed=True, duration_ms=duration_ms)
 
 
 @app.get("/diarization/providers", response_model=list[ProviderInfo])
@@ -608,7 +661,7 @@ async def transcribe(request: Request, provider: str = Query(default="fake")) ->
 
     audio_bytes = await request.body()
     try:
-        text = asr.transcribe(audio_bytes)
+        text = await _run_asr(provider, asr.transcribe, audio_bytes)
     except Exception as exc:
         runtime_store.record_event(
             "transcribe.failed",
@@ -767,7 +820,7 @@ async def stream(
             await websocket.close()
             return
 
-    chunks: list[bytes] = []
+    audio_buffer = bytearray()
     chunk_count = 0
     partial_count = 0
     last_decode_size = 0
@@ -782,10 +835,10 @@ async def stream(
             bytes_message = message.get("bytes")
 
             if text_message == "__finish__":
-                combined = b"".join(chunks)
+                combined = bytes(audio_buffer)
                 started = time.monotonic()
                 try:
-                    final_text = await asyncio.to_thread(asr.transcribe_pcm_float32, combined, sample_rate)
+                    final_text = await _run_asr(provider, asr.transcribe_pcm_float32, combined, sample_rate)
                 except Exception as exc:
                     await websocket.send_json({"type": "error", "text": f"transcription failed: {exc}"})
                     runtime_store.record_event(
@@ -844,16 +897,17 @@ async def stream(
                 return
 
             if bytes_message:
-                chunks.append(bytes_message)
+                audio_buffer.extend(bytes_message)
                 chunk_count += 1
                 runtime_store.record_stream_chunk(provider=provider, chunk_bytes=len(bytes_message))
-                combined = b"".join(chunks)
                 now = time.monotonic()
-                enough_new_audio = len(combined) - last_decode_size >= partial_decode_bytes
+                audio_size = len(audio_buffer)
+                enough_new_audio = audio_size - last_decode_size >= partial_decode_bytes
                 enough_time = now - last_decode_time >= 1.0
                 if enough_new_audio and enough_time:
+                    combined = bytes(audio_buffer)
                     try:
-                        partial = await asyncio.to_thread(asr.transcribe_pcm_float32, combined, sample_rate)
+                        partial = await _run_asr(provider, asr.transcribe_pcm_float32, combined, sample_rate)
                     except Exception as exc:
                         await websocket.send_json({"type": "error", "text": f"transcription failed: {exc}"})
                         runtime_store.record_event(
@@ -885,7 +939,7 @@ async def stream(
                             translation_model_path=translation_model_path,
                         )
                     )
-                    last_decode_size = len(combined)
+                    last_decode_size = audio_size
                     last_decode_time = now
     except WebSocketDisconnect:
         runtime_store.record_stream_closed(provider=provider)
@@ -1526,7 +1580,7 @@ def export_events() -> Response:
     return Response(
         content=runtime_store.export_events(),
         media_type="application/x-ndjson",
-        headers={"Content-Disposition": 'attachment; filename="omnivoice-events.jsonl"'},
+        headers={"Content-Disposition": 'attachment; filename="omnispeak-events.jsonl"'},
     )
 
 
@@ -1535,7 +1589,7 @@ def export_transcripts() -> Response:
     return Response(
         content=runtime_store.export_transcripts(),
         media_type="application/x-ndjson",
-        headers={"Content-Disposition": 'attachment; filename="omnivoice-transcripts.jsonl"'},
+        headers={"Content-Disposition": 'attachment; filename="omnispeak-transcripts.jsonl"'},
     )
 
 
@@ -1612,7 +1666,7 @@ def duckduckgo_web_search(query: str, limit: int = 5) -> list[WebSearchResult]:
     request = urllib.request.Request(
         endpoint,
         headers={
-            "User-Agent": "OmniVoice/1.0 (+https://localhost)",
+            "User-Agent": "OmniSpeak/1.0 (+https://localhost)",
             "Accept": "text/html,application/xhtml+xml",
         },
         method="GET",
@@ -2406,12 +2460,15 @@ def extract_response_output_text(response: object) -> str:
 
 
 def desktop_app_path() -> Path:
-    configured_path = os.environ.get("OMNIVOICE_DESKTOP_APP_PATH")
+    configured_path = os.environ.get("OMNISPEAK_DESKTOP_APP_PATH") or os.environ.get("OMNIVOICE_DESKTOP_APP_PATH")
     if configured_path:
         return Path(configured_path).expanduser()
 
     candidates = [
         DEFAULT_DESKTOP_APP_PATH,
+        Path.home() / "Applications" / "OmniSpeak.app",
+        Path("/Applications/OmniSpeak.app"),
+        Path.home() / "Applications" / "OmniVoice.app",
         Path("/Applications/OmniVoice.app"),
     ]
     for candidate in candidates:

@@ -245,12 +245,12 @@ final class ConversationModelsTests: XCTestCase {
         XCTAssertTrue(transcript.contains("Speaker 1 [00:01]: First saved line."))
     }
 
-    func testConversationArchiveDefaultRootUsesDocumentsOmniVoice() {
+    func testConversationArchiveDefaultRootUsesDocumentsOmniSpeak() {
         let documents = URL(filePath: "/Users/tester/Documents", directoryHint: .isDirectory)
 
         let root = ConversationArchive.defaultRootURL(documentsURL: documents)
 
-        XCTAssertEqual(root.path, "/Users/tester/Documents/OmniVoice")
+        XCTAssertEqual(root.path, "/Users/tester/Documents/OmniSpeak")
     }
 
     func testConversationAudioSourceStoresDesignSourceFields() {

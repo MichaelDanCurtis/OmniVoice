@@ -402,6 +402,118 @@ class MlxStreamingSortformerProvider(DiarizationProvider):
         return normalized
 
 
+class WhisperXPyannoteProvider(DiarizationProvider):
+    id = "whisperx-pyannote"
+    label = "WhisperX + pyannote"
+    required_files = ("config.yaml",)
+
+    def __init__(
+        self,
+        model_dir: str | Path | None = None,
+        provider_id: str = "whisperx-pyannote",
+        label: str = "WhisperX + pyannote",
+    ) -> None:
+        self.id = provider_id
+        self.label = label
+        default_dir = default_model_root(__file__) / self.id
+        self.model_dir = Path(model_dir or os.environ.get("OMNIVOICE_WHISPERX_PYANNOTE_DIR", default_dir)).expanduser()
+        self._pipeline = None
+
+    def info(self) -> ProviderInfo:
+        missing = [filename for filename in self.required_files if not (self.model_dir / filename).exists()]
+        if missing:
+            return ProviderInfo(
+                id=self.id,
+                label=self.label,
+                available=False,
+                reason=f"WhisperX + pyannote model is not installed: {', '.join(missing)}",
+            )
+
+        missing_runtime = []
+        if importlib.util.find_spec("whisperx") is None:
+            missing_runtime.append("WhisperX")
+        try:
+            pyannote_available = importlib.util.find_spec("pyannote.audio") is not None
+        except ModuleNotFoundError:
+            pyannote_available = False
+        if not pyannote_available:
+            missing_runtime.append("pyannote.audio")
+        if missing_runtime:
+            return ProviderInfo(
+                id=self.id,
+                label=self.label,
+                available=False,
+                reason=f"{' and '.join(missing_runtime)} runtimes are not installed",
+            )
+
+        return ProviderInfo(id=self.id, label=self.label, available=True)
+
+    def assign_speaker(
+        self,
+        *,
+        session_id: str,
+        text: str,
+        start_ms: int,
+        end_ms: int | None,
+        existing_segments: list[ConversationSegmentRecord],
+        audio: DiarizationAudio | None = None,
+    ) -> SpeakerAssignment:
+        info = self.info()
+        if not info.available:
+            raise RuntimeError(info.reason)
+        if audio is None or not audio.pcm_float32:
+            raise RuntimeError("audio payload is required for WhisperX + pyannote diarization")
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as handle:
+            _write_float32_wav(handle.name, audio.pcm_float32, audio.sample_rate)
+            output = self._pyannote_pipeline()(handle.name)
+
+        normalized_output = self._normalize_pyannote_output(output)
+        target_start = max(0.0, (start_ms - audio.start_ms) / 1_000)
+        target_end = max(target_start, ((end_ms or start_ms) - audio.start_ms) / 1_000)
+        speaker_id, confidence = _dominant_speaker(
+            normalized_output,
+            target_start=target_start,
+            target_end=target_end,
+        )
+        return SpeakerAssignment(
+            speaker_id=speaker_id,
+            speaker_display_name=_display_name(speaker_id),
+            confidence=confidence,
+            speaker_turns=_speaker_turns(
+                normalized_output,
+                audio_start_ms=audio.start_ms,
+                source_provider=self.id,
+            ),
+        )
+
+    def _pyannote_pipeline(self):
+        if self._pipeline is not None:
+            return self._pipeline
+        from pyannote.audio import Pipeline
+
+        token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN") or None
+        self._pipeline = Pipeline.from_pretrained(str(self.model_dir), use_auth_token=token)
+        return self._pipeline
+
+    @staticmethod
+    def _normalize_pyannote_output(output: object) -> list[dict[str, object]]:
+        segments: list[dict[str, object]] = []
+        itertracks = getattr(output, "itertracks", None)
+        if callable(itertracks):
+            for segment, _track, speaker in itertracks(yield_label=True):
+                segments.append(
+                    {
+                        "speaker": speaker,
+                        "start": getattr(segment, "start", 0),
+                        "end": getattr(segment, "end", 0),
+                    }
+                )
+            return segments
+
+        return MlxStreamingSortformerProvider._normalize_output(output)
+
+
 class DiarizationRegistry:
     def __init__(self) -> None:
         self._providers: dict[str, DiarizationProvider] = {
@@ -415,11 +527,8 @@ class DiarizationRegistry:
                 "MLX Sortformer Streaming FP32",
             ),
             "local-heuristic": LocalHeuristicDiarizationProvider(),
-            "pyannote": UnavailableDiarizationProvider(
-                "pyannote",
-                "pyannote.audio",
-                "pyannote.audio runtime and model access are not configured in this local build",
-            ),
+            "whisperx-pyannote": WhisperXPyannoteProvider(),
+            "pyannote": WhisperXPyannoteProvider(provider_id="pyannote", label="pyannote.audio"),
         }
 
     def list_providers(self) -> list[ProviderInfo]:

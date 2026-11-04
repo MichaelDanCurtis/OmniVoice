@@ -5,6 +5,7 @@ import importlib.util
 import os
 import re
 import tempfile
+import threading
 import wave
 from pathlib import Path
 
@@ -23,6 +24,7 @@ class CanaryQwenProvider(ASRProvider):
         configured = model_dir or os.environ.get("OMNIVOICE_CANARY_MODEL_DIR")
         self.model_dir = Path(configured).expanduser() if configured else default_model_root(__file__) / self.id
         self._model = None
+        self._model_lock = threading.Lock()
 
     def info(self) -> ProviderInfo:
         missing = [filename for filename in self.required_files if not (self.model_dir / filename).exists()]
@@ -58,6 +60,12 @@ class CanaryQwenProvider(ASRProvider):
 
     def transcribe_pcm_float32(self, pcm_bytes: bytes, sample_rate: int) -> str:
         return self.transcribe_aligned_pcm_float32(pcm_bytes, sample_rate).text
+
+    def warm_up(self) -> None:
+        info = self.info()
+        if not info.available:
+            raise RuntimeError(info.reason)
+        self._get_model()
 
     def transcribe_aligned_pcm_float32(self, pcm_bytes: bytes, sample_rate: int) -> ASRTranscript:
         info = self.info()
@@ -95,9 +103,11 @@ class CanaryQwenProvider(ASRProvider):
 
     def _get_model(self):
         if self._model is None:
-            from nemo.collections.speechlm2.models import SALM
+            with self._model_lock:
+                if self._model is None:
+                    from nemo.collections.speechlm2.models import SALM
 
-            self._model = SALM.from_pretrained(str(self.model_dir))
+                    self._model = SALM.from_pretrained(str(self.model_dir))
         return self._model
 
     def _has_nemo_runtime(self) -> bool:

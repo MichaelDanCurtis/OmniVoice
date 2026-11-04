@@ -61,7 +61,12 @@ final class TranscriptCacheOverlayWindow {
             created.level = .floating
             created.ignoresMouseEvents = false
             created.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-            created.contentView = NSHostingView(rootView: TranscriptCacheOverlayView(state: state))
+            created.contentView = NSHostingView(rootView: TranscriptCacheOverlayView(
+                state: state,
+                onPick: { [weak self] index in
+                    self?.insert(index: index)
+                }
+            ))
             window = created
         }
 
@@ -85,6 +90,12 @@ final class TranscriptCacheOverlayWindow {
         tearDown()
         window?.orderOut(nil)
         onInsert?(transcript)
+    }
+
+    private func insert(index: Int) {
+        selectionState.select(index: index, count: state.transcripts.count)
+        state.selectedIndex = selectionState.selectedIndex
+        insertSelected()
     }
 
     private func moveSelection(delta: Int) {
@@ -153,6 +164,9 @@ final class TranscriptCacheOverlayWindow {
             moveSelection(delta: event.scrollingDeltaY > 0 ? -1 : 1)
             return true
         case .leftMouseDown:
+            if event.window === window {
+                return false
+            }
             insertSelected()
             return true
         case .rightMouseDown:
@@ -194,6 +208,7 @@ private final class TranscriptCacheOverlayState {
 
 private struct TranscriptCacheOverlayView: View {
     @Bindable var state: TranscriptCacheOverlayState
+    let onPick: (Int) -> Void
     @Environment(\.colorScheme) private var colorScheme
 
     private var theme: OmniVoiceTheme { state.theme }
@@ -261,6 +276,10 @@ private struct TranscriptCacheOverlayView: View {
                     accent: accent,
                     secondary: secondary
                 )
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    onPick(index)
+                }
             }
         }
     }

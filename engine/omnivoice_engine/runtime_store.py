@@ -477,16 +477,46 @@ class RuntimeStore:
 
     def _read_recent(self, path: Path, limit: int) -> list[dict[str, object]]:
         bounded_limit = max(1, min(limit, 1000))
-        lines = self._read_lines(path)
         recent: list[dict[str, object]] = []
-        for line in reversed(lines):
-            parsed = self._parse_lines([line])
+        for line in self._iter_recent_lines(path):
+            parsed = self._parse_line(line)
             if not parsed:
                 continue
-            recent.append(parsed[0])
+            recent.append(parsed)
             if len(recent) >= bounded_limit:
                 break
         return recent
+
+    def _iter_recent_lines(self, path: Path, block_size: int = 8192) -> Iterable[str]:
+        with self._lock:
+            if not path.exists():
+                return
+
+            with path.open("rb") as handle:
+                handle.seek(0, os.SEEK_END)
+                position = handle.tell()
+                remainder = b""
+
+                while position > 0:
+                    read_size = min(block_size, position)
+                    position -= read_size
+                    handle.seek(position)
+                    chunk = handle.read(read_size)
+                    lines = (chunk + remainder).split(b"\n")
+
+                    if position > 0:
+                        remainder = lines[0]
+                        lines = lines[1:]
+                    else:
+                        remainder = b""
+
+                    for raw_line in reversed(lines):
+                        if not raw_line:
+                            continue
+                        yield raw_line.decode("utf-8", errors="replace")
+
+                if remainder:
+                    yield remainder.decode("utf-8", errors="replace")
 
     def _read_lines(self, path: Path) -> list[str]:
         with self._lock:
@@ -497,16 +527,40 @@ class RuntimeStore:
     def _parse_lines(self, lines: Iterable[str]) -> list[dict[str, object]]:
         parsed: list[dict[str, object]] = []
         for line in lines:
-            try:
-                item = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(item, dict):
+            item = self._parse_line(line)
+            if item is not None:
                 parsed.append(item)
         return parsed
 
+    def _parse_line(self, line: str) -> dict[str, object] | None:
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(item, dict):
+            return item
+        return None
+
     def _line_count(self, path: Path) -> int:
-        return len(self._read_lines(path))
+        with self._lock:
+            if not path.exists():
+                return 0
+
+            count = 0
+            saw_bytes = False
+            last_byte = b""
+            with path.open("rb") as handle:
+                while True:
+                    chunk = handle.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    saw_bytes = True
+                    count += chunk.count(b"\n")
+                    last_byte = chunk[-1:]
+
+            if saw_bytes and last_byte != b"\n":
+                count += 1
+            return count
 
     def _read_text(self, path: Path) -> str:
         with self._lock:

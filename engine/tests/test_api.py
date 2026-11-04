@@ -1,5 +1,6 @@
 import io
 import json
+import threading
 import time
 import urllib.error
 
@@ -155,6 +156,42 @@ class ExplodingRegistry:
         return ExplodingASRProvider()
 
 
+class WarmableASRProvider:
+    id = "warmable"
+    label = "Warmable ASR"
+
+    def __init__(self):
+        self.warmup_count = 0
+        self.warmup_thread_id: int | None = None
+        self.transcribe_thread_id: int | None = None
+
+    def info(self):
+        from omnivoice_engine.schemas import ProviderInfo
+
+        return ProviderInfo(id=self.id, label=self.label, available=True)
+
+    def warm_up(self):
+        self.warmup_count += 1
+        self.warmup_thread_id = threading.get_ident()
+
+    def transcribe(self, audio_bytes: bytes):
+        self.transcribe_thread_id = threading.get_ident()
+        return "warm transcript"
+
+    def transcribe_pcm_float32(self, pcm_bytes: bytes, sample_rate: int):
+        return "warm transcript"
+
+
+class WarmableRegistry:
+    def __init__(self):
+        self.provider = WarmableASRProvider()
+
+    def get(self, provider_id: str):
+        if provider_id != self.provider.id:
+            raise KeyError(provider_id)
+        return self.provider
+
+
 def test_health_endpoint():
     response = client.get("/health")
 
@@ -166,7 +203,7 @@ def test_dashboard_root_returns_engine_console():
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "OmniVoice Engine" in response.text
+    assert "OmniSpeak Engine" in response.text
     assert "/assets/dashboard.js" in response.text
 
 
@@ -520,7 +557,7 @@ def test_ai_chat_endpoint_posts_history_and_context_attachments(monkeypatch, tmp
     assert captured["api_key"] == "test-key"
     assert captured["headers"] == {"X-Kimi": "enabled"}
     assert captured["messages"][0]["role"] == "system"
-    assert "OmniVoice Ask AI" in captured["messages"][0]["content"]
+    assert "OmniSpeak Ask AI" in captured["messages"][0]["content"]
     assert "Return only the text to insert" not in captured["messages"][0]["content"]
     assert captured["messages"][1]["role"] == "user"
     assert "Help me write to the mechanic." in captured["messages"][1]["content"]
@@ -1267,6 +1304,32 @@ def test_transcribe_endpoint_reports_provider_failure(monkeypatch):
 
     assert response.status_code == 502
     assert response.json()["detail"] == "transcription failed: decoder exploded"
+
+
+def test_provider_warmup_endpoint_loads_available_provider(monkeypatch):
+    registry = WarmableRegistry()
+    monkeypatch.setattr("omnivoice_engine.main.registry", registry, raising=False)
+
+    response = client.post("/providers/warmable/warmup")
+
+    assert response.status_code == 200
+    assert response.json()["provider"] == "warmable"
+    assert response.json()["warmed"] is True
+    assert response.json()["duration_ms"] >= 0
+    assert registry.provider.warmup_count == 1
+
+
+def test_provider_warmup_and_transcribe_share_asr_worker_thread(monkeypatch):
+    registry = WarmableRegistry()
+    monkeypatch.setattr("omnivoice_engine.main.registry", registry, raising=False)
+
+    warmup_response = client.post("/providers/warmable/warmup")
+    transcribe_response = client.post("/transcribe?provider=warmable", content=b"audio-bytes")
+
+    assert warmup_response.status_code == 200
+    assert transcribe_response.status_code == 200
+    assert registry.provider.warmup_thread_id is not None
+    assert registry.provider.transcribe_thread_id == registry.provider.warmup_thread_id
 
 
 def test_stream_endpoint_emits_partial_and_final_caption(monkeypatch, tmp_path):

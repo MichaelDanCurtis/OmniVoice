@@ -1,4 +1,4 @@
-# OmniVoice Integrations
+# OmniSpeak Integrations
 
 ## Raycast
 
@@ -8,7 +8,7 @@ They use the local engine API to show status, open the dashboard, open transcrip
 
 ## Claude Desktop
 
-OmniVoice works well in Claude Desktop as a normal text insertion utility. The app now strips Claude's `Type / for commands` placeholder when that hint appears as field content or transcript suffix.
+OmniSpeak works well in Claude Desktop as a normal text insertion utility. The app now strips Claude's `Type / for commands` placeholder when that hint appears as field content or transcript suffix.
 
 Useful defaults:
 
@@ -18,7 +18,7 @@ Useful defaults:
 
 ## Codex
 
-OmniVoice treats Codex as a rich composer. Live dictation stays in the caret-attached caption overlay, and final text is inserted through pasteboard-style insertion so Codex plugin chips are not flattened into prompt text. It still strips known Codex follow-up placeholder text when that hint appears as field content or transcript suffix.
+OmniSpeak treats Codex as a rich composer. Live dictation stays in the caret-attached caption overlay, and final text is inserted through pasteboard-style insertion so Codex plugin chips are not flattened into prompt text. It still strips known Codex follow-up placeholder text when that hint appears as field content or transcript suffix.
 
 Useful defaults:
 
@@ -28,7 +28,7 @@ Useful defaults:
 
 ## AI Handoff
 
-OmniVoice can route explicit AI commands through any OpenAI-compatible chat completions endpoint. Configure the endpoint in Settings -> Integrations:
+OmniSpeak can route explicit AI commands through any OpenAI-compatible chat completions endpoint. Configure the endpoint in Settings -> Integrations:
 
 - Base URL, for example `https://openrouter.ai/api/v1` or a local OpenAI-compatible server.
 - Model, for example `anthropic/claude-sonnet` or a local model name.
@@ -41,7 +41,7 @@ Supported phrases:
 - `Have OpenRouter take a look at this and respond in Spanish`
 - `Ask OpenAI, make this sound more professional`
 
-If text is selected when dictation starts, OmniVoice sends the selected text as foreground context. OAuth-specific Codex, Claude, Copilot, and provider-native account integrations are still planned; the active implementation is OpenAI-compatible API access.
+If text is selected when dictation starts, OmniSpeak sends the selected text as foreground context. OAuth-specific Codex, Claude, Copilot, and provider-native account integrations are still planned; the active implementation is OpenAI-compatible API access.
 
 ## Local API
 

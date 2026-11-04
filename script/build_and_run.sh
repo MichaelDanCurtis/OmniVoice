@@ -3,17 +3,19 @@ set -euo pipefail
 
 MODE="${1:-run}"
 APP_NAME="OmniVoiceApp"
-APP_DISPLAY_NAME="OmniVoice"
+# Keep the executable target and bundle identifier stable for macOS TCC permissions.
+APP_DISPLAY_NAME="OmniSpeak"
 BUNDLE_ID="com.omnivoice.OmniVoiceApp"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${OMNIVOICE_APP_VERSION:-3.0.0}"
-APP_BUILD="${OMNIVOICE_APP_BUILD:-1}"
-DMG_VOLUME_NAME="${OMNIVOICE_DMG_VOLUME_NAME:-OmniVoice}"
+APP_VERSION="${OMNISPEAK_APP_VERSION:-${OMNIVOICE_APP_VERSION:-3.0.0}}"
+APP_BUILD="${OMNISPEAK_APP_BUILD:-${OMNIVOICE_APP_BUILD:-1}}"
+DMG_VOLUME_NAME="${OMNISPEAK_DMG_VOLUME_NAME:-${OMNIVOICE_DMG_VOLUME_NAME:-OmniSpeak}}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_DISPLAY_NAME.app"
 LEGACY_APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
+LEGACY_DISPLAY_APP_BUNDLE="$DIST_DIR/OmniVoice.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
@@ -23,15 +25,15 @@ ENGINE_WHEELHOUSE_DIR="$ENGINE_BUNDLE_DIR/wheelhouse"
 PYTHON_RUNTIME_DIR="$APP_RESOURCES/Python"
 PYTHON_RUNTIME_VERSION="${OMNIVOICE_PYTHON_RUNTIME_VERSION:-3.12}"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
-RUN_APP_BUNDLE="${OMNIVOICE_RUN_APP_BUNDLE:-$HOME/Applications/$APP_DISPLAY_NAME.app}"
+RUN_APP_BUNDLE="${OMNISPEAK_RUN_APP_BUNDLE:-${OMNIVOICE_RUN_APP_BUNDLE:-$HOME/Applications/$APP_DISPLAY_NAME.app}}"
 ICON_SOURCE="$ROOT_DIR/Assets/AppIcon/OmniVoiceIcon.svg"
-ICONSET_DIR="$DIST_DIR/OmniVoice.iconset"
-ICON_DIST_FILE="$DIST_DIR/OmniVoice.icns"
-ICON_BUNDLE_FILE="$APP_RESOURCES/OmniVoice.icns"
+ICONSET_DIR="$DIST_DIR/OmniSpeak.iconset"
+ICON_DIST_FILE="$DIST_DIR/OmniSpeak.icns"
+ICON_BUNDLE_FILE="$APP_RESOURCES/OmniSpeak.icns"
 DOCS_BUNDLE_DIR="$APP_RESOURCES/Docs"
 INTEGRATIONS_BUNDLE_DIR="$APP_RESOURCES/Integrations"
 DMG_STAGING="$DIST_DIR/dmg-staging"
-DMG_PATH="$DIST_DIR/OmniVoice.dmg"
+DMG_PATH="$DIST_DIR/OmniSpeak.dmg"
 ENGINE_PID_FILE="$DIST_DIR/engine.pid"
 ENGINE_APP_PATH_FILE="$DIST_DIR/engine-app-path"
 LOCAL_CODESIGN_NAME="OmniVoice Local Development"
@@ -124,6 +126,7 @@ stop_engine() {
 
   pkill -f "$ROOT_DIR/engine/.venv/bin/uvicorn omnivoice_engine.main:app --host 127.0.0.1 --port 8765" >/dev/null 2>&1 || true
   pkill -f "Application Support/OmniVoice/engine-venv/bin/uvicorn omnivoice_engine.main:app --host 127.0.0.1 --port 8765" >/dev/null 2>&1 || true
+  pkill -f "Application Support/OmniSpeak/engine-venv/bin/uvicorn omnivoice_engine.main:app --host 127.0.0.1 --port 8765" >/dev/null 2>&1 || true
   pkill -f "$ROOT_DIR/scripts/run-engine.sh" >/dev/null 2>&1 || true
   rm -f "$ENGINE_PID_FILE" "$ENGINE_APP_PATH_FILE"
 }
@@ -193,10 +196,10 @@ ensure_engine() {
   mkdir -p "$DIST_DIR"
   if command -v tmux >/dev/null 2>&1; then
     tmux kill-session -t omnivoice-engine >/dev/null 2>&1 || true
-    tmux new-session -d -s omnivoice-engine "cd \"$ROOT_DIR\" && OMNIVOICE_DESKTOP_APP_PATH=\"$RUN_APP_BUNDLE\" OMNIVOICE_MODEL_ROOT=\"${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}\" OMNIVOICE_INSTALL_ASR=\"${OMNIVOICE_INSTALL_ASR:-1}\" OMNIVOICE_INSTALL_MLX_DIARIZATION=\"${OMNIVOICE_INSTALL_MLX_DIARIZATION:-1}\" OMNIVOICE_INSTALL_MLX_ASR=\"${OMNIVOICE_INSTALL_MLX_ASR:-1}\" scripts/run-engine.sh >>\"$DIST_DIR/engine.log\" 2>&1"
+    tmux new-session -d -s omnivoice-engine "cd \"$ROOT_DIR\" && OMNISPEAK_DESKTOP_APP_PATH=\"$RUN_APP_BUNDLE\" OMNIVOICE_DESKTOP_APP_PATH=\"$RUN_APP_BUNDLE\" OMNIVOICE_MODEL_ROOT=\"${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}\" OMNIVOICE_INSTALL_ASR=\"${OMNIVOICE_INSTALL_ASR:-1}\" OMNIVOICE_INSTALL_MLX_DIARIZATION=\"${OMNIVOICE_INSTALL_MLX_DIARIZATION:-1}\" OMNIVOICE_INSTALL_MLX_ASR=\"${OMNIVOICE_INSTALL_MLX_ASR:-1}\" scripts/run-engine.sh >>\"$DIST_DIR/engine.log\" 2>&1"
     echo "tmux:omnivoice-engine" >"$ENGINE_PID_FILE"
   else
-    nohup env OMNIVOICE_DESKTOP_APP_PATH="$RUN_APP_BUNDLE" OMNIVOICE_MODEL_ROOT="${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}" OMNIVOICE_INSTALL_ASR="${OMNIVOICE_INSTALL_ASR:-1}" OMNIVOICE_INSTALL_MLX_DIARIZATION="${OMNIVOICE_INSTALL_MLX_DIARIZATION:-1}" OMNIVOICE_INSTALL_MLX_ASR="${OMNIVOICE_INSTALL_MLX_ASR:-1}" "$ROOT_DIR/scripts/run-engine.sh" >"$DIST_DIR/engine.log" 2>&1 &
+    nohup env OMNISPEAK_DESKTOP_APP_PATH="$RUN_APP_BUNDLE" OMNIVOICE_DESKTOP_APP_PATH="$RUN_APP_BUNDLE" OMNIVOICE_MODEL_ROOT="${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}" OMNIVOICE_INSTALL_ASR="${OMNIVOICE_INSTALL_ASR:-1}" OMNIVOICE_INSTALL_MLX_DIARIZATION="${OMNIVOICE_INSTALL_MLX_DIARIZATION:-1}" OMNIVOICE_INSTALL_MLX_ASR="${OMNIVOICE_INSTALL_MLX_ASR:-1}" "$ROOT_DIR/scripts/run-engine.sh" >"$DIST_DIR/engine.log" 2>&1 &
     echo "$!" >"$ENGINE_PID_FILE"
   fi
   echo "$RUN_APP_BUNDLE" >"$ENGINE_APP_PATH_FILE"
@@ -505,6 +508,10 @@ if [[ "$LEGACY_APP_BUNDLE" != "$APP_BUNDLE" ]]; then
   make_bundle_writable_for_rebuild "$LEGACY_APP_BUNDLE"
   rm -rf "$LEGACY_APP_BUNDLE"
 fi
+if [[ "$LEGACY_DISPLAY_APP_BUNDLE" != "$APP_BUNDLE" ]]; then
+  make_bundle_writable_for_rebuild "$LEGACY_DISPLAY_APP_BUNDLE"
+  rm -rf "$LEGACY_DISPLAY_APP_BUNDLE"
+fi
 mkdir -p "$APP_MACOS" "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
@@ -519,7 +526,7 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleDisplayName</key>
   <string>$APP_DISPLAY_NAME</string>
   <key>CFBundleIconFile</key>
-  <string>OmniVoice</string>
+  <string>OmniSpeak</string>
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleName</key>
@@ -537,7 +544,7 @@ cat >"$INFO_PLIST" <<PLIST
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>OmniVoice uses the microphone for push-to-talk dictation.</string>
+  <string>OmniSpeak uses the microphone for push-to-talk dictation.</string>
 </dict>
 </plist>
 PLIST
@@ -555,7 +562,7 @@ sign_app_bundle
 
 unregister_stale_launch_services() {
   local stale_bundle
-  for stale_bundle in "$APP_BUNDLE" "$LEGACY_APP_BUNDLE" "$DMG_STAGING/$APP_DISPLAY_NAME.app"; do
+  for stale_bundle in "$APP_BUNDLE" "$LEGACY_APP_BUNDLE" "$LEGACY_DISPLAY_APP_BUNDLE" "$DMG_STAGING/$APP_DISPLAY_NAME.app" "$HOME/Applications/OmniVoice.app"; do
     if [[ "$stale_bundle" != "$RUN_APP_BUNDLE" ]]; then
       "$LSREGISTER" -u "$stale_bundle" >/dev/null 2>&1 || true
     fi
@@ -605,17 +612,19 @@ create_dmg() {
   ln -s /Applications "$DMG_STAGING/Applications"
 
   cat >"$DMG_STAGING/README.txt" <<README
-OmniVoice local build
+OmniSpeak local build
 
-Drag OmniVoice.app to Applications.
+Drag OmniSpeak.app to Applications.
 
-This package contains the desktop app, the OmniVoice engine source bundle, and an embedded Python runtime.
+This package contains the desktop app, the OmniSpeak engine source bundle, and an embedded Python runtime.
 
 On first launch, the app checks http://127.0.0.1:8765. If the engine is not already running, it starts the bundled engine and creates its Python virtual environment under:
 
-~/Library/Application Support/OmniVoice
+~/Library/Application Support/OmniSpeak
 
-OmniVoice includes its own Python runtime and a bundled Python wheelhouse for normal engine dependencies. Hugging Face model weights are downloaded locally and are not bundled into this DMG.
+If you already used a pre-rename OmniVoice build, the app reuses ~/Library/Application Support/OmniVoice so existing settings and downloaded models are not stranded.
+
+OmniSpeak includes its own Python runtime and a bundled Python wheelhouse for normal engine dependencies. Hugging Face model weights are downloaded locally and are not bundled into this DMG.
 
 This build is locally signed for development. Public distribution still needs Developer ID signing and notarization.
 README

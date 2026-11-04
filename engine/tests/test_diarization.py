@@ -1,7 +1,14 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from omnivoice_engine.diarization import DiarizationAudio, MlxStreamingSortformerProvider, NoDiarizationProvider, _dominant_speaker
+from omnivoice_engine.diarization import (
+    DiarizationAudio,
+    DiarizationRegistry,
+    MlxStreamingSortformerProvider,
+    NoDiarizationProvider,
+    WhisperXPyannoteProvider,
+    _dominant_speaker,
+)
 
 
 def _pretend_apple_silicon(monkeypatch):
@@ -196,3 +203,24 @@ def test_mlx_sortformer_provider_reports_runtime_import_error(monkeypatch, tmp_p
 
     assert info.available is False
     assert "MLX runtime exploded" in info.reason
+
+
+def test_whisperx_pyannote_provider_is_registered_as_offline_diarization_stack(monkeypatch):
+    monkeypatch.setenv("OMNIVOICE_WHISPERX_PYANNOTE_DIR", "/tmp/omnivoice-missing-whisperx-pyannote")
+
+    registry = DiarizationRegistry()
+
+    provider = next(item for item in registry.list_providers() if item.id == "whisperx-pyannote")
+    assert provider.label == "WhisperX + pyannote"
+    assert provider.available is False
+    assert "not installed" in provider.reason
+
+
+def test_whisperx_pyannote_provider_requires_runtime(tmp_path: Path, monkeypatch):
+    (tmp_path / "config.yaml").write_text("pipeline")
+    monkeypatch.setattr("omnivoice_engine.diarization.importlib.util.find_spec", lambda name: None)
+
+    info = WhisperXPyannoteProvider(tmp_path).info()
+
+    assert info.available is False
+    assert info.reason == "WhisperX and pyannote.audio runtimes are not installed"

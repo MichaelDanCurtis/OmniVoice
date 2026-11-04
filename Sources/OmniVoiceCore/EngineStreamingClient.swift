@@ -107,6 +107,14 @@ public struct TranslationStreamConfiguration: Codable, Equatable, Sendable {
 }
 
 public final class EngineStreamingClient: @unchecked Sendable {
+    private enum DiagnosticsEmission {
+        case immediate
+        case throttled
+    }
+
+    private static let diagnosticsThrottleNanoseconds: UInt64 = 250_000_000
+    private static let streamingPayloadDecoder = JSONDecoder()
+
     private let baseURL: URL
     private let session: URLSession
     private let queue = DispatchQueue(label: "omnivoice.engine.streaming")
@@ -116,6 +124,7 @@ public final class EngineStreamingClient: @unchecked Sendable {
     private var onUpdate: (@Sendable (TranscriptUpdate) -> Void)?
     private var onDiagnostics: (@Sendable (EngineStreamingDiagnostics) -> Void)?
     private var diagnostics: EngineStreamingDiagnostics = .idle
+    private var lastDiagnosticsEmissionNanoseconds: UInt64 = 0
 
     public init(baseURL: URL = URL(string: "ws://127.0.0.1:8765")!, session: URLSession = .shared) {
         self.baseURL = baseURL
@@ -210,17 +219,17 @@ public final class EngineStreamingClient: @unchecked Sendable {
     public func sendPCMFloat32(_ data: Data) {
         queue.async {
             guard let task = self.task, let token = self.connectionToken else {
-                self.updateDiagnostics {
+                self.updateDiagnostics({
                     $0.droppedChunks += 1
                     $0.droppedBytes += data.count
-                }
+                }, emission: .throttled)
                 return
             }
 
-            self.updateDiagnostics {
+            self.updateDiagnostics({
                 $0.chunksSent += 1
                 $0.bytesSent += data.count
-            }
+            }, emission: .throttled)
             task.send(.data(data)) { [weak self] error in
                 guard let self, let error else { return }
                 self.queue.async {
@@ -311,9 +320,30 @@ public final class EngineStreamingClient: @unchecked Sendable {
         self.task === task && connectionGate.isCurrent(token)
     }
 
-    private func updateDiagnostics(_ update: (inout EngineStreamingDiagnostics) -> Void) {
+    private func updateDiagnostics(
+        _ update: (inout EngineStreamingDiagnostics) -> Void,
+        emission: DiagnosticsEmission = .immediate
+    ) {
         update(&diagnostics)
-        onDiagnostics?(diagnostics)
+        emitDiagnostics(emission)
+    }
+
+    private func emitDiagnostics(_ emission: DiagnosticsEmission) {
+        guard let onDiagnostics else { return }
+
+        let now = DispatchTime.now().uptimeNanoseconds
+        switch emission {
+        case .immediate:
+            lastDiagnosticsEmissionNanoseconds = now
+            onDiagnostics(diagnostics)
+        case .throttled:
+            let elapsed = now - lastDiagnosticsEmissionNanoseconds
+            guard lastDiagnosticsEmissionNanoseconds == 0 || elapsed >= Self.diagnosticsThrottleNanoseconds else {
+                return
+            }
+            lastDiagnosticsEmissionNanoseconds = now
+            onDiagnostics(diagnostics)
+        }
     }
 
     private static func decode(_ json: String) -> TranscriptUpdate? {
@@ -324,7 +354,7 @@ public final class EngineStreamingClient: @unchecked Sendable {
 
         guard
             let data = json.data(using: .utf8),
-            let payload = try? JSONDecoder().decode(StreamingPayload.self, from: data)
+            let payload = try? streamingPayloadDecoder.decode(StreamingPayload.self, from: data)
         else {
             return nil
         }

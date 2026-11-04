@@ -26,8 +26,17 @@ mlx-asr = [
   "parakeet-mlx>=0.5.1",
   "mlx-audio>=0.4.3",
 ]
+sensevoice-asr = [
+  "funasr>=1.2.6",
+  "torch>=2.3.0",
+  "torchaudio>=2.3.0",
+]
 canary-asr = [
   "nemo_toolkit[asr,tts] @ git+https://github.com/NVIDIA/NeMo.git",
+]
+whisperx-pyannote = [
+  "whisperx>=3.3.0",
+  "pyannote.audio>=3.1.0",
 ]
 
 [tool.pytest.ini_options]

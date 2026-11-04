@@ -6,7 +6,17 @@ APP_RESOURCES_DIR="$(cd "$BUNDLED_ENGINE_ROOT/.." && pwd)"
 BUNDLED_PYTHON_BIN="$APP_RESOURCES_DIR/Python/bin/python3.12"
 BUNDLED_PYTHON_FALLBACK_BIN="$APP_RESOURCES_DIR/Python/bin/python3"
 BUNDLED_WHEELHOUSE_DIR="$BUNDLED_ENGINE_ROOT/wheelhouse"
-APP_SUPPORT_DIR="${OMNIVOICE_APP_SUPPORT_DIR:-$HOME/Library/Application Support/OmniVoice}"
+PREFERRED_APP_SUPPORT_DIR="$HOME/Library/Application Support/OmniSpeak"
+LEGACY_APP_SUPPORT_DIR="$HOME/Library/Application Support/OmniVoice"
+if [[ -n "${OMNISPEAK_APP_SUPPORT_DIR:-}" ]]; then
+  APP_SUPPORT_DIR="$OMNISPEAK_APP_SUPPORT_DIR"
+elif [[ -n "${OMNIVOICE_APP_SUPPORT_DIR:-}" ]]; then
+  APP_SUPPORT_DIR="$OMNIVOICE_APP_SUPPORT_DIR"
+elif [[ -d "$LEGACY_APP_SUPPORT_DIR" && ! -d "$PREFERRED_APP_SUPPORT_DIR" ]]; then
+  APP_SUPPORT_DIR="$LEGACY_APP_SUPPORT_DIR"
+else
+  APP_SUPPORT_DIR="$PREFERRED_APP_SUPPORT_DIR"
+fi
 VENV_DIR="${OMNIVOICE_ENGINE_VENV:-$APP_SUPPORT_DIR/engine-venv}"
 RUNTIME_ENGINE_ROOT="$APP_SUPPORT_DIR/engine-source"
 PYTHON_BIN="${OMNIVOICE_PYTHON:-}"
@@ -92,8 +102,8 @@ resolve_python() {
     fi
   done
 
-  echo "OmniVoice could not find a usable bundled Python 3.12+ runtime." >&2
-  echo "Reinstall OmniVoice, or set OMNIVOICE_PYTHON to a Python 3.12+ executable." >&2
+  echo "OmniSpeak could not find a usable bundled Python 3.12+ runtime." >&2
+  echo "Reinstall OmniSpeak, or set OMNIVOICE_PYTHON to a Python 3.12+ executable." >&2
   exit 127
 }
 
@@ -107,13 +117,13 @@ cp -R "$BUNDLED_ENGINE_ROOT/omnivoice_engine" "$RUNTIME_ENGINE_ROOT/"
 
 if [[ -x "$VENV_DIR/bin/python" ]]; then
   if ! python_is_supported "$VENV_DIR/bin/python" "3.12"; then
-    echo "Existing OmniVoice engine venv uses Python $(python_version_label "$VENV_DIR/bin/python"); rebuilding with $PYTHON_BIN." >&2
+    echo "Existing OmniSpeak engine venv uses Python $(python_version_label "$VENV_DIR/bin/python"); rebuilding with $PYTHON_BIN." >&2
     rm -rf "$VENV_DIR"
   else
     selected_base_prefix="$(python_base_prefix "$PYTHON_BIN")"
     existing_base_prefix="$(python_base_prefix "$VENV_DIR/bin/python")"
     if [[ -n "$selected_base_prefix" && -n "$existing_base_prefix" && "$selected_base_prefix" != "$existing_base_prefix" ]]; then
-      echo "Existing OmniVoice engine venv uses $existing_base_prefix; rebuilding with bundled Python at $selected_base_prefix." >&2
+      echo "Existing OmniSpeak engine venv uses $existing_base_prefix; rebuilding with bundled Python at $selected_base_prefix." >&2
       rm -rf "$VENV_DIR"
     fi
   fi
@@ -125,7 +135,7 @@ fi
 
 . "$VENV_DIR/bin/activate"
 if ! python_is_supported "$(command -v python)" "3.12"; then
-  echo "OmniVoice engine venv is not using Python 3.12 or newer after creation." >&2
+  echo "OmniSpeak engine venv is not using Python 3.12 or newer after creation." >&2
   exit 1
 fi
 
@@ -150,8 +160,8 @@ configure_pip_install_args() {
   fi
 
   if [[ ! -d "$BUNDLED_WHEELHOUSE_DIR" ]] || ! find "$BUNDLED_WHEELHOUSE_DIR" -type f \( -name "*.whl" -o -name "*.tar.gz" -o -name "*.zip" \) -print -quit | grep -q .; then
-    echo "Bundled OmniVoice Python wheelhouse is missing at $BUNDLED_WHEELHOUSE_DIR." >&2
-    echo "Reinstall OmniVoice, or set OMNIVOICE_USE_BUNDLED_WHEELHOUSE=0 to allow network package installation." >&2
+    echo "Bundled OmniSpeak Python wheelhouse is missing at $BUNDLED_WHEELHOUSE_DIR." >&2
+    echo "Reinstall OmniSpeak, or set OMNIVOICE_USE_BUNDLED_WHEELHOUSE=0 to allow network package installation." >&2
     exit 127
   fi
 
@@ -180,6 +190,10 @@ if [[ "${OMNIVOICE_INSTALL_MLX_ASR:-0}" = "1" ]]; then
   pip_install --no-build-isolation "$RUNTIME_ENGINE_ROOT[mlx-asr]" || echo "MLX ASR runtime install failed; continuing without it." >&2
 fi
 
+if [[ "${OMNIVOICE_INSTALL_SENSEVOICE_ASR:-0}" = "1" ]]; then
+  pip_install --no-build-isolation "$RUNTIME_ENGINE_ROOT[sensevoice-asr]" || echo "SenseVoice/FunASR runtime install failed; continuing without it." >&2
+fi
+
 if [[ "${OMNIVOICE_INSTALL_CANARY_ASR:-0}" = "1" ]]; then
   if ! python_module_available "nemo.collections.speechlm2.models"; then
     if ! pip_install --no-build-isolation "$RUNTIME_ENGINE_ROOT[canary-asr]"; then
@@ -193,13 +207,19 @@ if [[ "${OMNIVOICE_INSTALL_CANARY_ASR:-0}" = "1" ]]; then
   fi
 fi
 
+if [[ "${OMNIVOICE_INSTALL_WHISPERX_PYANNOTE:-0}" = "1" ]]; then
+  pip_install --no-build-isolation "$RUNTIME_ENGINE_ROOT[whisperx-pyannote]" || echo "WhisperX/pyannote runtime install failed; continuing without it." >&2
+fi
+
 export OMNIVOICE_MODEL_ROOT="${OMNIVOICE_MODEL_ROOT:-$APP_SUPPORT_DIR/models}"
 export OMNIVOICE_PARAKEET_MODEL_DIR="${OMNIVOICE_PARAKEET_MODEL_DIR:-$OMNIVOICE_MODEL_ROOT/parakeet-tdt}"
 export OMNIVOICE_PARAKEET_MLX_MODEL_DIR="${OMNIVOICE_PARAKEET_MLX_MODEL_DIR:-$OMNIVOICE_MODEL_ROOT/parakeet-tdt-mlx}"
 export OMNIVOICE_WHISPER_MLX_MODEL_DIR="${OMNIVOICE_WHISPER_MLX_MODEL_DIR:-$OMNIVOICE_MODEL_ROOT/whisper-large-v3-turbo-mlx-6bit}"
+export OMNIVOICE_SENSEVOICE_MODEL_DIR="${OMNIVOICE_SENSEVOICE_MODEL_DIR:-$OMNIVOICE_MODEL_ROOT/sensevoice-small-funasr}"
 export OMNIVOICE_CANARY_MODEL_DIR="${OMNIVOICE_CANARY_MODEL_DIR:-$OMNIVOICE_MODEL_ROOT/canary-qwen-2.5b}"
 export OMNIVOICE_MLX_SORTFORMER_FP16_DIR="${OMNIVOICE_MLX_SORTFORMER_FP16_DIR:-$OMNIVOICE_MODEL_ROOT/mlx-sortformer-streaming-fp16}"
 export OMNIVOICE_MLX_SORTFORMER_FP32_DIR="${OMNIVOICE_MLX_SORTFORMER_FP32_DIR:-$OMNIVOICE_MODEL_ROOT/mlx-sortformer-streaming-fp32}"
+export OMNIVOICE_WHISPERX_PYANNOTE_DIR="${OMNIVOICE_WHISPERX_PYANNOTE_DIR:-$OMNIVOICE_MODEL_ROOT/whisperx-pyannote}"
 export OMNIVOICE_ENGINE_DATA_DIR="${OMNIVOICE_ENGINE_DATA_DIR:-$APP_SUPPORT_DIR/engine-data}"
 
 mkdir -p "$OMNIVOICE_MODEL_ROOT" "$OMNIVOICE_ENGINE_DATA_DIR"

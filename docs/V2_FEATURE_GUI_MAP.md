@@ -1,4 +1,4 @@
-# OmniVoice V2 Feature GUI Map
+# OmniSpeak V2 Feature GUI Map
 
 Last updated: 2026-05-20
 

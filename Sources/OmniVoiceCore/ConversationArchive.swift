@@ -6,7 +6,13 @@ public enum ConversationArchive {
     ) -> URL {
         let base = documentsURL ?? URL(filePath: NSHomeDirectory(), directoryHint: .isDirectory)
             .appending(path: "Documents", directoryHint: .isDirectory)
-        return base.appending(path: "OmniVoice", directoryHint: .isDirectory)
+        let preferred = base.appending(path: ProductBrand.storageDirectoryName, directoryHint: .isDirectory)
+        let legacy = base.appending(path: ProductBrand.legacyStorageDirectoryName, directoryHint: .isDirectory)
+        if FileManager.default.fileExists(atPath: legacy.path),
+           !FileManager.default.fileExists(atPath: preferred.path) {
+            return legacy
+        }
+        return preferred
     }
 
     public static func markdown(for detail: ConversationDetail) -> String {

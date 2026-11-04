@@ -45,6 +45,14 @@ public struct TextInsertionEdit: Equatable, Sendable {
         sanitizedInsertionText(text, placeholderValues: [])
     }
 
+    public static func liveDraftAlreadyMatchesFinal(draftText: String, finalText: String) -> Bool {
+        let sanitizedDraft = sanitizedInsertionText(draftText)
+        guard !sanitizedDraft.isEmpty else {
+            return false
+        }
+        return sanitizedDraft == sanitizedInsertionText(finalText)
+    }
+
     private static func sanitizedInsertionText(_ text: String, placeholderValues: [String]) -> String {
         (placeholderValues + knownPlaceholderValues).reduce(text.trimmingCharacters(in: .whitespacesAndNewlines)) { result, placeholder in
             removingTrailingPlaceholder(placeholder, from: result)

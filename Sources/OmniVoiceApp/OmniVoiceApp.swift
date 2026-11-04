@@ -10,7 +10,7 @@ struct OmniVoiceApp: App {
     @State private var isEngineFrameExpanded = false
 
     var body: some Scene {
-        WindowGroup("OmniVoice", id: "control-panel") {
+        WindowGroup(ProductBrand.displayName, id: "control-panel") {
             controlPanelContent
             .task {
                 configureAppDelegateActions()
@@ -54,12 +54,12 @@ struct OmniVoiceApp: App {
         }
         .defaultSize(width: 1080, height: 760)
 
-        MenuBarExtra("OmniVoice", systemImage: "waveform") {
+        MenuBarExtra(ProductBrand.displayName, systemImage: "waveform") {
             MenuBarControlsView(
                 model: model,
                 showTestCaption: {
                     appDelegate.showOverlay(
-                        text: model.lastTestResult == "No test run yet" ? "OmniVoice is running" : model.lastTestResult,
+                        text: model.lastTestResult == "No test run yet" ? "\(ProductBrand.displayName) is running" : model.lastTestResult,
                         styleName: model.preferences.style.displayName,
                         theme: model.activeTheme
                     )
@@ -176,7 +176,7 @@ struct OmniVoiceApp: App {
 
     private func showTestCaption() {
         appDelegate.showOverlay(
-            text: model.lastTestResult == "No test run yet" ? "OmniVoice is running" : model.lastTestResult,
+            text: model.lastTestResult == "No test run yet" ? "\(ProductBrand.displayName) is running" : model.lastTestResult,
             styleName: model.preferences.style.displayName,
             theme: model.activeTheme
         )

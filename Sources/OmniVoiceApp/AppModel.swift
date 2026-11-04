@@ -191,6 +191,8 @@ final class AppModel {
     @ObservationIgnored private var deferredConversationAction: DeferredConversationAction?
     @ObservationIgnored private var liveDiarizationPreviewGeneration = 0
     @ObservationIgnored private var conversationAIContextSessionID: String?
+    @ObservationIgnored private var warmedSpeechProviderIDs: Set<String> = []
+    @ObservationIgnored private var warmingSpeechProviderIDs: Set<String> = []
     @ObservationIgnored var onHotkeysChanged: ((OmniVoicePreferences) -> Void)?
     @ObservationIgnored var onMouseShortcutsChanged: ((OmniVoicePreferences) -> Void)?
     @ObservationIgnored var onThemeChanged: ((OmniVoiceTheme, AppAppearanceMode) -> Void)?
@@ -1215,6 +1217,7 @@ final class AppModel {
         statusText = "ASR: \(normalizedProvider.rawValue)"
         Task {
             await refreshTranslationCapabilities()
+            scheduleSpeechModelWarmup()
         }
     }
 
@@ -1497,7 +1500,7 @@ final class AppModel {
 
         modelUpdateInfo = nil
         modelDownloadStatus = nil
-        statusText = "Diarization precision: \(precision.displayName)"
+        statusText = "Diarization model: \(precision.displayName)"
     }
 
     func setLiveTranslationEnabled(_ enabled: Bool) {
@@ -2099,7 +2102,7 @@ final class AppModel {
         do {
             let result = try await engineClient.aiHandoff(
                 AIHandoffRequest(
-                    prompt: "Reply with exactly: OmniVoice AI OK.",
+                    prompt: "Reply with exactly: OmniSpeak AI OK.",
                     provider: provider.rawValue,
                     baseURL: configuration.resolvedBaseURL,
                     model: configuration.trimmedModel,
@@ -2371,7 +2374,7 @@ final class AppModel {
         async let localSigningIdentityCount = Self.omniVoiceSigningIdentityCount()
 
         let currentAppPath = Bundle.main.bundleURL.path
-        let expectedAppPath = "\(NSHomeDirectory())/Applications/OmniVoice.app"
+        let expectedAppPath = "\(NSHomeDirectory())/Applications/\(ProductBrand.displayName).app"
         let appPathState: StartupCheckState = currentAppPath == expectedAppPath ? .passed : .failed
 
         let registrationCount = await launchServicesCount
@@ -2381,11 +2384,11 @@ final class AppModel {
         let signingState: StartupCheckState = signingIdentityCount == 1 ? .passed : .warning
         let signingDetail: String
         if signingIdentityCount == 1 {
-            signingDetail = "One OmniVoice signing identity is visible."
+            signingDetail = "One local signing identity is visible."
         } else if signingIdentityCount == 0 {
-            signingDetail = "No OmniVoice signing identity is visible to the user keychain search list."
+            signingDetail = "No local signing identity is visible to the user keychain search list."
         } else {
-            signingDetail = "\(signingIdentityCount) OmniVoice signing identities are visible. The launcher will probe signing and fall back if Apple blocks one."
+            signingDetail = "\(signingIdentityCount) local signing identities are visible. The launcher will probe signing and fall back if Apple blocks one."
         }
 
         let selectedModel = modelStatus(for: preferences.asrProvider)
@@ -2438,8 +2441,8 @@ final class AppModel {
                 id: "launch-services",
                 title: "Apple app registry",
                 detail: registrationCount == 1
-                    ? "One OmniVoice registration is active."
-                    : "\(registrationCount) OmniVoice registrations are active. Relaunch through the OmniVoice launcher to repair this.",
+                    ? "One OmniSpeak registration is active."
+                    : "\(registrationCount) OmniSpeak registrations are active. Relaunch through the OmniSpeak launcher to repair this.",
                 state: registrationState,
                 action: .refresh
             ),
@@ -2455,7 +2458,7 @@ final class AppModel {
                 title: "Accessibility",
                 detail: accessibilityTrusted
                     ? "Allowed for cursor detection and text insertion."
-                    : "Required for cursor detection and final text insertion. If it still shows required after allowing it, reset the OmniVoice Accessibility record.",
+                    : "Required for cursor detection and final text insertion. If it still shows required after allowing it, reset the OmniSpeak Accessibility record.",
                 state: accessibilityTrusted ? .passed : .failed,
                 action: accessibilityTrusted ? nil : .accessibility
             ),
@@ -2531,9 +2534,12 @@ final class AppModel {
             translationProviderStatuses = try await engineClient.translationProviders()
             modelStatuses = try await engineClient.models()
             await refreshTranslationCapabilities()
-            transcripts = (try? await engineClient.transcripts(limit: 100)) ?? transcripts
+            if let fetchedTranscripts = try? await engineClient.transcripts(limit: 200) {
+                transcripts = EngineTranscriptRecord.userVisibleHistory(from: fetchedTranscripts, limit: 100)
+            }
             engineState = .online
             statusText = "Engine online"
+            scheduleSpeechModelWarmup()
         } catch {
             if startEngineIfOffline {
                 let startResult = await EngineSupervisor.shared.startIfNeeded()
@@ -2564,7 +2570,8 @@ final class AppModel {
 
     func refreshTranscripts(updateStatus: Bool = true) async {
         do {
-            transcripts = try await engineClient.transcripts(limit: 100)
+            let fetchedTranscripts = try await engineClient.transcripts(limit: 200)
+            transcripts = EngineTranscriptRecord.userVisibleHistory(from: fetchedTranscripts, limit: 100)
             if updateStatus {
                 statusText = "Conversation history refreshed"
             }
@@ -3362,8 +3369,54 @@ final class AppModel {
             translationProviderStatuses = try await engineClient.translationProviders()
             modelStatuses = try await engineClient.models()
             await refreshTranslationCapabilities()
+            scheduleSpeechModelWarmup()
         } catch {
             statusText = "Provider status refresh failed"
+        }
+    }
+
+    private func scheduleSpeechModelWarmup() {
+        let provider = preferences.asrProvider.normalizedForUserSelection
+        guard provider != .fake else { return }
+        let providerID = provider.rawValue
+        guard !warmedSpeechProviderIDs.contains(providerID),
+              !warmingSpeechProviderIDs.contains(providerID) else {
+            return
+        }
+        guard providerInfo(for: provider)?.available == true else { return }
+        if let selectedModel = modelStatus(for: provider), !selectedModel.installed {
+            return
+        }
+
+        warmingSpeechProviderIDs.insert(providerID)
+        if statusText == "Engine online" || statusText.hasPrefix("ASR:") {
+            statusText = "Warming \(provider.displayName)"
+        }
+
+        Task { [weak self] in
+            await self?.warmSpeechModel(provider)
+        }
+    }
+
+    private func warmSpeechModel(_ provider: ASRProviderKind) async {
+        let providerID = provider.rawValue
+        defer {
+            warmingSpeechProviderIDs.remove(providerID)
+        }
+
+        do {
+            let result = try await engineClient.warmUpProvider(provider)
+            warmedSpeechProviderIDs.insert(providerID)
+            if preferences.asrProvider.normalizedForUserSelection == provider {
+                statusText = result.durationMS >= 1_000
+                    ? "\(provider.displayName) warmed in \(String(format: "%.1f", Double(result.durationMS) / 1000))s"
+                    : "\(provider.displayName) ready"
+            }
+        } catch {
+            warmedSpeechProviderIDs.remove(providerID)
+            if preferences.asrProvider.normalizedForUserSelection == provider {
+                statusText = "Speech model warm-up skipped"
+            }
         }
     }
 
@@ -3954,7 +4007,7 @@ final class AppModel {
             return 0
         }
 
-        return output.components(separatedBy: "identifier:                 com.omnivoice.OmniVoiceApp").count - 1
+        return output.components(separatedBy: "identifier:                 \(ProductBrand.bundleIdentifier)").count - 1
     }
 
     private static func omniVoiceSigningIdentityCount() async -> Int {

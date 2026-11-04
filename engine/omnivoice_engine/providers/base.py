@@ -42,6 +42,9 @@ class ASRProvider(ABC):
     def transcribe(self, audio_bytes: bytes) -> str:
         raise NotImplementedError
 
+    def warm_up(self) -> None:
+        return None
+
     def transcribe_pcm_float32(self, pcm_bytes: bytes, sample_rate: int) -> str:
         return self.transcribe(pcm_bytes)
 

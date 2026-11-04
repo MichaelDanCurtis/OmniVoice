@@ -184,6 +184,12 @@ class TranscribeResponse(BaseModel):
     provider: str
 
 
+class ProviderWarmupResponse(BaseModel):
+    provider: str
+    warmed: bool
+    duration_ms: int
+
+
 class ModelStatus(BaseModel):
     provider_id: str
     label: str

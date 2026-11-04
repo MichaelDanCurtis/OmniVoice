@@ -24,10 +24,16 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(ASRProviderKind.parakeetTDTMLX.rawValue, "parakeet-tdt-mlx")
         XCTAssertEqual(ASRProviderKind.whisperLargeV3TurboMLX6Bit.rawValue, "whisper-large-v3-turbo-mlx-6bit")
         XCTAssertEqual(ASRProviderKind.canaryQwen25B.rawValue, "canary-qwen-2.5b")
+        XCTAssertEqual(ASRProviderKind.senseVoiceSmall.rawValue, "sensevoice-small-funasr")
     }
 
     func testASRProviderUserSelectableCasesUseProductionLocalModels() {
-        XCTAssertEqual(ASRProviderKind.userSelectableCases, [.parakeetTDTMLX, .whisperLargeV3TurboMLX6Bit, .canaryQwen25B])
+        XCTAssertEqual(ASRProviderKind.userSelectableCases, [
+            .parakeetTDTMLX,
+            .whisperLargeV3TurboMLX6Bit,
+            .senseVoiceSmall,
+            .canaryQwen25B,
+        ])
         XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.fake))
         XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.parakeetTDT))
     }
@@ -37,15 +43,42 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(SpeechModelRecommendation.allCases.map(\.providerID), [
             "parakeet-tdt-mlx",
             "whisper-large-v3-turbo-mlx-6bit",
+            "sensevoice-small-funasr",
             "canary-qwen-2.5b",
         ])
         XCTAssertEqual(SpeechModelRecommendation.parakeetTDTMLX.displayName, "Parakeet TDT MLX")
         XCTAssertEqual(SpeechModelRecommendation.parakeetTDTMLX.badge, "Fast / Default")
         XCTAssertEqual(SpeechModelRecommendation.whisperLargeV3TurboMLX6Bit.displayName, "Whisper Large v3 Turbo MLX 6-bit")
         XCTAssertEqual(SpeechModelRecommendation.whisperLargeV3TurboMLX6Bit.badge, "Multilingual")
+        XCTAssertEqual(SpeechModelRecommendation.senseVoiceSmall.displayName, "SenseVoice Small FunASR")
+        XCTAssertEqual(SpeechModelRecommendation.senseVoiceSmall.badge, "Fast Multilingual")
         XCTAssertEqual(SpeechModelRecommendation.canaryQwen25B.displayName, "Canary-Qwen-2.5B")
         XCTAssertEqual(SpeechModelRecommendation.canaryQwen25B.badge, "English Accuracy")
         XCTAssertEqual(SpeechModelRecommendation.canaryQwen25B.providerKind, .canaryQwen25B)
+    }
+
+    func testSpeechModelRecommendationsExposeCapabilityProfiles() {
+        let parakeet = SpeechModelRecommendation.parakeetTDTMLX.capabilityProfile
+        XCTAssertEqual(parakeet.primaryUse, "Fastest English-first dictation")
+        XCTAssertEqual(parakeet.languageCoverage, "English-first with limited European-language auto-detect")
+        XCTAssertEqual(parakeet.languageHintBehavior, "Language picker is ignored by this model")
+        XCTAssertTrue(parakeet.pills.contains("Local"))
+        XCTAssertTrue(parakeet.pills.contains("Fastest"))
+
+        let whisper = SpeechModelRecommendation.whisperLargeV3TurboMLX6Bit.capabilityProfile
+        XCTAssertEqual(whisper.primaryUse, "Multilingual speech input")
+        XCTAssertEqual(whisper.autoDetectBehavior, "True multilingual auto-detect")
+        XCTAssertTrue(whisper.pills.contains("Multilingual"))
+
+        let senseVoice = SpeechModelRecommendation.senseVoiceSmall.capabilityProfile
+        XCTAssertEqual(senseVoice.primaryUse, "Fast multilingual dictation")
+        XCTAssertEqual(senseVoice.languageCoverage, "Mandarin, Cantonese, English, Japanese, and Korean-focused speech input")
+        XCTAssertTrue(senseVoice.pills.contains("FunASR"))
+        XCTAssertTrue(senseVoice.pills.contains("Emotion tags"))
+
+        let canary = SpeechModelRecommendation.canaryQwen25B.capabilityProfile
+        XCTAssertEqual(canary.primaryUse, "High-accuracy English dictation")
+        XCTAssertEqual(canary.setup, "Requires the optional Canary runtime")
     }
 
     func testASRProviderDisplayNamesAreReadableBeforeEngineRefresh() {
@@ -54,6 +87,7 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(ASRProviderKind.parakeetTDTMLX.displayName, "Parakeet TDT MLX")
         XCTAssertEqual(ASRProviderKind.whisperLargeV3TurboMLX6Bit.displayName, "Whisper Large v3 Turbo MLX 6-bit")
         XCTAssertEqual(ASRProviderKind.canaryQwen25B.displayName, "Canary-Qwen-2.5B")
+        XCTAssertEqual(ASRProviderKind.senseVoiceSmall.displayName, "SenseVoice Small FunASR")
     }
 
     func testEngineProviderContractDetectsStaleEngineProviderList() {
@@ -65,7 +99,7 @@ final class ModelsTests: XCTestCase {
 
         XCTAssertEqual(
             EngineProviderContract.missingRequiredASRProviderIDs(in: staleProviders),
-            ["whisper-large-v3-turbo-mlx-6bit"]
+            ["whisper-large-v3-turbo-mlx-6bit", "sensevoice-small-funasr"]
         )
 
         let currentProviders = ASRProviderKind.userSelectableCases.map {
@@ -77,7 +111,9 @@ final class ModelsTests: XCTestCase {
     func testDiarizationPrecisionMapsToMLXProviderIDs() {
         XCTAssertEqual(DiarizationPrecision.fp16.providerID, "mlx-sortformer-streaming-fp16")
         XCTAssertEqual(DiarizationPrecision.fp32.providerID, "mlx-sortformer-streaming-fp32")
+        XCTAssertEqual(DiarizationPrecision.whisperXPyannote.providerID, "whisperx-pyannote")
         XCTAssertEqual(DiarizationPrecision(providerID: "mlx-sortformer-streaming-fp32"), .fp32)
+        XCTAssertEqual(DiarizationPrecision(providerID: "whisperx-pyannote"), .whisperXPyannote)
         XCTAssertEqual(DiarizationPrecision(providerID: "unknown"), .fp16)
     }
 
@@ -98,6 +134,19 @@ final class ModelsTests: XCTestCase {
         ])
         XCTAssertEqual(TranslationModelRecommendation.translateGemma4B4Bit.displayName, "TranslateGemma 4B 4-bit")
         XCTAssertEqual(TranslationModelRecommendation.translateGemma4B4Bit.badge, "Fast / Recommended")
+    }
+
+    func testTranslationModelRecommendationsExposeCapabilityProfiles() {
+        let gemma = TranslationModelRecommendation.translateGemma4B4Bit.capabilityProfile
+        XCTAssertEqual(gemma.primaryUse, "Fast local translation")
+        XCTAssertEqual(gemma.languageCoverage, "Target languages are read from model capability metadata")
+        XCTAssertEqual(gemma.setup, "Requires Hugging Face agreement acceptance")
+        XCTAssertTrue(gemma.pills.contains("Local"))
+        XCTAssertTrue(gemma.pills.contains("Gated"))
+
+        let sarvam = TranslationModelRecommendation.sarvamTranslate4Bit.capabilityProfile
+        XCTAssertEqual(sarvam.primaryUse, "Indic-language translation")
+        XCTAssertTrue(sarvam.pills.contains("Indic"))
     }
 
     func testTextLLMProviderDefaultsExposeUsableProfiles() {
@@ -304,6 +353,17 @@ final class ModelsTests: XCTestCase {
         selection.reset(count: 0)
         XCTAssertEqual(selection.selectedIndex, 0)
         XCTAssertNil(selection.selected(from: [String]()))
+    }
+
+    func testTranscriptCacheSelectionCanSelectClickedItem() {
+        var selection = TranscriptCacheSelectionState(selectedIndex: 0)
+
+        selection.select(index: 2, count: 4)
+        XCTAssertEqual(selection.selectedIndex, 2)
+        XCTAssertEqual(selection.selected(from: ["a", "b", "c", "d"]), "c")
+
+        selection.select(index: 99, count: 4)
+        XCTAssertEqual(selection.selectedIndex, 2)
     }
 
     func testHotkeyBindingsSupportModifierOnlyChords() {

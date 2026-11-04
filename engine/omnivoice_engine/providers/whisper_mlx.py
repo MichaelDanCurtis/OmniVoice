@@ -4,6 +4,7 @@ import importlib.util
 import os
 import platform
 import tempfile
+import threading
 import wave
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ class WhisperMLXProvider(ASRProvider):
         configured = model_dir or os.environ.get("OMNIVOICE_WHISPER_MLX_MODEL_DIR")
         self.model_dir = Path(configured).expanduser() if configured else default_model_root(__file__) / self.id
         self._model = None
+        self._model_lock = threading.Lock()
 
     def info(self) -> ProviderInfo:
         if not self._is_apple_silicon_macos():
@@ -67,6 +69,12 @@ class WhisperMLXProvider(ASRProvider):
     def transcribe_pcm_float32(self, pcm_bytes: bytes, sample_rate: int) -> str:
         return self.transcribe_aligned_pcm_float32(pcm_bytes, sample_rate).text
 
+    def warm_up(self) -> None:
+        info = self.info()
+        if not info.available:
+            raise RuntimeError(info.reason)
+        self._get_model()
+
     def transcribe_aligned_pcm_float32(self, pcm_bytes: bytes, sample_rate: int) -> ASRTranscript:
         info = self.info()
         if not info.available:
@@ -100,9 +108,11 @@ class WhisperMLXProvider(ASRProvider):
 
     def _get_model(self):
         if self._model is None:
-            from mlx_audio.stt.utils import load_model
+            with self._model_lock:
+                if self._model is None:
+                    from mlx_audio.stt.utils import load_model
 
-            self._model = load_model(str(self.model_dir), lazy=False, strict=False)
+                    self._model = load_model(str(self.model_dir), lazy=False, strict=False)
         return self._model
 
     def _is_apple_silicon_macos(self) -> bool:

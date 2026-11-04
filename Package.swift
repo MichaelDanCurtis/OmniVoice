@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "OmniVoice",
+    name: "OmniSpeak",
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "OmniVoiceApp", targets: ["OmniVoiceApp"]),

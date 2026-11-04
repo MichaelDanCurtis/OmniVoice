@@ -1,10 +1,10 @@
-# OmniVoice Quick Reference
+# OmniSpeak Quick Reference
 
 ## Dictation
 
-Hold the dictation hotkey, speak, then release the hotkey. OmniVoice shows live captions while listening and inserts the cleaned text where your cursor was when dictation started.
+Hold the dictation hotkey, speak, then release the hotkey. OmniSpeak shows live captions while listening and inserts the cleaned text where your cursor was when dictation started.
 
-If the local engine is not already running, the Mac app tries to start the bundled engine automatically. The first launch may take longer while the bundled runtime is copied into OmniVoice's Application Support folder.
+If the local engine is not already running, the Mac app tries to start the bundled engine automatically. The first launch may take longer while the bundled runtime is copied into OmniSpeak's Application Support folder.
 
 ## Corrections
 
@@ -40,7 +40,7 @@ Becomes:
 
 ## Command Mode
 
-Start with `command`, then say an app-opening or OmniVoice command.
+Start with `command`, then say an app-opening or OmniSpeak command.
 
 Examples:
 
@@ -50,7 +50,7 @@ Examples:
 - `Command, undo last dictation`
 - `Command, show commands`
 
-Command mode opens supported applications and runs safe OmniVoice actions. It does not run shell commands, delete files, send messages, or take destructive actions.
+Command mode opens supported applications and runs safe OmniSpeak actions. It does not run shell commands, delete files, send messages, or take destructive actions.
 
 ## AI Handoff
 
@@ -63,13 +63,13 @@ Examples:
 - `Have OpenRouter take a look at this and respond in Spanish`
 - `Ask OpenAI, make this sound more professional`
 
-If selected text, conversations, notes, files, images, or audio are attached to the session, OmniVoice sends that context with the request. Only the AI response is inserted or displayed in the AI flow.
+If selected text, conversations, notes, files, images, or audio are attached to the session, OmniSpeak sends that context with the request. Only the AI response is inserted or displayed in the AI flow.
 
 ## Conversation Mode
 
 Open Conversation Mode from the menu bar, Settings, or the hot menu. Press Start to begin a live meeting capture.
 
-The live view shows streaming speaker blocks with timestamps. When local diarization is enabled and the Sortformer model is available, OmniVoice separates detected speaker turns locally. When diarization is off or unavailable, recording still works with generic transcript text.
+The live view shows streaming speaker blocks with timestamps. When local diarization is enabled and the Sortformer model is available, OmniSpeak separates detected speaker turns locally. When diarization is off or unavailable, recording still works with generic transcript text.
 
 The conversation AI panel runs only when you ask. It sends the current transcript as context and can answer questions, summarize, or extract action items without continuously monitoring the conversation.
 
@@ -106,7 +106,7 @@ Becomes:
 
 ## Per-App Profiles
 
-When the selected cleanup style is `Neutral`, OmniVoice applies a few automatic app profiles:
+When the selected cleanup style is `Neutral`, OmniSpeak applies a few automatic app profiles:
 
 - Terminal, Xcode, and VS Code use raw dictation.
 - Mail uses professional cleanup.
@@ -116,7 +116,7 @@ Pick an explicit cleanup style to override these automatic profiles.
 
 ## Personal Dictionary
 
-Add names, products, acronyms, and project terms in Settings. OmniVoice uses those entries to preserve configured casing during cleanup.
+Add names, products, acronyms, and project terms in Settings. OmniSpeak uses those entries to preserve configured casing during cleanup.
 
 ## Cleanup Styles
 

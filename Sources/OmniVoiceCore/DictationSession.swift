@@ -14,6 +14,15 @@ public struct DictationSession: Equatable, Sendable {
     public private(set) var finalTranscript: String
     public private(set) var finalTextToInsert: String
 
+    public var canStartCapture: Bool {
+        switch state {
+        case .idle, .failed:
+            true
+        case .listening, .cleaning, .inserting:
+            false
+        }
+    }
+
     public init(
         state: State = .idle,
         partialTranscript: String = "",

@@ -1,0 +1,38 @@
+<Window x:Class="OmniVoice.App.Windows.CaptionOverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="OmniVoice Caption"
+        Width="520"
+        Height="120"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize">
+    <Border CornerRadius="16"
+            Padding="16"
+            Background="#2406121C"
+            BorderBrush="#6638BDF8"
+            BorderThickness="1">
+        <StackPanel>
+            <TextBlock x:Name="StyleLabel"
+                       Foreground="#99F8FAFC"
+                       FontSize="11"
+                       Margin="0,0,0,6" />
+            <TextBlock x:Name="CaptionLabel"
+                       Foreground="#F8FAFC"
+                       FontSize="16"
+                       TextWrapping="Wrap"
+                       MaxHeight="72" />
+            <ProgressBar x:Name="LevelBar"
+                         Height="4"
+                         Margin="0,10,0,0"
+                         Minimum="0"
+                         Maximum="1"
+                         Value="0"
+                         Foreground="#38BDF8"
+                         Background="#2238BDF8" />
+        </StackPanel>
+    </Border>
+</Window>

@@ -525,6 +525,10 @@ final class PreferencesStoreTests: XCTestCase {
 
         preferences.cycleASRProvider()
 
+        XCTAssertEqual(preferences.asrProvider, .senseVoiceSmall)
+
+        preferences.cycleASRProvider()
+
         XCTAssertEqual(preferences.asrProvider, .canaryQwen25B)
 
         preferences.cycleASRProvider()

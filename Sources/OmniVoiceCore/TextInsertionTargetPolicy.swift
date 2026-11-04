@@ -15,10 +15,14 @@ public enum TextInsertionTargetPolicy {
         "electron",
         "firefox",
         "microsoft teams",
+        "microsoft rdc",
         "openai",
+        "rdc",
+        "remote desktop",
         "safari",
         "slack",
         "teams",
+        "windows app",
     ]
 
     public static func strategy(

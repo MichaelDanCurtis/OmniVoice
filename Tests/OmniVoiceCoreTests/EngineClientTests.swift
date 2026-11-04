@@ -25,6 +25,45 @@ final class EngineClientTests: XCTestCase {
         XCTAssertEqual(response, CleanupResult(text: "Schedule it for Tuesday.", cleanupApplied: true))
     }
 
+    func testTranscriptUserVisibleHistoryRemovesStreamEventsAndCleanupDuplicates() {
+        let records = [
+            EngineTranscriptRecord(
+                id: "cleanup-1",
+                createdAt: "2026-05-27T21:07:03.986934+00:00",
+                source: "cleanup",
+                rawText: "Notice that it doesn't seem to actually have the history correctly.",
+                cleanedText: "Notice that it doesn't seem to have the history correctly.",
+                style: "professional"
+            ),
+            EngineTranscriptRecord(
+                id: "transcribe-1",
+                createdAt: "2026-05-27T21:07:03.982250+00:00",
+                source: "transcribe",
+                rawText: "Notice that it doesn't seem to actually have the history correctly.",
+                provider: "parakeet-tdt-mlx"
+            ),
+            EngineTranscriptRecord(
+                id: "stream-1",
+                createdAt: "2026-05-27T21:07:03.783491+00:00",
+                source: "stream",
+                rawText: "Notice that it doesn't seem to actually have the history correctly.",
+                provider: "parakeet-tdt-mlx"
+            ),
+            EngineTranscriptRecord(
+                id: "transcribe-2",
+                createdAt: "2026-05-27T21:04:50.006555+00:00",
+                source: "transcribe",
+                rawText: "Here let me show you.",
+                provider: "parakeet-tdt-mlx"
+            ),
+        ]
+
+        let history = EngineTranscriptRecord.userVisibleHistory(from: records)
+
+        XCTAssertEqual(history.map(\.id), ["cleanup-1", "transcribe-2"])
+        XCTAssertEqual(history[0].displayText, "Notice that it doesn't seem to have the history correctly.")
+    }
+
     func testTranslationRequestEncodesSnakeCasePayload() throws {
         let request = TranslationRequest(
             text: "Hola",
@@ -143,6 +182,16 @@ final class EngineClientTests: XCTestCase {
 
         XCTAssertEqual(response.text, "hello")
         XCTAssertEqual(response.provider, .fake)
+    }
+
+    func testProviderWarmupResponseDecodesEnginePayload() throws {
+        let data = #"{"provider":"parakeet-tdt-mlx","warmed":true,"duration_ms":21407}"#.data(using: .utf8)!
+
+        let response = try EngineCoding.decoder.decode(EngineProviderWarmupResult.self, from: data)
+
+        XCTAssertEqual(response.provider, "parakeet-tdt-mlx")
+        XCTAssertTrue(response.warmed)
+        XCTAssertEqual(response.durationMS, 21407)
     }
 
     func testProviderInfoDecodesEnginePayload() throws {

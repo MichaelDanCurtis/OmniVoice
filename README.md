@@ -1,6 +1,6 @@
-# OmniVoice
+# OmniSpeak
 
-OmniVoice is a local-first macOS dictation app inspired by the push-to-talk workflow of Wispr Flow.
+OmniSpeak is a local-first macOS dictation app inspired by the push-to-talk workflow of Wispr Flow.
 
 Hold a configured hotkey, speak, see live captions while the app listens, then release the hotkey to insert cleaned text wherever the cursor was active.
 
@@ -35,6 +35,10 @@ Hold a configured hotkey, speak, see live captions while the app listens, then r
 
 The next major track is production distribution polish: Developer ID signing, notarization, a cleaner first-run installer experience, richer MCP-backed Ask AI actions, and long-term memory.
 
+## Repository Layout
+
+The macOS app remains at the repository root. The Windows port lives under [`Win/`](Win/), with its own `.NET/WPF` app, C# core tests, PowerShell engine launcher, and copied Python engine.
+
 ## Requirements
 
 - macOS 14+
@@ -52,7 +56,7 @@ engine/.venv/bin/python -m pytest engine/tests
 
 The local DMG is written to:
 
-`dist/OmniVoice.dmg`
+`dist/OmniSpeak.dmg`
 
 ## Engine
 
@@ -62,7 +66,9 @@ The desktop app expects the local engine at:
 
 If the engine is offline, the app starts the bundled engine launcher and creates runtime files under:
 
-`~/Library/Application Support/OmniVoice`
+`~/Library/Application Support/OmniSpeak`
+
+Pre-rename OmniVoice installs continue to use `~/Library/Application Support/OmniVoice` when that folder already exists, so downloaded models and settings stay available.
 
 The distributable app includes a bundled Python runtime, the local engine source, and a bundled Python wheelhouse for the core/ASR/MLX runtime packages. Model weights are not bundled; they are downloaded or selected through the app and stored under Application Support by default.
 

@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastInputLevel: Float = 0
     private var lastLevelOverlayUpdate = Date.distantPast
     private var insertionTarget: TextInsertionService.Target?
+    private var lastExternalInsertionTarget: TextInsertionService.Target?
     private var liveDraft: TextInsertionService.LiveDraft?
     private var didPromptForAccessibility = false
     private var permissionRefreshTimer: Timer?
@@ -123,7 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         process.arguments = [
             "reset",
             "Accessibility",
-            Bundle.main.bundleIdentifier ?? "com.omnivoice.OmniVoiceApp",
+            Bundle.main.bundleIdentifier ?? ProductBrand.bundleIdentifier,
         ]
 
         do {
@@ -169,7 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func insertTextAtCurrentCursor(_ text: String) async {
         guard let model else { return }
 
-        let target = insertionService.captureTarget()
+        let target = preferredExternalInsertionTarget()
         await insertCachedTranscript(text, target: target, model: model)
     }
 
@@ -178,6 +179,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         target: TextInsertionService.Target?,
         model: AppModel
     ) async {
+        guard let target else {
+            copyToPasteboard(text)
+            model.statusText = "Transcript copied - no insertion target"
+            return
+        }
+
         do {
             try await insertionService.insert(text, target: target)
             model.statusText = "Transcript inserted"
@@ -361,7 +368,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleMousePushToTalkPressed(model: AppModel) {
-        guard model.session.state == .idle else { return }
+        guard model.session.canStartCapture else { return }
 
         pendingDictationFinishTask?.cancel()
         pendingDictationFinishTask = nil
@@ -386,7 +393,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let target = insertionService.captureTarget()
+        let target = preferredExternalInsertionTarget()
         let anchor = NSEvent.mouseLocation
         let showPicker: ([EngineTranscriptRecord]) -> Void = { [weak self, weak model] transcripts in
             guard let self, let model else { return }
@@ -425,13 +432,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
 
-        if model.transcripts.isEmpty {
-            Task { @MainActor [weak model] in
-                guard let model else { return }
-                await model.refreshTranscripts(updateStatus: false)
-                showPicker(model.transcripts)
-            }
-        } else {
+        Task { @MainActor [weak model] in
+            guard let model else { return }
+            await model.refreshTranscripts(updateStatus: false)
             showPicker(model.transcripts)
         }
     }
@@ -607,6 +610,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startDictation(model: AppModel) {
         insertionTarget = insertionService.captureTarget()
+        rememberExternalInsertionTarget(insertionTarget)
         liveDraft = model.preferences.liveDraftInsertionEnabled
             ? insertionService.beginLiveDraft(target: insertionTarget)
             : nil
@@ -695,9 +699,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pendingDictationFinishTask = nil
         }
 
-        let audio: Data
+        let capture: AudioCaptureService.CaptureResult
         do {
-            audio = try audioCapture.stopWAVData()
+            capture = try audioCapture.stopCapture()
             recordingCuePlayer.playStopCue(preferences: model.preferences)
             model.statusText = "Transcribing"
             showOverlay(
@@ -716,9 +720,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        guard capture.speechActivity.containsLikelySpeech() else {
+            finishNoSpeech(model: model)
+            return
+        }
+
         let transcript: TranscribeResult
         do {
-            transcript = try await engineClient.transcribe(audio: audio, provider: model.preferences.asrProvider)
+            transcript = try await engineClient.transcribe(audio: capture.wavData, provider: model.preferences.asrProvider)
         } catch {
             await model.refreshProviderAndModelStatus()
             let message = model.transcriptionFailureMessage(for: error)
@@ -732,16 +741,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let rawTranscript = TextInsertionEdit.sanitizedInsertionText(transcript.text)
         guard !rawTranscript.isEmpty else {
-            model.session.fail("No speech detected")
-            model.statusText = "No speech detected"
-            streamingClient.cancel()
-            cancelLiveDraftIfNeeded()
-            showOverlay(
-                text: "No speech detected",
-                styleName: model.preferences.style.displayName,
-                level: 0,
-                anchorFrame: activeOverlayAnchor
-            )
+            finishNoSpeech(model: model)
             return
         }
 
@@ -780,6 +780,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.session.finishCleanup(insertionText)
         await insertFinalText(insertionText, model: model, successStatus: model.preferences.liveTranslationEnabled ? "Translated text inserted" : "Inserted")
         await model.refreshTranscripts(updateStatus: false)
+    }
+
+    private func finishNoSpeech(model: AppModel) {
+        model.session.fail("No speech detected")
+        model.statusText = "No speech detected"
+        dictationTriggerState.cancel()
+        streamingClient.cancel()
+        cancelLiveDraftIfNeeded()
+        showOverlay(
+            text: "No speech detected",
+            styleName: model.preferences.style.displayName,
+            level: 0,
+            anchorFrame: activeOverlayAnchor
+        )
+        model.session.reset()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+            self?.hideOverlay()
+        }
     }
 
     private func translatedTextIfNeeded(_ text: String, model: AppModel) async -> String {
@@ -1010,6 +1028,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // AX caret bounds vary too much across rich composers to move this
         // whole window without also dragging the meter away from the user.
         nil
+    }
+
+    private func preferredExternalInsertionTarget() -> TextInsertionService.Target? {
+        let target = insertionService.captureTarget()
+        if rememberExternalInsertionTarget(target) {
+            return target
+        }
+        return lastExternalInsertionTarget
+    }
+
+    @discardableResult
+    private func rememberExternalInsertionTarget(_ target: TextInsertionService.Target?) -> Bool {
+        guard let target,
+              let bundleIdentifier = target.application?.bundleIdentifier,
+              bundleIdentifier != Bundle.main.bundleIdentifier else {
+            return false
+        }
+        lastExternalInsertionTarget = target
+        return true
     }
 
     private func updateInputLevel(_ level: Float) {

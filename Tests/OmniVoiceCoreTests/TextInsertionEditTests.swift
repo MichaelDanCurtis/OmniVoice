@@ -111,6 +111,24 @@ final class TextInsertionEditTests: XCTestCase {
         )
     }
 
+    func testDetectsEquivalentLiveDraftAndFinalText() {
+        XCTAssertTrue(
+            TextInsertionEdit.liveDraftAlreadyMatchesFinal(
+                draftText: "For some reason, the transcription keeps repeating twice.",
+                finalText: "For some reason, the transcription keeps repeating twice."
+            )
+        )
+    }
+
+    func testDoesNotTreatEmptyLiveDraftAsFinalMatch() {
+        XCTAssertFalse(
+            TextInsertionEdit.liveDraftAlreadyMatchesFinal(
+                draftText: "",
+                finalText: "For some reason, the transcription keeps repeating twice."
+            )
+        )
+    }
+
     func testRejectsOutOfBoundsRangesWhenCurrentValueIsRealText() {
         let edit = TextInsertionEdit.make(
             currentValue: "Real text",

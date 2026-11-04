@@ -65,9 +65,27 @@ final class DictationSessionTests: XCTestCase {
         session.fail("Engine unavailable")
 
         XCTAssertEqual(session.state, .failed("Engine unavailable"))
+        XCTAssertTrue(session.canStartCapture)
 
         session.reset()
 
         XCTAssertEqual(session.state, .idle)
+    }
+
+    func testCanStartCaptureOnlyForIdleOrFailedSessions() {
+        var session = DictationSession()
+        XCTAssertTrue(session.canStartCapture)
+
+        session.pressHotkey()
+        XCTAssertFalse(session.canStartCapture)
+
+        session.releaseHotkey(finalTranscript: "raw")
+        XCTAssertFalse(session.canStartCapture)
+
+        session.finishCleanup("Cleaned.")
+        XCTAssertFalse(session.canStartCapture)
+
+        session.fail("No speech detected")
+        XCTAssertTrue(session.canStartCapture)
     }
 }

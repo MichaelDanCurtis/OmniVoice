@@ -1,5 +1,6 @@
 import importlib.util
 import sys
+from pathlib import Path
 from types import ModuleType
 from types import SimpleNamespace
 
@@ -7,6 +8,7 @@ from omnivoice_engine.providers.registry import ProviderRegistry
 from omnivoice_engine.providers.canary_qwen import CanaryQwenProvider
 from omnivoice_engine.providers.parakeet_sherpa import ParakeetSherpaProvider
 from omnivoice_engine.providers.parakeet_mlx import ParakeetMLXProvider
+from omnivoice_engine.providers.sensevoice_funasr import SenseVoiceFunASRProvider
 from omnivoice_engine.providers.whisper_mlx import WhisperMLXProvider
 
 
@@ -159,6 +161,81 @@ def test_whisper_mlx_provider_is_visible_as_multilingual_apple_silicon_backend(m
     assert whisper.available is False
     assert whisper.label == "Whisper Large v3 Turbo MLX 6-bit"
     assert "model files not found" in whisper.reason
+
+
+def test_sensevoice_provider_is_visible_as_fast_multilingual_backend(monkeypatch):
+    monkeypatch.setenv("OMNIVOICE_SENSEVOICE_MODEL_DIR", "/tmp/omnivoice-missing-sensevoice-model")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "funasr" else None)
+    registry = ProviderRegistry()
+
+    providers = registry.list_providers()
+
+    sensevoice = next(provider for provider in providers if provider.id == "sensevoice-small-funasr")
+    assert sensevoice.available is False
+    assert sensevoice.label == "SenseVoice Small FunASR"
+    assert "model files not found" in sensevoice.reason
+
+
+def test_sensevoice_provider_reports_missing_runtime(tmp_path, monkeypatch):
+    for filename in ["config.yaml", "model.pt", "am.mvn", "chn_jpn_yue_eng_ko_spectok.bpe.model"]:
+        (tmp_path / filename).write_text("model")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+
+    info = SenseVoiceFunASRProvider(str(tmp_path)).info()
+
+    assert info.available is False
+    assert info.reason == "FunASR runtime is not installed"
+
+
+def test_sensevoice_provider_transcribes_with_local_model_dir(tmp_path, monkeypatch):
+    captured = {}
+    fake_module = ModuleType("funasr")
+
+    for filename in ["config.yaml", "model.pt", "am.mvn", "chn_jpn_yue_eng_ko_spectok.bpe.model"]:
+        (tmp_path / filename).write_text("model")
+
+    class FakeModel:
+        def generate(self, **kwargs):
+            captured.update(kwargs)
+            return [{"text": "<|zh|><|NEUTRAL|><|Speech|>你好世界"}]
+
+    def fake_auto_model(**kwargs):
+        captured["constructor"] = kwargs
+        return FakeModel()
+
+    fake_module.AutoModel = fake_auto_model
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "funasr" else None)
+    monkeypatch.setitem(sys.modules, "funasr", fake_module)
+
+    result = SenseVoiceFunASRProvider(str(tmp_path)).transcribe(b"fake wav")
+
+    assert result == "你好世界"
+    assert captured["constructor"]["model"] == str(tmp_path)
+    assert captured["input"].endswith(".wav")
+    assert captured["language"] == "auto"
+
+
+def test_sensevoice_provider_transcribes_streamed_pcm_as_wav(tmp_path, monkeypatch):
+    captured = {}
+    fake_module = ModuleType("funasr")
+
+    for filename in ["config.yaml", "model.pt", "am.mvn", "chn_jpn_yue_eng_ko_spectok.bpe.model"]:
+        (tmp_path / filename).write_text("model")
+
+    class FakeModel:
+        def generate(self, **kwargs):
+            captured.update(kwargs)
+            captured["wav_header"] = Path(kwargs["input"]).read_bytes()[:4]
+            return [{"text": "streamed sensevoice"}]
+
+    fake_module.AutoModel = lambda **_kwargs: FakeModel()
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "funasr" else None)
+    monkeypatch.setitem(sys.modules, "funasr", fake_module)
+
+    transcript = SenseVoiceFunASRProvider(str(tmp_path)).transcribe_aligned_pcm_float32(b"\0\0\0\0" * 16, 16000)
+
+    assert transcript.text == "streamed sensevoice"
+    assert captured["wav_header"] == b"RIFF"
 
 
 def test_whisper_mlx_provider_requires_apple_silicon(monkeypatch):
