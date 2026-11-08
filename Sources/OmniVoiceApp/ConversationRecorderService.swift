@@ -121,7 +121,11 @@ final class ConversationRecorderService {
                     self?.audioBuffer.appendPCMFloat32(data, sampleRate: sampleRate)
                 }
             }
-            streamingClient.connect(provider: provider, sampleRate: Double(sampleRate))
+            streamingClient.connect(
+                provider: provider,
+                sampleRate: Double(sampleRate),
+                partialWindowSeconds: 30
+            )
             await waitForStreamOpen()
             guard diagnostics.state == .open else { throw RecorderError.streamUnavailable }
             let cueDuration = onBeforeAudioStart?() ?? 0

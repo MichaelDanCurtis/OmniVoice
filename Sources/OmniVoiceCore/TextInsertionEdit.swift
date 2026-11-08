@@ -41,6 +41,15 @@ public struct TextInsertionEdit: Equatable, Sendable {
         )
     }
 
+    public static func restoredPreviousValue(
+        currentValue: String,
+        insertedValue: String,
+        previousValue: String
+    ) -> String? {
+        guard currentValue == insertedValue else { return nil }
+        return previousValue
+    }
+
     public static func sanitizedInsertionText(_ text: String) -> String {
         sanitizedInsertionText(text, placeholderValues: [])
     }

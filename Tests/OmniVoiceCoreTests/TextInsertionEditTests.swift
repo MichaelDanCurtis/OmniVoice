@@ -121,4 +121,24 @@ final class TextInsertionEditTests: XCTestCase {
 
         XCTAssertNil(edit)
     }
+
+    func testRestoresPreviousValueWhenInsertedValueIsUnchanged() {
+        let restored = TextInsertionEdit.restoredPreviousValue(
+            currentValue: "Hello dictated",
+            insertedValue: "Hello dictated",
+            previousValue: "Hello "
+        )
+
+        XCTAssertEqual(restored, "Hello ")
+    }
+
+    func testRefusesRestoreWhenFieldChangedAfterInsertion() {
+        let restored = TextInsertionEdit.restoredPreviousValue(
+            currentValue: "Hello dictated plus later typing",
+            insertedValue: "Hello dictated",
+            previousValue: "Hello "
+        )
+
+        XCTAssertNil(restored)
+    }
 }
