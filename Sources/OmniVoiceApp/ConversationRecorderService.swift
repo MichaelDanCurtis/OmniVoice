@@ -25,9 +25,13 @@ final class ConversationRecorderService {
         }
     }
 
-    private let audioCapture: AudioCaptureService
+    private let audioCapture: any ConversationAudioCapturing
     private let streamingClient: EngineStreamingClient
     private var startedAt = Date()
+    /// Fixed lane identity for two-track capture. When set, every segment is
+    /// stamped with this speaker and model diarization is skipped — the lane's
+    /// capture topology already answers "who".
+    private var speakerOverride: TwoTrackSpeaker?
     private var isRecording = false
     private var isStopping = false
     private var activeSessionID: String?
@@ -50,7 +54,7 @@ final class ConversationRecorderService {
     var recordingActive: Bool { isRecording || isStopping }
 
     init(
-        audioCapture: AudioCaptureService = AudioCaptureService(),
+        audioCapture: any ConversationAudioCapturing = AudioCaptureService(),
         streamingClient: EngineStreamingClient = EngineStreamingClient()
     ) {
         self.audioCapture = audioCapture
@@ -62,6 +66,8 @@ final class ConversationRecorderService {
         provider: ASRProviderKind,
         microphoneID: String?,
         liveDiarizationEnabled: Bool,
+        speakerOverride: TwoTrackSpeaker? = nil,
+        referenceDate: Date = Date(),
         onBeforeAudioStart: (() -> TimeInterval)? = nil,
         onSegment: @escaping (ConversationSegmentCreateRequest) async -> Void,
         onAssistCard: @escaping (ConversationAssistCardCreateRequest) async -> Void
@@ -77,11 +83,15 @@ final class ConversationRecorderService {
         transcriptAccumulator = ConversationTranscriptAccumulator()
         audioBuffer.reset()
         segmentTiming = ConversationSegmentTiming()
-        self.liveDiarizationEnabled = liveDiarizationEnabled
+        // A lane with a fixed speaker never consults model diarization.
+        self.liveDiarizationEnabled = liveDiarizationEnabled && speakerOverride == nil
+        self.speakerOverride = speakerOverride
         lastLiveDiarizationRequestMs = nil
         lastLiveSegmentRequest = nil
         settledSegmentEmitted = false
-        startedAt = Date()
+        // Shared across lanes so both tracks' timestamps use one clock origin
+        // and merge chronologically with no offset arithmetic.
+        startedAt = referenceDate
         isRecording = true
         isStopping = false
         pendingUpdates.start(generation: generation)
@@ -111,7 +121,11 @@ final class ConversationRecorderService {
                     self?.audioBuffer.appendPCMFloat32(data, sampleRate: sampleRate)
                 }
             }
-            streamingClient.connect(provider: provider, sampleRate: Double(sampleRate))
+            streamingClient.connect(
+                provider: provider,
+                sampleRate: Double(sampleRate),
+                partialWindowSeconds: 30
+            )
             await waitForStreamOpen()
             guard diagnostics.state == .open else { throw RecorderError.streamUnavailable }
             let cueDuration = onBeforeAudioStart?() ?? 0
@@ -197,7 +211,10 @@ final class ConversationRecorderService {
         )
         let liveDiarizationAudioStartMs = max(0, nowMs - Self.liveDiarizationContextWindowMs)
         let shouldIncludeLiveDiarizationAudio = !isFinal && shouldRequestLiveDiarizationPreview(nowMs: nowMs)
-        let audio = audioPayload(
+        // Fixed-speaker lanes skip the audio payload entirely: it only exists to
+        // give the engine diarization context, and the engine skips diarization
+        // when a speaker is supplied.
+        let audio = speakerOverride != nil ? nil : audioPayload(
             isFinal: isFinal,
             timing: timing,
             nowMs: nowMs,
@@ -205,6 +222,8 @@ final class ConversationRecorderService {
             shouldIncludeLiveDiarizationAudio: shouldIncludeLiveDiarizationAudio
         )
         let request = ConversationSegmentCreateRequest(
+            speakerID: speakerOverride?.speakerID,
+            speakerDisplayName: speakerOverride?.displayName,
             audioStartMs: audioStartMs(
                 isFinal: isFinal,
                 timing: timing,

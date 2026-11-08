@@ -57,6 +57,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var liveDraftInsertionEnabled: Bool
     public var conversationArchiveFolderPath: String
     public var automaticallyArchiveConversations: Bool
+    /// How conversation mode captures audio: mic only, or mic + a system-audio
+    /// tap (two-track "me vs them" diarization by capture topology).
+    public var conversationCaptureMode: ConversationCaptureMode
     public var recordingSoundCuesEnabled: Bool
     public var recordingStartCueEnabled: Bool
     public var recordingStopCueEnabled: Bool
@@ -232,6 +235,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         liveDraftInsertionEnabled: Bool = false,
         conversationArchiveFolderPath: String = ConversationArchive.defaultRootURL().path,
         automaticallyArchiveConversations: Bool = true,
+        conversationCaptureMode: ConversationCaptureMode = .microphoneOnly,
         recordingSoundCuesEnabled: Bool = true,
         recordingStartCueEnabled: Bool = true,
         recordingStopCueEnabled: Bool = true,
@@ -312,6 +316,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         self.liveDraftInsertionEnabled = liveDraftInsertionEnabled
         self.conversationArchiveFolderPath = conversationArchiveFolderPath
         self.automaticallyArchiveConversations = automaticallyArchiveConversations
+        self.conversationCaptureMode = conversationCaptureMode
         self.recordingSoundCuesEnabled = recordingSoundCuesEnabled
         self.recordingStartCueEnabled = recordingStartCueEnabled
         self.recordingStopCueEnabled = recordingStopCueEnabled
@@ -425,6 +430,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
                 ?? ConversationArchive.defaultRootURL().path,
             automaticallyArchiveConversations: try container.decodeIfPresent(Bool.self, forKey: .automaticallyArchiveConversations)
                 ?? true,
+            conversationCaptureMode: try container.decodeIfPresent(ConversationCaptureMode.self, forKey: .conversationCaptureMode)
+                ?? .microphoneOnly,
             recordingSoundCuesEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingSoundCuesEnabled) ?? true,
             recordingStartCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStartCueEnabled) ?? true,
             recordingStopCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStopCueEnabled) ?? true,
@@ -507,6 +514,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
                 ?? ConversationArchive.defaultRootURL().path,
             automaticallyArchiveConversations: try container.decodeIfPresent(Bool.self, forKey: .automaticallyArchiveConversations)
                 ?? true,
+            conversationCaptureMode: try container.decodeIfPresent(ConversationCaptureMode.self, forKey: .conversationCaptureMode)
+                ?? .microphoneOnly,
             recordingSoundCuesEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingSoundCuesEnabled) ?? true,
             recordingStartCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStartCueEnabled) ?? true,
             recordingStopCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStopCueEnabled) ?? true,
@@ -528,6 +537,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case .whisperLargeV3TurboMLX6Bit:
             asrProvider = .canaryQwen25B
         case .canaryQwen25B:
+            asrProvider = .appleSpeech
+        case .appleSpeech:
             asrProvider = .parakeetTDTMLX
         case .fake, .parakeetTDT:
             asrProvider = .parakeetTDTMLX
@@ -796,6 +807,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case liveDraftInsertionEnabled = "live_draft_insertion_enabled"
         case conversationArchiveFolderPath = "conversation_archive_folder_path"
         case automaticallyArchiveConversations = "automatically_archive_conversations"
+        case conversationCaptureMode = "conversation_capture_mode"
         case recordingSoundCuesEnabled = "recording_sound_cues_enabled"
         case recordingStartCueEnabled = "recording_start_cue_enabled"
         case recordingStopCueEnabled = "recording_stop_cue_enabled"
@@ -853,6 +865,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case liveDraftInsertionEnabled
         case conversationArchiveFolderPath
         case automaticallyArchiveConversations
+        case conversationCaptureMode
         case recordingSoundCuesEnabled
         case recordingStartCueEnabled
         case recordingStopCueEnabled

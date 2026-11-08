@@ -23,7 +23,10 @@ struct SettingsView: View {
     @Namespace private var settingsTabNamespace
     @Environment(\.colorScheme) private var colorScheme
 
-    private let providerOrder = ASRProviderKind.userSelectableCases
+    // Apple Speech is offered only where the SpeechAnalyzer runtime exists.
+    private let providerOrder = ASRProviderKind.userSelectableCases.filter {
+        $0 != .appleSpeech || AppleSpeechAvailability.isSupported
+    }
 
     var body: some View {
         VStack(spacing: 0) {

@@ -28,6 +28,7 @@ final class TextInsertionService {
     enum InsertionError: LocalizedError {
         case accessibilityPermissionRequired
         case noInsertionToUndo
+        case insertionChanged
         case pasteboardUnavailable
         case syntheticTypingUnavailable
 
@@ -37,6 +38,8 @@ final class TextInsertionService {
                 "Accessibility permission is required to insert dictated text."
             case .noInsertionToUndo:
                 "There is no recent OmniSpeak insertion to undo."
+            case .insertionChanged:
+                "Text changed after dictation; nothing was undone."
             case .pasteboardUnavailable:
                 "The pasteboard was unavailable."
             case .syntheticTypingUnavailable:
@@ -49,6 +52,7 @@ final class TextInsertionService {
         let application: NSRunningApplication?
         let element: AXUIElement
         let previousText: String
+        let insertedValue: String
         let previousCursorLocation: Int
     }
 
@@ -182,7 +186,18 @@ final class TextInsertionService {
             try await Task.sleep(nanoseconds: 150_000_000)
         }
 
-        guard AXUIElementSetAttributeValue(record.element, kAXValueAttribute as CFString, record.previousText as CFString) == .success else {
+        guard let currentValue = Self.textState(for: record.element)?.currentValue else {
+            throw InsertionError.syntheticTypingUnavailable
+        }
+        guard let restoredValue = TextInsertionEdit.restoredPreviousValue(
+            currentValue: currentValue,
+            insertedValue: record.insertedValue,
+            previousValue: record.previousText
+        ) else {
+            throw InsertionError.insertionChanged
+        }
+
+        guard AXUIElementSetAttributeValue(record.element, kAXValueAttribute as CFString, restoredValue as CFString) == .success else {
             throw InsertionError.syntheticTypingUnavailable
         }
         _ = setCaretLocation(record.previousCursorLocation, in: record.element)
@@ -279,6 +294,7 @@ final class TextInsertionService {
             application: Self.application(for: focused),
             element: focused,
             previousText: currentValue,
+            insertedValue: edit.text,
             previousCursorLocation: selectedRange.location
         )
         if !setCaretLocation(edit.cursorLocation, in: focused) {
@@ -310,6 +326,7 @@ final class TextInsertionService {
                 application: draft.application,
                 element: draft.element,
                 previousText: draft.originalText,
+                insertedValue: edit.text,
                 previousCursorLocation: draft.selectedRange.location
             )
         }

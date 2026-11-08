@@ -106,6 +106,12 @@ public struct TranslationStreamConfiguration: Codable, Equatable, Sendable {
     }
 }
 
+enum EngineStreamingMessage: Equatable {
+    case ready
+    case update(TranscriptUpdate)
+    case error(String)
+}
+
 public final class EngineStreamingClient: @unchecked Sendable {
     private let baseURL: URL
     private let session: URLSession
@@ -144,7 +150,8 @@ public final class EngineStreamingClient: @unchecked Sendable {
     public func connect(
         provider: ASRProviderKind,
         sampleRate: Double,
-        translation: TranslationStreamConfiguration? = nil
+        translation: TranslationStreamConfiguration? = nil,
+        partialWindowSeconds: Int? = nil
     ) {
         queue.async {
             self.task?.cancel(with: .normalClosure, reason: nil)
@@ -172,12 +179,12 @@ public final class EngineStreamingClient: @unchecked Sendable {
                     baseURL: self.baseURL,
                     provider: provider,
                     sampleRate: sampleRate,
-                    translation: translation
+                    translation: translation,
+                    partialWindowSeconds: partialWindowSeconds
                 )
             )
             self.task = task
             task.resume()
-            self.updateDiagnostics { $0.state = .open }
             self.receiveNext(task: task, token: token)
         }
     }
@@ -186,7 +193,8 @@ public final class EngineStreamingClient: @unchecked Sendable {
         baseURL: URL,
         provider: ASRProviderKind,
         sampleRate: Double,
-        translation: TranslationStreamConfiguration? = nil
+        translation: TranslationStreamConfiguration? = nil,
+        partialWindowSeconds: Int? = nil
     ) -> URL {
         var components = URLComponents(url: baseURL.appending(path: "stream"), resolvingAgainstBaseURL: false)!
         var queryItems = [
@@ -202,6 +210,14 @@ public final class EngineStreamingClient: @unchecked Sendable {
                 URLQueryItem(name: "target_language", value: translation.targetLanguage),
                 URLQueryItem(name: "translation_model_path", value: translation.modelPath),
             ])
+        }
+        if let partialWindowSeconds {
+            queryItems.append(
+                URLQueryItem(
+                    name: "partial_window_seconds",
+                    value: String(max(1, partialWindowSeconds))
+                )
+            )
         }
 
         components.queryItems = queryItems
@@ -274,17 +290,32 @@ public final class EngineStreamingClient: @unchecked Sendable {
             self.queue.async {
                 guard self.isCurrent(task: task, token: token) else { return }
                 if case let .success(message) = result, case let .string(json) = message {
-                    if let update = Self.decode(json) {
-                        self.updateDiagnostics {
-                            $0.updatesReceived += 1
-                            if update.isFinal {
-                                $0.finalsReceived += 1
-                            } else {
-                                $0.partialsReceived += 1
+                    if let message = Self.decode(json) {
+                        switch message {
+                        case .ready:
+                            if self.diagnostics.state == .connecting {
+                                self.updateDiagnostics { $0.state = .open }
                             }
-                            $0.lastText = update.text
+                        case let .update(update):
+                            if self.diagnostics.state == .connecting {
+                                self.updateDiagnostics { $0.state = .open }
+                            }
+                            self.updateDiagnostics {
+                                $0.updatesReceived += 1
+                                if update.isFinal {
+                                    $0.finalsReceived += 1
+                                } else {
+                                    $0.partialsReceived += 1
+                                }
+                                $0.lastText = update.text
+                            }
+                            self.onUpdate?(update)
+                        case let .error(message):
+                            self.updateDiagnostics {
+                                $0.state = .failed
+                                $0.lastError = message
+                            }
                         }
-                        self.onUpdate?(update)
                     }
                     self.receiveNext(task: task, token: token)
                 } else if case .success = result {
@@ -292,7 +323,8 @@ public final class EngineStreamingClient: @unchecked Sendable {
                 } else {
                     if case let .failure(error) = result,
                        self.diagnostics.state != .closing,
-                       self.diagnostics.state != .cancelled {
+                       self.diagnostics.state != .cancelled,
+                       self.diagnostics.state != .failed {
                         self.updateDiagnostics {
                             $0.state = .failed
                             $0.lastError = error.localizedDescription
@@ -331,7 +363,7 @@ public final class EngineStreamingClient: @unchecked Sendable {
 
     private static let streamingDecoder = JSONDecoder()
 
-    private static func decode(_ json: String) -> TranscriptUpdate? {
+    static func decode(_ json: String) -> EngineStreamingMessage? {
         struct StreamingPayload: Decodable {
             let type: String
             let text: String
@@ -344,6 +376,15 @@ public final class EngineStreamingClient: @unchecked Sendable {
             return nil
         }
 
-        return TranscriptUpdate(text: payload.text, isFinal: payload.type == "final")
+        switch payload.type {
+        case "ready":
+            return .ready
+        case "partial", "final":
+            return .update(TranscriptUpdate(text: payload.text, isFinal: payload.type == "final"))
+        case "error":
+            return .error(payload.text)
+        default:
+            return nil
+        }
     }
 }

@@ -517,6 +517,10 @@ final class PreferencesStoreTests: XCTestCase {
 
         preferences.cycleASRProvider()
 
+        XCTAssertEqual(preferences.asrProvider, .appleSpeech)
+
+        preferences.cycleASRProvider()
+
         XCTAssertEqual(preferences.asrProvider, .parakeetTDTMLX)
     }
 
@@ -639,6 +643,22 @@ final class PreferencesStoreTests: XCTestCase {
 
     func testEntitlementSnapshotDataDefaultsNil() {
         XCTAssertNil(OmniVoicePreferences.defaults.entitlementSnapshotData)
+    }
+
+    func testConversationCaptureModeDefaultsToMicrophoneOnlyAndRoundTrips() throws {
+        XCTAssertEqual(OmniVoicePreferences.defaults.conversationCaptureMode, .microphoneOnly)
+
+        let suiteName = "OmniVoicePreferencesStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = PreferencesStore(userDefaults: defaults)
+        var preferences = OmniVoicePreferences.defaults
+        preferences.conversationCaptureMode = .microphoneAndSystemAudio
+
+        try store.save(preferences)
+
+        XCTAssertEqual(try store.load().conversationCaptureMode, .microphoneAndSystemAudio)
     }
 
     func testModifierOnlyHotkeysRoundTripThroughStore() throws {

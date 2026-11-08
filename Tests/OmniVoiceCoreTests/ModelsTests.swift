@@ -27,7 +27,10 @@ final class ModelsTests: XCTestCase {
     }
 
     func testASRProviderUserSelectableCasesUseProductionLocalModels() {
-        XCTAssertEqual(ASRProviderKind.userSelectableCases, [.parakeetTDTMLX, .whisperLargeV3TurboMLX6Bit, .canaryQwen25B])
+        XCTAssertEqual(
+            ASRProviderKind.userSelectableCases,
+            [.parakeetTDTMLX, .whisperLargeV3TurboMLX6Bit, .canaryQwen25B, .appleSpeech]
+        )
         XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.fake))
         XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.parakeetTDT))
     }

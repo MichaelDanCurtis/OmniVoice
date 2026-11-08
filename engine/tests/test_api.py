@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from omnivoice_engine import main as engine_main
 from omnivoice_engine.main import app
 from omnivoice_engine.runtime_store import RuntimeStore
-from omnivoice_engine.schemas import HuggingFaceAuthStatus, ModelDownloadStatus, ModelStatus, ModelUpdateInfo
+from omnivoice_engine.schemas import HuggingFaceAuthStatus, ModelDownloadStatus, ModelStatus, ModelUpdateInfo, ProviderInfo
 
 
 client = TestClient(app)
@@ -1273,7 +1273,7 @@ def test_stream_endpoint_emits_partial_and_final_caption(monkeypatch, tmp_path):
     store = RuntimeStore(tmp_path)
     monkeypatch.setattr("omnivoice_engine.main.runtime_store", store, raising=False)
     with client.websocket_connect("/stream?provider=fake&sample_rate=16000") as websocket:
-        assert websocket.receive_json() == {"type": "partial", "text": "listening"}
+        assert websocket.receive_json() == {"type": "ready", "text": ""}
 
         websocket.send_bytes(b"0" * 64_000)
         assert websocket.receive_json() == {"type": "partial", "text": "fake transcript"}
@@ -1304,7 +1304,7 @@ def test_stream_endpoint_can_translate_partial_and_final_captions(monkeypatch, t
     with client.websocket_connect(
         "/stream?provider=fake&sample_rate=16000&translate=true&translation_provider=fake&target_language=es"
     ) as websocket:
-        assert websocket.receive_json() == {"type": "partial", "text": "listening"}
+        assert websocket.receive_json() == {"type": "ready", "text": ""}
 
         websocket.send_bytes(b"0" * 64_000)
         assert websocket.receive_json() == {
@@ -1336,7 +1336,7 @@ def test_stream_endpoint_reports_provider_failure(monkeypatch):
     monkeypatch.setattr("omnivoice_engine.main.registry", ExplodingRegistry(), raising=False)
 
     with client.websocket_connect("/stream?provider=exploding&sample_rate=16000") as websocket:
-        assert websocket.receive_json() == {"type": "partial", "text": "listening"}
+        assert websocket.receive_json() == {"type": "ready", "text": ""}
 
         websocket.send_bytes(b"0" * 64_000)
 
@@ -1344,3 +1344,69 @@ def test_stream_endpoint_reports_provider_failure(monkeypatch):
             "type": "error",
             "text": "transcription failed: decoder exploded",
         }
+
+
+def test_transcribe_endpoint_offloads_blocking_inference(monkeypatch):
+    captured = {}
+
+    class OffloadASR:
+        def info(self):
+            return ProviderInfo(id="offload", label="Offload", available=True)
+
+        def transcribe(self, audio_bytes):
+            captured["audio_bytes"] = audio_bytes
+            return "offloaded transcript"
+
+    class OffloadRegistry:
+        def get(self, provider_id):
+            assert provider_id == "offload"
+            return OffloadASR()
+
+    async def fake_to_thread(function, *args):
+        captured["function_name"] = function.__name__
+        return function(*args)
+
+    monkeypatch.setattr("omnivoice_engine.main.registry", OffloadRegistry(), raising=False)
+    monkeypatch.setattr(engine_main.asyncio, "to_thread", fake_to_thread)
+
+    response = client.post("/transcribe?provider=offload", content=b"audio-bytes")
+
+    assert response.status_code == 200
+    assert response.json() == {"text": "offloaded transcript", "provider": "offload"}
+    assert captured == {
+        "audio_bytes": b"audio-bytes",
+        "function_name": "transcribe",
+    }
+
+
+def test_stream_endpoint_bounds_partial_audio_but_finishes_with_full_audio(monkeypatch, tmp_path):
+    store = RuntimeStore(tmp_path)
+    decoded_lengths = []
+
+    class RecordingASR:
+        def info(self):
+            return ProviderInfo(id="recording", label="Recording", available=True)
+
+        def transcribe_pcm_float32(self, pcm_bytes, sample_rate):
+            assert sample_rate == 16_000
+            decoded_lengths.append(len(pcm_bytes))
+            return "recorded transcript"
+
+    class RecordingRegistry:
+        def get(self, provider_id):
+            assert provider_id == "recording"
+            return RecordingASR()
+
+    monkeypatch.setattr("omnivoice_engine.main.runtime_store", store, raising=False)
+    monkeypatch.setattr("omnivoice_engine.main.registry", RecordingRegistry(), raising=False)
+
+    with client.websocket_connect(
+        "/stream?provider=recording&sample_rate=16000&partial_window_seconds=1"
+    ) as websocket:
+        assert websocket.receive_json() == {"type": "ready", "text": ""}
+        websocket.send_bytes(b"0" * 128_000)
+        assert websocket.receive_json()["type"] == "partial"
+        websocket.send_text("__finish__")
+        assert websocket.receive_json()["type"] == "final"
+
+    assert decoded_lengths == [64_000, 128_000]

@@ -608,7 +608,7 @@ async def transcribe(request: Request, provider: str = Query(default="fake")) ->
 
     audio_bytes = await request.body()
     try:
-        text = asr.transcribe(audio_bytes)
+        text = await asyncio.to_thread(asr.transcribe, audio_bytes)
     except Exception as exc:
         runtime_store.record_event(
             "transcribe.failed",
@@ -704,6 +704,7 @@ async def stream(
     source_language: str = "auto",
     target_language: str = "en",
     translation_model_path: str = "",
+    partial_window_seconds: int = 0,
 ) -> None:
     await websocket.accept()
     runtime_store.record_stream_opened(provider=provider, sample_rate=sample_rate)
@@ -767,13 +768,18 @@ async def stream(
             await websocket.close()
             return
 
-    chunks: list[bytes] = []
+    chunks = bytearray()
     chunk_count = 0
     partial_count = 0
     last_decode_size = 0
     last_decode_time = 0.0
     partial_decode_bytes = max(4096, sample_rate * 4)
-    await websocket.send_json({"type": "partial", "text": "listening"})
+    partial_window_bytes = (
+        max(4096, sample_rate * 4 * partial_window_seconds)
+        if partial_window_seconds > 0
+        else None
+    )
+    await websocket.send_json({"type": "ready", "text": ""})
 
     try:
         while True:
@@ -782,7 +788,7 @@ async def stream(
             bytes_message = message.get("bytes")
 
             if text_message == "__finish__":
-                combined = b"".join(chunks)
+                combined = bytes(chunks)
                 started = time.monotonic()
                 try:
                     final_text = await asyncio.to_thread(asr.transcribe_pcm_float32, combined, sample_rate)
@@ -844,16 +850,24 @@ async def stream(
                 return
 
             if bytes_message:
-                chunks.append(bytes_message)
+                chunks.extend(bytes_message)
                 chunk_count += 1
                 runtime_store.record_stream_chunk(provider=provider, chunk_bytes=len(bytes_message))
-                combined = b"".join(chunks)
                 now = time.monotonic()
-                enough_new_audio = len(combined) - last_decode_size >= partial_decode_bytes
+                enough_new_audio = len(chunks) - last_decode_size >= partial_decode_bytes
                 enough_time = now - last_decode_time >= 1.0
                 if enough_new_audio and enough_time:
+                    partial_audio = (
+                        bytes(chunks[-partial_window_bytes:])
+                        if partial_window_bytes is not None
+                        else bytes(chunks)
+                    )
                     try:
-                        partial = await asyncio.to_thread(asr.transcribe_pcm_float32, combined, sample_rate)
+                        partial = await asyncio.to_thread(
+                            asr.transcribe_pcm_float32,
+                            partial_audio,
+                            sample_rate,
+                        )
                     except Exception as exc:
                         await websocket.send_json({"type": "error", "text": f"transcription failed: {exc}"})
                         runtime_store.record_event(
@@ -863,7 +877,7 @@ async def stream(
                             detail={
                                 "provider": provider,
                                 "sample_rate": sample_rate,
-                                "audio_bytes": len(combined),
+                                "audio_bytes": len(chunks),
                                 "chunk_count": chunk_count,
                                 "partial_count": partial_count,
                                 "error": str(exc),
@@ -885,7 +899,7 @@ async def stream(
                             translation_model_path=translation_model_path,
                         )
                     )
-                    last_decode_size = len(combined)
+                    last_decode_size = len(chunks)
                     last_decode_time = now
     except WebSocketDisconnect:
         runtime_store.record_stream_closed(provider=provider)

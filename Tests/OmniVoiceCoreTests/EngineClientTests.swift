@@ -690,4 +690,42 @@ final class EngineClientTests: XCTestCase {
         XCTAssertEqual(object["source_references"] as? [String], ["Obsidian/adoption-2025.md"])
         XCTAssertEqual(object["confidence"] as? Double, 0.78)
     }
+
+    func testStreamingMessageDecodesReady() throws {
+        let message = try XCTUnwrap(EngineStreamingClient.decode(#"{"type":"ready","text":""}"#))
+        XCTAssertEqual(message, .ready)
+    }
+
+    func testStreamingMessageDecodesErrorSeparatelyFromTranscript() throws {
+        let message = try XCTUnwrap(EngineStreamingClient.decode(
+            #"{"type":"error","text":"transcription failed: decoder exploded"}"#
+        ))
+        XCTAssertEqual(message, .error("transcription failed: decoder exploded"))
+    }
+
+    func testStreamingMessageDecodesPartialAndFinal() throws {
+        let partial = try XCTUnwrap(EngineStreamingClient.decode(#"{"type":"partial","text":"hello"}"#))
+        let final = try XCTUnwrap(EngineStreamingClient.decode(#"{"type":"final","text":"hello"}"#))
+
+        XCTAssertEqual(partial, .update(TranscriptUpdate(text: "hello", isFinal: false)))
+        XCTAssertEqual(final, .update(TranscriptUpdate(text: "hello", isFinal: true)))
+    }
+
+    func testStreamingMessageRejectsMalformedPayload() {
+        XCTAssertNil(EngineStreamingClient.decode("not json"))
+    }
+
+    func testStreamingURLIncludesPartialWindowWhenConfigured() {
+        let url = EngineStreamingClient.streamURL(
+            baseURL: URL(string: "ws://127.0.0.1:8765")!,
+            provider: .parakeetTDTMLX,
+            sampleRate: 16_000,
+            partialWindowSeconds: 30
+        )
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let items = components?.queryItems ?? []
+        let query = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+
+        XCTAssertEqual(query["partial_window_seconds"], "30")
+    }
 }
