@@ -81,7 +81,11 @@ class ParakeetMLXProvider(ASRProvider):
         return self._transcribe_file_aligned(audio_path).text
 
     def _transcribe_file_aligned(self, audio_path: str) -> ASRTranscript:
-        result = self._get_model().transcribe(audio_path)
+        model = self._get_model()
+        mel = self._audio_features(audio_path, model.preprocessor_config)
+        if mel is None:
+            return ASRTranscript(text="")
+        result = model.generate(mel)[0]
         text = getattr(result, "text", str(result)).strip()
         raw_sentences = getattr(result, "sentences", None) or []
 
@@ -101,6 +105,23 @@ class ParakeetMLXProvider(ASRProvider):
             )
 
         return ASRTranscript(text=text, sentences=tuple(sentences), tokens=tuple(all_tokens))
+
+    def _audio_features(self, audio_path: str, config):
+        # Parakeet's file transcription helper shells out to ffmpeg. Decode the
+        # app's audio with the bundled Python libraries instead, including when
+        # Finder launches the app with no developer tools on PATH.
+        import librosa
+        import mlx.core as mx
+        import soundfile as sf
+        from parakeet_mlx.audio import get_logmel
+
+        samples, sample_rate = sf.read(audio_path, dtype="float32", always_2d=True)
+        samples = samples.mean(axis=1)
+        if sample_rate != config.sample_rate and samples.size:
+            samples = librosa.resample(samples, orig_sr=sample_rate, target_sr=config.sample_rate)
+        if samples.size < config.hop_length:
+            return None
+        return get_logmel(mx.array(samples), config)
 
     def _get_model(self):
         if self._model is None:

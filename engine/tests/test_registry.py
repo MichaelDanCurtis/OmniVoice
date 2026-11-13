@@ -85,9 +85,11 @@ def test_mlx_parakeet_provider_transcribes_with_local_model_dir(tmp_path, monkey
         (tmp_path / filename).write_text("model")
 
     class FakeModel:
-        def transcribe(self, audio_path):
-            captured["audio_path"] = audio_path
-            return SimpleNamespace(text="hello from mlx")
+        preprocessor_config = object()
+
+        def generate(self, mel):
+            assert mel == "mel features"
+            return [SimpleNamespace(text="hello from mlx")]
 
     def fake_from_pretrained(model_path):
         captured["model_path"] = model_path
@@ -98,6 +100,12 @@ def test_mlx_parakeet_provider_transcribes_with_local_model_dir(tmp_path, monkey
     monkeypatch.setattr("platform.machine", lambda: "arm64")
     monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "parakeet_mlx" else None)
     monkeypatch.setitem(sys.modules, "parakeet_mlx", fake_module)
+
+    def fake_features(self, audio_path, config):
+        captured["audio_path"] = audio_path
+        return "mel features"
+
+    monkeypatch.setattr(ParakeetMLXProvider, "_audio_features", fake_features)
 
     result = ParakeetMLXProvider(str(tmp_path)).transcribe(b"fake wav")
 
@@ -113,8 +121,10 @@ def test_mlx_parakeet_provider_preserves_aligned_tokens(tmp_path, monkeypatch):
         (tmp_path / filename).write_text("model")
 
     class FakeModel:
-        def transcribe(self, _audio_path):
-            return SimpleNamespace(
+        preprocessor_config = object()
+
+        def generate(self, _mel):
+            return [SimpleNamespace(
                 text="hello world",
                 sentences=[
                     SimpleNamespace(
@@ -128,13 +138,15 @@ def test_mlx_parakeet_provider_preserves_aligned_tokens(tmp_path, monkeypatch):
                         ],
                     )
                 ],
-            )
+            )]
 
     fake_module.from_pretrained = lambda _model_path: FakeModel()
     monkeypatch.setattr("platform.system", lambda: "Darwin")
     monkeypatch.setattr("platform.machine", lambda: "arm64")
     monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "parakeet_mlx" else None)
     monkeypatch.setitem(sys.modules, "parakeet_mlx", fake_module)
+
+    monkeypatch.setattr(ParakeetMLXProvider, "_audio_features", lambda *args: "mel features")
 
     transcript = ParakeetMLXProvider(str(tmp_path)).transcribe_aligned_pcm_float32(b"\0\0\0\0" * 16, 16000)
 

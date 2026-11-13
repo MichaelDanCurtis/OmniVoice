@@ -443,6 +443,9 @@ PY
   fi
   rm -f "$requirements_file"
 
+  "$bundled_python" "$ROOT_DIR/scripts/verify-bundled-runtime.py" \
+    "$bundled_python" "$ENGINE_BUNDLE_DIR"
+
   find "$ENGINE_WHEELHOUSE_DIR" -name "__pycache__" -type d -prune -exec rm -rf {} +
   find "$ENGINE_WHEELHOUSE_DIR" -name "*.pyc" -type f -delete
   find "$ENGINE_WHEELHOUSE_DIR" -name "*.pyo" -type f -delete

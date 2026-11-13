@@ -173,11 +173,11 @@ if [[ "${OMNIVOICE_INSTALL_ASR:-1}" = "1" ]]; then
 fi
 
 if [[ "${OMNIVOICE_INSTALL_MLX_DIARIZATION:-0}" = "1" ]]; then
-  pip_install --no-build-isolation "$RUNTIME_ENGINE_ROOT[mlx-diarization]" || echo "MLX diarization runtime install failed; continuing without it." >&2
+  pip_install --no-build-isolation "$RUNTIME_ENGINE_ROOT[mlx-diarization]" || { echo "Bundled MLX diarization runtime installation failed; see the pip error above." >&2; exit 1; }
 fi
 
 if [[ "${OMNIVOICE_INSTALL_MLX_ASR:-0}" = "1" ]]; then
-  pip_install --no-build-isolation "$RUNTIME_ENGINE_ROOT[mlx-asr]" || echo "MLX ASR runtime install failed; continuing without it." >&2
+  pip_install --no-build-isolation "$RUNTIME_ENGINE_ROOT[mlx-asr]" || { echo "Bundled MLX ASR runtime installation failed; see the pip error above." >&2; exit 1; }
 fi
 
 if [[ "${OMNIVOICE_INSTALL_CANARY_ASR:-0}" = "1" ]]; then
