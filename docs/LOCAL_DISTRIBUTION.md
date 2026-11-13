@@ -13,6 +13,12 @@ The output is:
 - `dist/OmniSpeak.app`
 - `dist/OmniSpeak.dmg`
 
+The icon build normally requires `rsvg-convert`. To reuse an existing packaged
+icon on a build host without librsvg, set `OMNIVOICE_ICON_ICNS_SOURCE` to an
+absolute `.icns` file path. `OMNIVOICE_PYTHON_RUNTIME_SOURCE` likewise accepts an
+existing embedded Python runtime directory. For an ad hoc test build, set
+`OMNIVOICE_CODESIGN_IDENTITY=-` (this does not produce a notarized release).
+
 ## What Is Bundled
 
 The app bundle includes:

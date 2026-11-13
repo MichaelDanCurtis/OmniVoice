@@ -209,6 +209,18 @@ ensure_engine() {
 }
 
 build_icon() {
+  # A packaged .icns can be reused on build hosts without librsvg/Homebrew.
+  if [[ -n "${OMNIVOICE_ICON_ICNS_SOURCE:-}" ]]; then
+    if [[ ! -f "$OMNIVOICE_ICON_ICNS_SOURCE" ]]; then
+      echo "Icon file not found: $OMNIVOICE_ICON_ICNS_SOURCE" >&2
+      return 1
+    fi
+    mkdir -p "$DIST_DIR" "$APP_RESOURCES"
+    cp "$OMNIVOICE_ICON_ICNS_SOURCE" "$ICON_DIST_FILE"
+    cp "$ICON_DIST_FILE" "$ICON_BUNDLE_FILE"
+    return
+  fi
+
   if [[ ! -f "$ICON_SOURCE" ]]; then
     echo "icon source missing: $ICON_SOURCE" >&2
     return 1
