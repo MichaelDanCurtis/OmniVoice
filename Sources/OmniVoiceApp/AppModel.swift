@@ -2425,8 +2425,10 @@ final class AppModel {
         async let localSigningIdentityCount = Self.omniVoiceSigningIdentityCount()
 
         let currentAppPath = Bundle.main.bundleURL.path
+        // Dev builds install to ~/Applications; the DMG installs to /Applications.
         let expectedAppPath = "\(NSHomeDirectory())/Applications/OmniSpeak.app"
-        let appPathState: StartupCheckState = currentAppPath == expectedAppPath ? .passed : .failed
+        let acceptedAppPaths: Set<String> = [expectedAppPath, "/Applications/OmniSpeak.app"]
+        let appPathState: StartupCheckState = acceptedAppPaths.contains(currentAppPath) ? .passed : .failed
 
         let registrationCount = await launchServicesCount
         let registrationState: StartupCheckState = registrationCount == 1 ? .passed : .failed
@@ -2484,7 +2486,7 @@ final class AppModel {
             StartupCheckItem(
                 id: "app-path",
                 title: "Stable app path",
-                detail: appPathState == .passed ? currentAppPath : "Running from \(currentAppPath); expected \(expectedAppPath).",
+                detail: appPathState == .passed ? currentAppPath : "Running from \(currentAppPath); expected \(expectedAppPath) or /Applications/OmniSpeak.app.",
                 state: appPathState,
                 action: .refresh
             ),
@@ -3944,10 +3946,10 @@ final class AppModel {
                 modelDownloadStatus = current
                 statusText = current.message ?? "Model \(current.state)"
                 if current.state == "completed" || current.state == "failed" {
-                    modelStatuses = try await engineClient.models()
-                    if providerID == selectedTranslationModelProviderID() {
-                        await refreshTranslationCapabilities()
-                    }
+                    // Provider availability depends on the model files being present, so
+                    // refresh providers too — otherwise the pre-download "unavailable"
+                    // stays cached and the card reads "Runtime missing".
+                    await refreshProviderAndModelStatus()
                     return
                 }
             } catch {

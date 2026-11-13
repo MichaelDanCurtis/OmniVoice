@@ -428,6 +428,19 @@ PY
 
   "$bundled_python" -m ensurepip --upgrade >/dev/null 2>&1 || true
   "$bundled_python" -m pip download --prefer-binary --dest "$ENGINE_WHEELHOUSE_DIR" --requirement "$requirements_file"
+
+  # The pass above only fetches wheels tagged for THIS build machine's macOS
+  # (e.g. mlx macosx_26_0). Older Macs then can't install them offline and the
+  # MLX ASR runtime silently goes missing. Add wheels for the minimum supported
+  # macOS so pip on any supported machine finds a compatible build.
+  local compat_platform="${OMNIVOICE_WHEELHOUSE_MIN_PLATFORM:-macosx_14_0_arm64}"
+  if ! "$bundled_python" -m pip download --only-binary=:all: \
+      --platform "$compat_platform" --python-version 3.12 --implementation cp --abi cp312 \
+      --dest "$ENGINE_WHEELHOUSE_DIR" --requirement "$requirements_file"; then
+    echo "error: could not fetch $compat_platform wheels for the engine wheelhouse" >&2
+    rm -f "$requirements_file"
+    exit 1
+  fi
   rm -f "$requirements_file"
 
   find "$ENGINE_WHEELHOUSE_DIR" -name "__pycache__" -type d -prune -exec rm -rf {} +
