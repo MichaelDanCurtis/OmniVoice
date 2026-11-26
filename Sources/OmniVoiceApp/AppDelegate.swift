@@ -44,6 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var coreMLPartialTask: Task<Void, Never>?
     private var deepgramStreamingSession: DeepgramStreamingSession?
     private var activeDictationUsesDeepgram = false
+    private var pendingAudioCaptureStartTask: Task<Void, Never>?
+    private var dictationCaptureGeneration: UInt64 = 0
+    private var audioCaptureHasStartedForSession = false
     private var didPromptForAccessibility = false
     private var permissionRefreshTimer: Timer?
     private var overlayAutoHideTask: Task<Void, Never>?
@@ -683,8 +686,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard model.session.state == .listening else { return }
         pendingDictationFinishTask?.cancel()
         pendingDictationFinishTask = nil
+        pendingAudioCaptureStartTask?.cancel()
+        pendingAudioCaptureStartTask = nil
+        dictationCaptureGeneration &+= 1
         dictationTriggerState.cancel()
-        _ = try? audioCapture.stopWAVData()   // stop capture, drop the audio
+        if audioCaptureHasStartedForSession {
+            _ = try? audioCapture.stopWAVData()   // stop capture, drop the audio
+            audioCaptureHasStartedForSession = false
+        }
         streamingClient.cancel()
         cancelAppleSpeechIfNeeded()
         cancelDeepgramStreamIfNeeded()
@@ -1219,14 +1228,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 )
             }
             let cueDuration = recordingCuePlayer.playStartCue(preferences: model.preferences)
-            if cueDuration > 0 {
-                Thread.sleep(forTimeInterval: min(cueDuration + 0.03, 0.30))
+            pendingAudioCaptureStartTask?.cancel()
+            pendingAudioCaptureStartTask = nil
+            dictationCaptureGeneration &+= 1
+            let generation = dictationCaptureGeneration
+            audioCaptureHasStartedForSession = false
+
+            let beginAudioCapture: @MainActor () -> Void = { [weak self, weak model] in
+                guard let self, let model else { return }
+                guard self.dictationCaptureGeneration == generation,
+                      model.session.state == .listening else {
+                    return
+                }
+                do {
+                    _ = try self.audioCapture.start(deviceUID: model.preferences.microphoneID)
+                    self.audioCaptureHasStartedForSession = true
+                    if usesCoreMLParakeet {
+                        self.startCoreMLParakeetLivePartials(model: model)
+                    }
+                } catch {
+                    self.coreMLPartialTask?.cancel()
+                    self.coreMLPartialTask = nil
+                    model.session.fail("Microphone failed: \(error.localizedDescription)")
+                    model.statusText = "Microphone failed"
+                    self.dictationTriggerState.cancel()
+                    self.pendingDictationFinishTask?.cancel()
+                    self.pendingDictationFinishTask = nil
+                    self.streamingClient.cancel()
+                    self.cancelAppleSpeechIfNeeded()
+                    self.cancelDeepgramStreamIfNeeded()
+                    self.cancelLiveDraftIfNeeded()
+                    self.hideOverlay()
+                    self.commandModeController.resumeOpenMicIfActive()
+                }
             }
-            _ = try audioCapture.start(deviceUID: model.preferences.microphoneID)
-            if usesCoreMLParakeet {
-                startCoreMLParakeetLivePartials(model: model)
+
+            if cueDuration > 0.005 {
+                // Wait asynchronously off the main thread so the HUD draw-in animation
+                // and Deepgram/engine stream connect immediately with 0ms UI freeze.
+                let delaySeconds = min(cueDuration + 0.03, 0.28)
+                pendingAudioCaptureStartTask = Task { @MainActor [weak self] in
+                    do {
+                        try await Task.sleep(for: .seconds(delaySeconds))
+                    } catch {
+                        return
+                    }
+                    guard !Task.isCancelled, let self else { return }
+                    self.pendingAudioCaptureStartTask = nil
+                    beginAudioCapture()
+                }
+            } else {
+                beginAudioCapture()
             }
         } catch {
+            pendingAudioCaptureStartTask?.cancel()
+            pendingAudioCaptureStartTask = nil
+            dictationCaptureGeneration &+= 1
+            audioCaptureHasStartedForSession = false
             coreMLPartialTask?.cancel()
             coreMLPartialTask = nil
             model.session.fail("Microphone failed: \(error.localizedDescription)")
@@ -1261,6 +1319,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         defer {
+            pendingAudioCaptureStartTask?.cancel()
+            pendingAudioCaptureStartTask = nil
+            dictationCaptureGeneration &+= 1
+            audioCaptureHasStartedForSession = false
             coreMLPartialTask?.cancel()
             coreMLPartialTask = nil
             insertionTarget = nil
@@ -1271,9 +1333,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coreMLPartialTask?.cancel()
         coreMLPartialTask = nil
 
+        // User released push-to-talk before the brief start cue finished (ultra-short tap).
+        if pendingAudioCaptureStartTask != nil || !audioCaptureHasStartedForSession {
+            pendingAudioCaptureStartTask?.cancel()
+            pendingAudioCaptureStartTask = nil
+            dictationCaptureGeneration &+= 1
+            recordingCuePlayer.playEmptyCue(preferences: model.preferences)
+            model.session.reset()
+            model.statusText = "No speech detected"
+            streamingClient.cancel()
+            cancelAppleSpeechIfNeeded()
+            cancelDeepgramStreamIfNeeded()
+            cancelLiveDraftIfNeeded()
+            hideOverlay()
+            return
+        }
+
         let audio: Data
         do {
             audio = try audioCapture.stopWAVData()
+            audioCaptureHasStartedForSession = false
             recordingCuePlayer.playStopCue(preferences: model.preferences)
             model.statusText = "Transcribing"
             showOverlay(
