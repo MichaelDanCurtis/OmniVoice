@@ -27,6 +27,20 @@ async fn main() {
 
     let store = RuntimeStore::open(&db_path).expect("failed to open RuntimeStore SQLite DB");
     let auth_token = std::env::var("OMNIVOICE_ENGINE_TOKEN").ok();
+    if let Some(ref token) = auth_token {
+        let trimmed = token.trim();
+        if !trimmed.is_empty() {
+            let _ = std::fs::create_dir_all(&data_dir);
+            let token_path = data_dir.join("engine-token");
+            if std::fs::write(&token_path, format!("{trimmed}\n")).is_ok() {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(&token_path, std::fs::Permissions::from_mode(0o600));
+                }
+            }
+        }
+    }
     let state = Arc::new(AppState::with_model_root(store, auth_token, model_root));
     let app = build_router(state);
 

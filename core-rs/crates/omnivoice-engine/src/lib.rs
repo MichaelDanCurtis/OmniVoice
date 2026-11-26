@@ -24,8 +24,9 @@ use omnivoice_core::security::{
     is_allowed_host, is_allowed_origin, token_matches, ENGINE_AUTH_COOKIE, ENGINE_AUTH_HEADER,
 };
 use omnivoice_core::store::{
-    ConversationAssistCardRecord, ConversationDetail, ConversationSegmentRecord,
-    ConversationSessionRecord, EngineEvent, RuntimeStore, StoreError, TranscriptRecord,
+    merge_json_objects, ConversationAssistCardRecord, ConversationDetail,
+    ConversationSegmentRecord, ConversationSessionRecord, EngineEvent, RuntimeStore, StoreError,
+    TranscriptRecord,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -90,6 +91,13 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/", get(dashboard))
         .route("/health", get(health))
         .route("/api/status", get(engine_status))
+        .route(
+            "/api/settings",
+            get(get_voice_settings)
+                .patch(patch_voice_settings)
+                .delete(delete_voice_settings),
+        )
+        .route("/api/settings/profiles", get(list_voice_settings_profiles))
         .route("/api/theme/default", get(default_theme))
         .route("/providers", get(providers))
         .route("/diarization/providers", get(diarization_providers))
@@ -297,6 +305,150 @@ async fn engine_status(State(state): State<Arc<AppState>>) -> Result<Json<Engine
         events,
         conversations,
     }))
+}
+
+#[derive(Deserialize)]
+struct SettingsProfileQuery {
+    profile: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceSettingsEnvelope {
+    profile_id: String,
+    mode: String,
+    effective: serde_json::Value,
+    defaults: serde_json::Value,
+    #[serde(rename = "override")]
+    override_settings: Option<serde_json::Value>,
+    profiles: Vec<String>,
+    updated_at: Option<String>,
+}
+
+fn normalize_profile_id(raw: Option<&str>) -> Result<String, ApiError> {
+    let cleaned = raw.unwrap_or("default").trim().to_ascii_lowercase();
+    if cleaned.is_empty() {
+        return Ok("default".to_string());
+    }
+    let valid = cleaned.len() <= 48
+        && cleaned
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
+    if !valid {
+        return Err(ApiError::BadRequest(
+            "profile must be 1-48 chars of [a-z0-9_-]".to_string(),
+        ));
+    }
+    Ok(cleaned)
+}
+
+fn baseline_voice_settings() -> serde_json::Value {
+    json!({
+        "asr_provider": "parakeet-tdt-coreml-ane",
+        "style": "neutral",
+        "llm_cleanup_enabled": true,
+        "llm_cleanup_backend": "agent",
+        "llm_cleanup_agent_id": "antigravity",
+        "llm_cleanup_local_model_id": "qwen3-1.7b-mlx-4bit",
+        "auto_learn_corrections_enabled": true,
+        "recording_sound_cues_enabled": true,
+        "idle_mlx_auto_unload_minutes": 15,
+        "service_mode": {
+            "enabled": false,
+            "deepgram_model": "nova-3",
+            "deepgram_language": "multi",
+            "deepgram_smart_format": true
+        }
+    })
+}
+
+fn build_settings_envelope(
+    store: &RuntimeStore,
+    profile_id: &str,
+) -> Result<VoiceSettingsEnvelope, ApiError> {
+    let stored_default = store.get_settings_profile("default")?;
+    let defaults = match &stored_default {
+        Some((val, _)) => merge_json_objects(&baseline_voice_settings(), val),
+        None => baseline_voice_settings(),
+    };
+    let mut updated_at = stored_default.as_ref().map(|(_, ts)| ts.clone());
+
+    let (mode, override_settings, effective) = if profile_id == "default" {
+        ("shared".to_string(), None, defaults.clone())
+    } else if let Some((ov, ov_ts)) = store.get_settings_profile(profile_id)? {
+        updated_at = Some(ov_ts);
+        let merged = merge_json_objects(&defaults, &ov);
+        ("custom".to_string(), Some(ov), merged)
+    } else {
+        ("shared".to_string(), None, defaults.clone())
+    };
+
+    let mut profiles: Vec<String> = store
+        .list_settings_profiles()?
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    if !profiles.iter().any(|p| p == "default") {
+        profiles.insert(0, "default".to_string());
+    }
+
+    Ok(VoiceSettingsEnvelope {
+        profile_id: profile_id.to_string(),
+        mode,
+        effective,
+        defaults,
+        override_settings,
+        profiles,
+        updated_at,
+    })
+}
+
+async fn get_voice_settings(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<SettingsProfileQuery>,
+) -> Result<Json<VoiceSettingsEnvelope>, ApiError> {
+    let profile_id = normalize_profile_id(query.profile.as_deref())?;
+    Ok(Json(build_settings_envelope(&state.store, &profile_id)?))
+}
+
+async fn patch_voice_settings(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<SettingsProfileQuery>,
+    Json(patch): Json<serde_json::Value>,
+) -> Result<Json<VoiceSettingsEnvelope>, ApiError> {
+    if !patch.is_object() {
+        return Err(ApiError::BadRequest(
+            "settings patch must be a JSON object".to_string(),
+        ));
+    }
+    let profile_id = normalize_profile_id(query.profile.as_deref())?;
+    state.store.upsert_settings_profile(&profile_id, &patch)?;
+    Ok(Json(build_settings_envelope(&state.store, &profile_id)?))
+}
+
+async fn delete_voice_settings(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<SettingsProfileQuery>,
+) -> Result<Json<VoiceSettingsEnvelope>, ApiError> {
+    let profile_id = normalize_profile_id(query.profile.as_deref())?;
+    if profile_id == "default" {
+        return Err(ApiError::BadRequest(
+            "cannot delete the shared default profile".to_string(),
+        ));
+    }
+    state.store.delete_settings_profile(&profile_id)?;
+    Ok(Json(build_settings_envelope(&state.store, &profile_id)?))
+}
+
+async fn list_voice_settings_profiles(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let rows = state.store.list_settings_profiles()?;
+    let profiles: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|(profile_id, updated_at)| json!({ "profileId": profile_id, "updatedAt": updated_at }))
+        .collect();
+    Ok(Json(json!({ "profiles": profiles })))
 }
 
 #[derive(Serialize)]
@@ -1636,5 +1788,106 @@ mod tests {
         assert_eq!(cleanup_json["llm_applied"], true);
 
         let _ = std::fs::remove_dir_all(&temp_models);
+    }
+
+    #[tokio::test]
+    async fn layered_voice_settings_profiles_isolate_apps_and_support_shared_default() {
+        let app = test_app(Some("engine-secret"));
+
+        // 1. Update shared default profile
+        let patch_default = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PATCH)
+                    .uri("/api/settings?profile=default")
+                    .header(ENGINE_AUTH_HEADER, "engine-secret")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"style":"professional","service_mode":{"enabled":false,"deepgram_model":"nova-3"}}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(patch_default.status(), StatusCode::OK);
+
+        // 2. Inferno initially inherits shared default
+        let get_inferno = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/settings?profile=inferno")
+                    .header(ENGINE_AUTH_HEADER, "engine-secret")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let inferno_body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(get_inferno.into_body(), 65536).await.unwrap())
+                .unwrap();
+        assert_eq!(inferno_body["mode"], "shared");
+        assert_eq!(inferno_body["effective"]["style"], "professional");
+
+        // 3. Give Inferno its own custom override (OmniSpeak/default stay untouched!)
+        let patch_inferno = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PATCH)
+                    .uri("/api/settings?profile=inferno")
+                    .header(ENGINE_AUTH_HEADER, "engine-secret")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"style":"concise","service_mode":{"enabled":true,"deepgram_model":"flux-general-en"}}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let inferno_custom: serde_json::Value =
+            serde_json::from_slice(&to_bytes(patch_inferno.into_body(), 65536).await.unwrap())
+                .unwrap();
+        assert_eq!(inferno_custom["mode"], "custom");
+        assert_eq!(inferno_custom["effective"]["style"], "concise");
+        assert_eq!(inferno_custom["effective"]["service_mode"]["enabled"], true);
+        assert_eq!(inferno_custom["defaults"]["style"], "professional");
+
+        // 4. Another app (omnispeak) still sees default untouched
+        let get_omni = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/settings?profile=omnispeak")
+                    .header(ENGINE_AUTH_HEADER, "engine-secret")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let omni_body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(get_omni.into_body(), 65536).await.unwrap()).unwrap();
+        assert_eq!(omni_body["mode"], "shared");
+        assert_eq!(omni_body["effective"]["style"], "professional");
+        assert_eq!(omni_body["effective"]["service_mode"]["enabled"], false);
+
+        // 5. Delete Inferno override -> reverts cleanly to shared default
+        let del_inferno = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri("/api/settings?profile=inferno")
+                    .header(ENGINE_AUTH_HEADER, "engine-secret")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let reverted: serde_json::Value =
+            serde_json::from_slice(&to_bytes(del_inferno.into_body(), 65536).await.unwrap())
+                .unwrap();
+        assert_eq!(reverted["mode"], "shared");
+        assert_eq!(reverted["effective"]["style"], "professional");
     }
 }
