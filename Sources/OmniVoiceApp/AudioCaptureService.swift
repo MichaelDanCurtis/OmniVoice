@@ -1,3 +1,4 @@
+import Accelerate
 @preconcurrency import AVFoundation
 import AudioToolbox
 import CoreAudio
@@ -129,12 +130,16 @@ final class AudioCaptureService: @unchecked Sendable {
 
     static func resamplePCM16To16kHzFloat(_ pcm16: [Int16], sourceSampleRate: Double) -> [Float] {
         guard !pcm16.isEmpty else { return [] }
-        let scale: Float = 1.0 / 32768.0
+        var scale: Float = 1.0 / 32768.0
         let rate = sourceSampleRate > 0 ? sourceSampleRate : 16_000.0
         if abs(rate - 16_000.0) < 1.0 {
             var out = [Float](repeating: 0, count: pcm16.count)
-            for i in 0..<pcm16.count {
-                out[i] = Float(pcm16[i]) * scale
+            pcm16.withUnsafeBufferPointer { src in
+                out.withUnsafeMutableBufferPointer { dst in
+                    guard let s = src.baseAddress, let d = dst.baseAddress else { return }
+                    vDSP_vflt16(s, 1, d, 1, vDSP_Length(pcm16.count))
+                    vDSP_vsmul(d, 1, &scale, d, 1, vDSP_Length(pcm16.count))
+                }
             }
             return out
         }
@@ -178,11 +183,9 @@ final class AudioCaptureService: @unchecked Sendable {
         let frameCount = Int(buffer.frameLength)
         guard frameCount > 0 else { return 0 }
 
-        var sum: Float = 0
-        for index in 0..<frameCount {
-            sum += abs(channel[index])
-        }
-        return sum / Float(frameCount)
+        var meanMagnitude: Float = 0
+        vDSP_meamgv(channel, 1, &meanMagnitude, vDSP_Length(frameCount))
+        return meanMagnitude
     }
 
     private static func appendMonoPCM16Samples(from buffer: AVAudioPCMBuffer, to samples: inout [Int16]) {
@@ -193,6 +196,23 @@ final class AudioCaptureService: @unchecked Sendable {
         samples.reserveCapacity(samples.count + frameCount)
 
         if let channels = buffer.floatChannelData {
+            if channelCount == 1 {
+                var clipped = [Float](repeating: 0, count: frameCount)
+                var lo: Float = -1.0
+                var hi: Float = 1.0
+                var scale: Float = Float(Int16.max)
+                let startCount = samples.count
+                samples.append(contentsOf: repeatElement(0, count: frameCount))
+                clipped.withUnsafeMutableBufferPointer { tmp in
+                    samples.withUnsafeMutableBufferPointer { dst in
+                        guard let t = tmp.baseAddress, let d = dst.baseAddress else { return }
+                        vDSP_vclip(channels[0], 1, &lo, &hi, t, 1, vDSP_Length(frameCount))
+                        vDSP_vsmul(t, 1, &scale, t, 1, vDSP_Length(frameCount))
+                        vDSP_vfix16(t, 1, d.advanced(by: startCount), 1, vDSP_Length(frameCount))
+                    }
+                }
+                return
+            }
             for frame in 0..<frameCount {
                 var mixed: Float = 0
                 for channel in 0..<channelCount {

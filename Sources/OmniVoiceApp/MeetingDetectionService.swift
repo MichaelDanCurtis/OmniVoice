@@ -44,11 +44,30 @@ final class MeetingDetectionService {
         }
     }
 
+    private static let passiveWindowCallBundleIDs: Set<String> = [
+        "com.apple.facetime",
+        "com.microsoft.teams2",
+        "com.microsoft.teams",
+        "us.zoom.xos",
+    ]
+
     private func pollOnce() {
         guard isEnabled() else { return }
 
         let runningApps = NSWorkspace.shared.runningApplications
         let runningBundleIDs = Set(runningApps.compactMap(\.bundleIdentifier))
+        // If OmniSpeak itself is recording, the mic is obviously active; still inspect
+        // meeting windows so we can detect when the call ends.
+        let micActive = Self.isDefaultInputDeviceRunning()
+        let effectiveMicActive = isRecordingConversation() ? false : micActive
+
+        // Skip expensive WindowServer CGWindowListCopyWindowInfo IPC when idle with no
+        // active call, no mic usage, and no native muted-call app running.
+        let hasPassiveCallApp = runningBundleIDs.contains { Self.passiveWindowCallBundleIDs.contains($0.lowercased()) }
+        guard activeCall != nil || effectiveMicActive || hasPassiveCallApp else {
+            return
+        }
+
         let pidToApp: [pid_t: NSRunningApplication] = Dictionary(
             runningApps.compactMap { app in
                 let pid = app.processIdentifier
@@ -57,10 +76,6 @@ final class MeetingDetectionService {
             uniquingKeysWith: { first, _ in first }
         )
         let windows = Self.captureOnScreenWindows(pidToApp: pidToApp)
-        // If OmniSpeak itself is recording, the mic is obviously active; still inspect
-        // meeting windows so we can detect when the call ends.
-        let micActive = Self.isDefaultInputDeviceRunning()
-        let effectiveMicActive = isRecordingConversation() ? false : micActive
 
         if let detected = MeetingAppMatcher.detect(
             runningBundleIDs: runningBundleIDs,
