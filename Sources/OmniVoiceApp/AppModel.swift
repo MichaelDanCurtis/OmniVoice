@@ -512,6 +512,32 @@ final class AppModel {
         }
 
         if preferences.llmCleanupEnabled,
+           preferences.llmCleanupBackend == .agent,
+           style != .raw {
+            let instructions = MLXLocalCleanupService.systemPrompt(
+                style: style,
+                dictionaryTerms: preferences.dictionaryTerms,
+                appContext: appContext
+            )
+            let registry = AgentRegistry(custom: preferences.customAgents)
+            if let descriptor = registry.all.first(where: { $0.id == preferences.llmCleanupAgentID })
+                ?? discoveredAgents.first?.descriptor {
+                let prompt = "\(instructions)\n\nTranscript:\n\(rawTranscript)"
+                if let output = try? await meetingAgentRunner.run(descriptor, prompt: prompt, onChunk: { _ in }) {
+                    let sanitized = MLXLocalCleanupService.sanitizeOutput(output)
+                    if !sanitized.isEmpty {
+                        return CleanupResult(
+                            text: sanitized,
+                            cleanupApplied: true,
+                            llmApplied: true,
+                            llmFallbackReason: nil
+                        )
+                    }
+                }
+            }
+        }
+
+        if preferences.llmCleanupEnabled,
            preferences.llmCleanupBackend == .localMLX,
            style != .raw {
             do {
@@ -1327,6 +1353,30 @@ final class AppModel {
         preferences.llmCleanupLocalModelID = target
         guard persistPreferences() else { return }
         statusText = "Cleanup model: \(CleanupModelRecommendation(providerID: target).displayName)"
+    }
+
+    func setLLMCleanupAgentID(_ agentID: String) {
+        let normalized = agentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let target = normalized.isEmpty ? "antigravity" : normalized
+        guard preferences.llmCleanupAgentID != target else { return }
+        preferences.llmCleanupAgentID = target
+        guard persistPreferences() else { return }
+        let registry = AgentRegistry(custom: preferences.customAgents)
+        let name = registry.all.first(where: { $0.id == target })?.displayName ?? target
+        statusText = "Cleanup agent: \(name)"
+    }
+
+    func setIdleMLXAutoUnloadMinutes(_ minutes: Int) {
+        let clamped = max(0, min(minutes, 240))
+        guard preferences.idleMLXAutoUnloadMinutes != clamped else { return }
+        preferences.idleMLXAutoUnloadMinutes = clamped
+        guard persistPreferences() else { return }
+        Task {
+            await MLXLocalCleanupService.shared.setIdleAutoUnload(minutes: clamped)
+        }
+        statusText = clamped == 0
+            ? "Local MLX idle cooldown off"
+            : "Local MLX auto-unloads after \(clamped) min idle"
     }
 
     func setLLMCleanupProvider(_ provider: TextLLMProviderKind?) {
@@ -5439,6 +5489,10 @@ final class AppModel {
         migrateSecret(&preferences.openAICompatibleAPIKey, provider: Self.legacyOpenAIProviderID, field: .apiKey, migrated: &migrated)
         if let storedDeepgram = llmSecretStore.value(provider: Self.deepgramSecretProviderID, field: .apiKey), !storedDeepgram.isEmpty {
             deepgramAPIKey = storedDeepgram
+        }
+        let cooldownMinutes = preferences.idleMLXAutoUnloadMinutes
+        Task {
+            await MLXLocalCleanupService.shared.setIdleAutoUnload(minutes: cooldownMinutes)
         }
         if migrated {
             _ = persistPreferences()

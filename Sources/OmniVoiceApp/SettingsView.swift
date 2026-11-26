@@ -633,6 +633,54 @@ struct SettingsView: View {
                         Text(selectedCleanupModel.detail)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Idle Auto-Cooldown")
+                                    .font(.callout)
+                                Text("Automatically unloads local MLX GPU weights after inactivity to reclaim unified RAM.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Picker("Idle Auto-Cooldown", selection: Binding(
+                                get: { model.preferences.idleMLXAutoUnloadMinutes },
+                                set: { model.setIdleMLXAutoUnloadMinutes($0) }
+                            )) {
+                                Text("Off").tag(0)
+                                Text("5 min").tag(5)
+                                Text("15 min").tag(15)
+                                Text("30 min").tag(30)
+                                Text("60 min").tag(60)
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: 120)
+                        }
+                    } else if model.preferences.llmCleanupBackend == .agent {
+                        let registry = AgentRegistry(custom: model.preferences.customAgents)
+                        let discoveredIDs = Set(model.discoveredAgents.map(\.id))
+                        HStack(spacing: 8) {
+                            Picker("Cleanup AI Agent", selection: Binding(
+                                get: { model.preferences.llmCleanupAgentID },
+                                set: { model.setLLMCleanupAgentID($0) }
+                            )) {
+                                ForEach(registry.all, id: \.id) { agent in
+                                    let badge = discoveredIDs.contains(agent.id) ? " ✓" : ""
+                                    Text("\(agent.displayName) (\(agent.binaryName))\(badge)").tag(agent.id)
+                                }
+                            }
+
+                            Button(model.isScanningAgents ? "Scanning…" : "Rescan") {
+                                Task { await model.discoverSystemAgents() }
+                            }
+                            .controlSize(.small)
+                            .buttonStyle(.bordered)
+                            .disabled(model.isScanningAgents)
+                        }
+
+                        Text("Routes dictation cleanup through any installed CLI agent subscription on your Mac (Gemini Antigravity, Claude, Codex, Gemini, Copilot, etc.)—no extra API key required.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     } else {
                         Picker("Cleanup LLM Provider", selection: llmCleanupProviderBinding) {
                             Text("Default (\(model.preferences.textLLMDefaultProvider.displayName))")

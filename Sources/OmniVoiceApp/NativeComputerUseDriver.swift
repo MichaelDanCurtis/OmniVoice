@@ -14,9 +14,14 @@ final class NativeComputerUseDriver {
         let id: String              // e.g. "e1", "e2", ...
         let role: String            // e.g. "AXButton", "AXTextField", "AXLink"
         let label: String
+        let frame: CGRect?
         let center: CGPoint?
         let element: AXUIElement
     }
+
+    /// Invoked whenever Command Mode clicks a UI element or screen coordinate, passing
+    /// the Accessibility-space screen `CGRect` and label so the HUD can flash a Ghost Ring.
+    var onVisualTarget: ((CGRect, String) -> Void)?
 
     struct ToolDescriptor {
         let name: String
@@ -107,7 +112,7 @@ final class NativeComputerUseDriver {
         case "open_app", "switch_app", "launch_app":
             let name = (arguments["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { return "Missing app name" }
-            return try openApp(named: name)
+            return try await openApp(named: name)
 
         case "open_url":
             var raw = (arguments["url"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -129,6 +134,7 @@ final class NativeComputerUseDriver {
             let y = Self.doubleValue(arguments["y"]) ?? 0
             let isDouble = (arguments["double"] as? Bool) ?? false
             let isRight = (arguments["right"] as? Bool) ?? false
+            onVisualTarget?(CGRect(x: x - 18, y: y - 18, width: 36, height: 36), "Click")
             postMouseClick(at: CGPoint(x: x, y: y), rightButton: isRight, clickCount: isDouble ? 2 : 1)
             return "Clicked (\(Int(x)), \(Int(y)))"
 
@@ -169,7 +175,7 @@ final class NativeComputerUseDriver {
 
     // MARK: - Actions
 
-    private func openApp(named name: String) throws -> String {
+    private func openApp(named name: String) async throws -> String {
         // 1. Check already running apps first for instant focus
         let lower = name.lowercased()
         if let running = NSWorkspace.shared.runningApplications.first(where: {
@@ -180,13 +186,18 @@ final class NativeComputerUseDriver {
             return "Switched to \(running.localizedName ?? name)"
         }
 
-        // 2. Fall back to macOS `open -a`
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        proc.arguments = ["-a", name]
-        try proc.run()
-        proc.waitUntilExit()
-        if proc.terminationStatus == 0 {
+        // 2. Fall back to macOS `open -a` off the MainActor so UI never stalls
+        let status: Int32 = try await Task.detached {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            proc.arguments = ["-a", name]
+            proc.standardOutput = FileHandle.nullDevice
+            proc.standardError = FileHandle.nullDevice
+            try proc.run()
+            proc.waitUntilExit()
+            return proc.terminationStatus
+        }.value
+        if status == 0 {
             return "Opened \(name)"
         }
         return "Could not find app “\(name)”"
@@ -204,6 +215,12 @@ final class NativeComputerUseDriver {
         }
         guard let node = matched else {
             return "Could not find UI element “\(label.isEmpty ? id : label)”"
+        }
+
+        if let rect = node.frame {
+            onVisualTarget?(rect, node.label)
+        } else if let center = node.center {
+            onVisualTarget?(CGRect(x: center.x - 18, y: center.y - 18, width: 36, height: 36), node.label)
         }
 
         // Action Ladder: prefer AXPress first (works cleanly without moving cursor),
@@ -320,12 +337,15 @@ final class NativeComputerUseDriver {
             let label = bestLabel(for: element)
             if !label.isEmpty {
                 let id = "e\(results.count + 1)"
+                let rect = elementBounds(of: element)
+                let center = rect.map { CGPoint(x: $0.midX, y: $0.midY) }
                 results.append(
                     AccessibleNode(
                         id: id,
                         role: role.replacingOccurrences(of: "AX", with: ""),
                         label: String(label.prefix(64)),
-                        center: centerPoint(of: element),
+                        frame: rect,
+                        center: center,
                         element: element
                     )
                 )
@@ -361,7 +381,7 @@ final class NativeComputerUseDriver {
         return value as? String
     }
 
-    private static func centerPoint(of element: AXUIElement) -> CGPoint? {
+    private static func elementBounds(of element: AXUIElement) -> CGRect? {
         var posRef: CFTypeRef?
         var sizeRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posRef) == .success,
@@ -377,7 +397,7 @@ final class NativeComputerUseDriver {
               size.width > 1, size.height > 1 else {
             return nil
         }
-        return CGPoint(x: pos.x + size.width / 2, y: pos.y + size.height / 2)
+        return CGRect(origin: pos, size: size)
     }
 
     private static func doubleValue(_ any: Any?) -> Double? {

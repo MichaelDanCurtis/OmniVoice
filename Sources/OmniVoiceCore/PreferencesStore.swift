@@ -11,7 +11,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var llmCleanupEnabled: Bool
     public var llmCleanupBackend: CleanupLLMBackend
     public var llmCleanupLocalModelID: String
+    public var llmCleanupAgentID: String
     public var llmCleanupProvider: TextLLMProviderKind?
+    public var idleMLXAutoUnloadMinutes: Int
     public var dictionaryEntries: [DictionaryEntry]
     public var autoLearnCorrectionsEnabled: Bool
 
@@ -215,7 +217,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         llmCleanupEnabled: Bool = false,
         llmCleanupBackend: CleanupLLMBackend = .localMLX,
         llmCleanupLocalModelID: String = CleanupModelRecommendation.defaultProviderID,
+        llmCleanupAgentID: String = "antigravity",
         llmCleanupProvider: TextLLMProviderKind? = nil,
+        idleMLXAutoUnloadMinutes: Int = 15,
         microphoneID: String? = nil,
         dictationHotkey: HotkeyBinding = .defaultDictation,
         additionalDictationHotkeys: [HotkeyBinding] = [],
@@ -295,7 +299,10 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         self.llmCleanupLocalModelID = trimmedCleanupModel.isEmpty
             ? CleanupModelRecommendation.defaultProviderID
             : trimmedCleanupModel
+        let trimmedAgentID = llmCleanupAgentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.llmCleanupAgentID = trimmedAgentID.isEmpty ? "antigravity" : trimmedAgentID
         self.llmCleanupProvider = llmCleanupProvider
+        self.idleMLXAutoUnloadMinutes = max(0, min(idleMLXAutoUnloadMinutes, 240))
         self.dictionaryEntries = dictionaryEntries
         self.autoLearnCorrectionsEnabled = autoLearnCorrectionsEnabled
         self.microphoneId = microphoneID
@@ -432,7 +439,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             llmCleanupBackend: try container.decodeIfPresent(CleanupLLMBackend.self, forKey: .llmCleanupBackend) ?? .localMLX,
             llmCleanupLocalModelID: try container.decodeIfPresent(String.self, forKey: .llmCleanupLocalModelID)
                 ?? CleanupModelRecommendation.defaultProviderID,
+            llmCleanupAgentID: try container.decodeIfPresent(String.self, forKey: .llmCleanupAgentID) ?? "antigravity",
             llmCleanupProvider: try container.decodeIfPresent(TextLLMProviderKind.self, forKey: .llmCleanupProvider),
+            idleMLXAutoUnloadMinutes: try container.decodeIfPresent(Int.self, forKey: .idleMLXAutoUnloadMinutes) ?? 15,
             microphoneID: try container.decodeIfPresent(String.self, forKey: .microphoneId),
             dictationHotkey: try container.decode(HotkeyBinding.self, forKey: .dictationHotkey),
             additionalDictationHotkeys: try container.decodeIfPresent(
@@ -543,7 +552,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             llmCleanupBackend: try container.decodeIfPresent(CleanupLLMBackend.self, forKey: .llmCleanupBackend) ?? .localMLX,
             llmCleanupLocalModelID: try container.decodeIfPresent(String.self, forKey: .llmCleanupLocalModelID)
                 ?? CleanupModelRecommendation.defaultProviderID,
+            llmCleanupAgentID: try container.decodeIfPresent(String.self, forKey: .llmCleanupAgentID) ?? "antigravity",
             llmCleanupProvider: try container.decodeIfPresent(TextLLMProviderKind.self, forKey: .llmCleanupProvider),
+            idleMLXAutoUnloadMinutes: try container.decodeIfPresent(Int.self, forKey: .idleMLXAutoUnloadMinutes) ?? 15,
             microphoneID: try container.decodeIfPresent(String.self, forKey: .microphoneId),
             dictationHotkey: try container.decode(HotkeyBinding.self, forKey: .dictationHotkey),
             additionalDictationHotkeys: try container.decodeIfPresent(
@@ -801,6 +812,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public func resolvedLLMCleanupConfig(timeoutSeconds: Double = 6.0) -> CleanupLLMConfig? {
         guard llmCleanupEnabled else { return nil }
         switch llmCleanupBackend {
+        case .agent:
+            return nil
         case .localMLX:
             let modelID = llmCleanupLocalModelID.trimmingCharacters(in: .whitespacesAndNewlines)
             return CleanupLLMConfig(
@@ -921,7 +934,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case llmCleanupEnabled = "llm_cleanup_enabled"
         case llmCleanupBackend = "llm_cleanup_backend"
         case llmCleanupLocalModelID = "llm_cleanup_local_model_id"
+        case llmCleanupAgentID = "llm_cleanup_agent_id"
         case llmCleanupProvider = "llm_cleanup_provider"
+        case idleMLXAutoUnloadMinutes = "idle_mlx_auto_unload_minutes"
         case dictionaryEntries = "dictionary_entries"
         case autoLearnCorrectionsEnabled = "auto_learn_corrections_enabled"
         case microphoneId = "microphone_id"
@@ -998,7 +1013,9 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case llmCleanupEnabled
         case llmCleanupBackend
         case llmCleanupLocalModelID
+        case llmCleanupAgentID = "llmCleanupAgentId"
         case llmCleanupProvider
+        case idleMLXAutoUnloadMinutes = "idleMlxAutoUnloadMinutes"
         case dictionaryTerms
         case dictionaryEntries
         case autoLearnCorrectionsEnabled

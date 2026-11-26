@@ -17,6 +17,8 @@ actor MLXLocalCleanupService {
     private var loadedRepoID: String?
     private var loadedContainer: ModelContainer?
     private var didConfigureMetallib = false
+    private var idleAutoUnloadMinutes: Int = 15
+    private var idleCooldownTask: Task<Void, Never>?
 
     static func repoID(for providerID: String) -> String {
         switch providerID.trimmingCharacters(in: .whitespacesAndNewlines) {
@@ -35,9 +37,46 @@ actor MLXLocalCleanupService {
         loadedContainer != nil && loadedRepoID == Self.repoID(for: providerID)
     }
 
+    func setIdleAutoUnload(minutes: Int) {
+        idleAutoUnloadMinutes = max(0, min(minutes, 240))
+        if loadedContainer != nil {
+            scheduleIdleCooldown()
+        } else {
+            idleCooldownTask?.cancel()
+            idleCooldownTask = nil
+        }
+    }
+
     func unload() {
+        idleCooldownTask?.cancel()
+        idleCooldownTask = nil
         loadedContainer = nil
         loadedRepoID = nil
+        Memory.clearCache()
+    }
+
+    private func scheduleIdleCooldown() {
+        idleCooldownTask?.cancel()
+        idleCooldownTask = nil
+        guard idleAutoUnloadMinutes > 0, loadedContainer != nil else { return }
+        let minutes = idleAutoUnloadMinutes
+        idleCooldownTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(minutes * 60))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.performIdleUnload(minutes: minutes)
+        }
+    }
+
+    private func performIdleUnload(minutes: Int) {
+        guard loadedContainer != nil else { return }
+        logger.info("Idle MLX cooldown triggered after \(minutes)m — unloading local model to reclaim GPU RAM")
+        loadedContainer = nil
+        loadedRepoID = nil
+        idleCooldownTask = nil
         Memory.clearCache()
     }
 
@@ -170,6 +209,7 @@ actor MLXLocalCleanupService {
         configureMetallibIfNeeded()
 
         if let existing = loadedContainer, loadedRepoID == repoID {
+            scheduleIdleCooldown()
             return existing
         }
 
@@ -185,6 +225,7 @@ actor MLXLocalCleanupService {
         )
         loadedContainer = container
         loadedRepoID = repoID
+        scheduleIdleCooldown()
         logger.info("Loaded MLX cleanup model \(repoID, privacy: .public)")
         return container
     }

@@ -65,4 +65,25 @@ final class ServiceModeTests: XCTestCase {
         let event = DeepgramAPIHelper.parseStreamEvent(from: streamJSON)
         XCTAssertEqual(event, DeepgramAPIHelper.StreamEvent(transcript: "Testing live stream", isFinal: true, speechFinal: false))
     }
+
+    func testGeminiAntigravityAgentAndAgentCleanupBackendPreferences() throws {
+        let registry = AgentRegistry(custom: [])
+        let agy = registry.resolve(keyword: "gemini antigravity")
+        XCTAssertEqual(agy?.id, "antigravity")
+        XCTAssertEqual(agy?.displayName, "Gemini Antigravity")
+        XCTAssertEqual(agy?.binaryName, "agy")
+        XCTAssertEqual(registry.resolve(keyword: "agy")?.id, "antigravity")
+
+        var prefs = OmniVoicePreferences.defaults
+        prefs.llmCleanupEnabled = true
+        prefs.llmCleanupBackend = .agent
+        prefs.llmCleanupAgentID = "claude"
+        prefs.idleMLXAutoUnloadMinutes = 30
+
+        let encoded = try EngineCoding.encoder.encode(prefs)
+        let decoded = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: encoded)
+        XCTAssertEqual(decoded.llmCleanupBackend, .agent)
+        XCTAssertEqual(decoded.llmCleanupAgentID, "claude")
+        XCTAssertEqual(decoded.idleMLXAutoUnloadMinutes, 30)
+    }
 }

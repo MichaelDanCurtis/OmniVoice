@@ -10,6 +10,7 @@ import OmniVoiceCore
 final class CommandModeController {
     private let nativeDriver = NativeComputerUseDriver()
     private let overlay = CommandModeOverlayWindow()
+    private let targetHighlight = CommandTargetHighlightWindow()
     private let audioCapture = AudioCaptureService()
     private weak var attachedModel: AppModel?
 
@@ -30,6 +31,10 @@ final class CommandModeController {
 
     func attach(model: AppModel) {
         attachedModel = model
+        nativeDriver.onVisualTarget = { [weak self, weak model] rect, label in
+            guard let self, let model else { return }
+            self.targetHighlight.flash(axRect: rect, label: label, theme: model.activeTheme)
+        }
         overlay.onReconnectMCP = { [weak self, weak model] in
             guard let self, let model else { return }
             self.refreshDriverStatus(model: model)
