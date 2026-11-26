@@ -319,16 +319,9 @@ public enum VoiceSnippetExpander {
             return nil
         }
 
-        let dateFmt = DateFormatter()
-        dateFmt.dateStyle = .medium
-        dateFmt.timeStyle = .none
-        let timeFmt = DateFormatter()
-        timeFmt.dateStyle = .none
-        timeFmt.timeStyle = .short
-
         return match.expansion
-            .replacingOccurrences(of: "{{date}}", with: dateFmt.string(from: now))
-            .replacingOccurrences(of: "{{time}}", with: timeFmt.string(from: now))
+            .replacingOccurrences(of: "{{date}}", with: now.formatted(date: .abbreviated, time: .omitted))
+            .replacingOccurrences(of: "{{time}}", with: now.formatted(date: .omitted, time: .shortened))
             .replacingOccurrences(of: "{{clipboard}}", with: clipboardText)
     }
 }
@@ -448,8 +441,7 @@ public struct DictationStatsSnapshot: Codable, Equatable, Sendable {
     }
 
     public static func dateKey(for date: Date) -> String {
-        let fmt = DateFormatter()
-        fmt.dateFormat = "yyyy-MM-dd"
-        return fmt.string(from: date)
+        let comps = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", comps.year ?? 0, comps.month ?? 0, comps.day ?? 0)
     }
 }

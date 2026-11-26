@@ -1,3 +1,4 @@
+import Accelerate
 import FluidAudio
 import Foundation
 
@@ -80,7 +81,11 @@ actor CoreMLParakeetTranscriber {
     func transcribe(samples16kHz: [Float]) async throws -> String {
         // Short-circuit ultra-short taps (< 0.15s) or digital silence before invoking ANE.
         guard samples16kHz.count >= 2_400 else { return "" }
-        let peakAmplitude = samples16kHz.reduce(Float(0)) { max($0, abs($1)) }
+        var peakAmplitude: Float = 0
+        samples16kHz.withUnsafeBufferPointer { buf in
+            guard let base = buf.baseAddress else { return }
+            vDSP_maxmgv(base, 1, &peakAmplitude, vDSP_Length(buf.count))
+        }
         guard peakAmplitude >= 0.0015 else { return "" }
 
         let asrManager = try await loadedManager()

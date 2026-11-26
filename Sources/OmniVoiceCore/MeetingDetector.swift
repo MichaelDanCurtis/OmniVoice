@@ -37,9 +37,7 @@ public enum DetectedMeetingApp: String, CaseIterable, Codable, Hashable, Sendabl
     }
 
     public func defaultSessionTitle(at date: Date = Date()) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        return "\(displayName) — \(formatter.string(from: date))"
+        "\(displayName) — \(date.formatted(date: .omitted, time: .shortened))"
     }
 }
 

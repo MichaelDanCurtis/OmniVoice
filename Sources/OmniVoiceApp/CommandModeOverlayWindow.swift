@@ -85,16 +85,6 @@ final class CommandModeOverlayWindow {
         repositionPanel()
     }
 
-    func updateMCPState(_ connectionState: CuaMCPClient.ConnectionState) {
-        state.mcpStatusLabel = connectionState.label
-        state.isMCPConnected = connectionState.isConnected
-        if case .notInstalled = connectionState {
-            state.showInstallHint = true
-        } else {
-            state.showInstallHint = false
-        }
-    }
-
     func updateNativeDriverState(ready: Bool, toolCount: Int) {
         state.isMCPConnected = ready
         state.showInstallHint = !ready

@@ -221,6 +221,7 @@ final class AppModel {
     @ObservationIgnored private var activeMeetingPromises: [String] = []
     @ObservationIgnored private var preBriefedEventKeys = Set<String>()
     @ObservationIgnored private var preMeetingBriefMonitorTask: Task<Void, Never>?
+    @ObservationIgnored private var debouncedPersistTask: Task<Void, Never>?
     @ObservationIgnored private let meetingAgentRunner = AgentRunner()
     @ObservationIgnored private let calendarService = MeetingCalendarService()
     @ObservationIgnored private var meetingStartedByAutoDetect = false
@@ -1441,10 +1442,7 @@ final class AppModel {
         guard preferences.recordingCueVolume != clampedVolume else { return }
 
         preferences.recordingCueVolume = clampedVolume
-        guard persistPreferences() else {
-            return
-        }
-
+        persistPreferencesDebounced()
         statusText = "Recording cue volume: \(Int((clampedVolume * 100).rounded()))%"
     }
 
@@ -1636,10 +1634,7 @@ final class AppModel {
         }
 
         preferences.engineFrameHandlePosition = clamped
-        guard persistPreferences() else {
-            return
-        }
-
+        persistPreferencesDebounced()
         statusText = "History handle moved"
     }
 
@@ -3771,8 +3766,21 @@ final class AppModel {
         let clamped = min(max(opacity, 0), 1)
         guard abs(preferences.captionGlassOpacity - clamped) > 0.001 else { return }
         preferences.captionGlassOpacity = clamped
-        _ = persistPreferences()
+        persistPreferencesDebounced()
         onThemeChanged?(activeTheme, preferences.appearanceMode)
+    }
+
+    private func persistPreferencesDebounced(delayMs: Int = 220) {
+        debouncedPersistTask?.cancel()
+        debouncedPersistTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(delayMs))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            _ = self?.persistPreferences()
+        }
     }
 
     func selectQuickTranslationLanguage(_ code: String?) {

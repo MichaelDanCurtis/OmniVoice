@@ -11,16 +11,21 @@ final class LearnedWordToast {
 
     private var panel: NSPanel?
     private let model = LearnedWordToastModel()
-    private var timer: Timer?
+    private var hideTask: Task<Void, Never>?
     private let width: CGFloat = 320
     private let duration: TimeInterval = 5
 
     func show(correction: LearnedCorrection, entryID: String?) {
-        timer?.invalidate()
+        hideTask?.cancel()
+        hideTask = nil
         model.from = correction.from
         model.to = correction.to
         model.entryID = entryID
-        model.progress = 1
+        var resetTx = Transaction()
+        resetTx.disablesAnimations = true
+        withTransaction(resetTx) {
+            model.progress = 1
+        }
         model.onUndo = { [weak self] in self?.undo() }
 
         let panel = self.panel ?? makePanel()
@@ -31,14 +36,18 @@ final class LearnedWordToast {
     }
 
     private func startCountdown() {
-        let start = Date()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                let elapsed = Date().timeIntervalSince(start)
-                self.model.progress = max(0, 1 - elapsed / self.duration)
-                if elapsed >= self.duration { self.hide() }
+        withAnimation(.linear(duration: duration)) {
+            model.progress = 0
+        }
+        let durationSeconds = duration
+        hideTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(durationSeconds))
+            } catch {
+                return
             }
+            guard !Task.isCancelled else { return }
+            self?.hide()
         }
     }
 
@@ -48,8 +57,8 @@ final class LearnedWordToast {
     }
 
     private func hide() {
-        timer?.invalidate()
-        timer = nil
+        hideTask?.cancel()
+        hideTask = nil
         panel?.orderOut(nil)
     }
 
