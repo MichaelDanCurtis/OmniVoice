@@ -20,6 +20,7 @@ APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 ENGINE_BUNDLE_DIR="$APP_RESOURCES/Engine"
 ENGINE_WHEELHOUSE_DIR="$ENGINE_BUNDLE_DIR/wheelhouse"
+OMNIVOICE_BUNDLE_PYTHON="${OMNIVOICE_BUNDLE_PYTHON:-0}"
 PYTHON_RUNTIME_DIR="$APP_RESOURCES/Python"
 PYTHON_RUNTIME_VERSION="${OMNIVOICE_PYTHON_RUNTIME_VERSION:-3.12}"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
@@ -45,7 +46,11 @@ LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchS
 
 cd "$ROOT_DIR"
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+case "$MODE" in
+  run|--debug|debug|--logs|logs|--telemetry|telemetry|--verify|verify)
+    pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+    ;;
+esac
 
 add_local_keychain_to_search_list() {
   # Set the user keychain search list to exactly [local-codesign, login],
@@ -121,6 +126,7 @@ stop_engine() {
   pkill -f "$ROOT_DIR/engine/.venv/bin/uvicorn omnivoice_engine.main:app --host 127.0.0.1 --port 8765" >/dev/null 2>&1 || true
   pkill -f "Application Support/OmniSpeak/engine-venv/bin/uvicorn omnivoice_engine.main:app --host 127.0.0.1 --port 8765" >/dev/null 2>&1 || true
   pkill -f "$ROOT_DIR/scripts/run-engine.sh" >/dev/null 2>&1 || true
+  pkill -x omnivoice-engine >/dev/null 2>&1 || true
   rm -f "$ENGINE_PID_FILE" "$ENGINE_APP_PATH_FILE"
 }
 
@@ -187,12 +193,26 @@ ensure_engine() {
   fi
 
   mkdir -p "$DIST_DIR"
-  if command -v tmux >/dev/null 2>&1; then
-    tmux kill-session -t omnivoice-engine >/dev/null 2>&1 || true
-    tmux new-session -d -s omnivoice-engine "cd \"$ROOT_DIR\" && OMNIVOICE_DESKTOP_APP_PATH=\"$RUN_APP_BUNDLE\" OMNIVOICE_MODEL_ROOT=\"${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}\" OMNIVOICE_INSTALL_ASR=\"${OMNIVOICE_INSTALL_ASR:-1}\" OMNIVOICE_INSTALL_MLX_DIARIZATION=\"${OMNIVOICE_INSTALL_MLX_DIARIZATION:-1}\" OMNIVOICE_INSTALL_MLX_ASR=\"${OMNIVOICE_INSTALL_MLX_ASR:-1}\" scripts/run-engine.sh >>\"$DIST_DIR/engine.log\" 2>&1"
-    echo "tmux:omnivoice-engine" >"$ENGINE_PID_FILE"
+  if [[ "$OMNIVOICE_BUNDLE_PYTHON" == "1" ]]; then
+    if command -v tmux >/dev/null 2>&1; then
+      tmux kill-session -t omnivoice-engine >/dev/null 2>&1 || true
+      tmux new-session -d -s omnivoice-engine "cd \"$ROOT_DIR\" && OMNIVOICE_DESKTOP_APP_PATH=\"$RUN_APP_BUNDLE\" OMNIVOICE_MODEL_ROOT=\"${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}\" OMNIVOICE_INSTALL_ASR=\"${OMNIVOICE_INSTALL_ASR:-1}\" OMNIVOICE_INSTALL_MLX_DIARIZATION=\"${OMNIVOICE_INSTALL_MLX_DIARIZATION:-1}\" OMNIVOICE_INSTALL_MLX_ASR=\"${OMNIVOICE_INSTALL_MLX_ASR:-1}\" scripts/run-engine.sh >>\"$DIST_DIR/engine.log\" 2>&1"
+      echo "tmux:omnivoice-engine" >"$ENGINE_PID_FILE"
+    else
+      nohup env OMNIVOICE_DESKTOP_APP_PATH="$RUN_APP_BUNDLE" OMNIVOICE_MODEL_ROOT="${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}" OMNIVOICE_INSTALL_ASR="${OMNIVOICE_INSTALL_ASR:-1}" OMNIVOICE_INSTALL_MLX_DIARIZATION="${OMNIVOICE_INSTALL_MLX_DIARIZATION:-1}" OMNIVOICE_INSTALL_MLX_ASR="${OMNIVOICE_INSTALL_MLX_ASR:-1}" "$ROOT_DIR/scripts/run-engine.sh" >"$DIST_DIR/engine.log" 2>&1 &
+      echo "$!" >"$ENGINE_PID_FILE"
+    fi
   else
-    nohup env OMNIVOICE_DESKTOP_APP_PATH="$RUN_APP_BUNDLE" OMNIVOICE_MODEL_ROOT="${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}" OMNIVOICE_INSTALL_ASR="${OMNIVOICE_INSTALL_ASR:-1}" OMNIVOICE_INSTALL_MLX_DIARIZATION="${OMNIVOICE_INSTALL_MLX_DIARIZATION:-1}" OMNIVOICE_INSTALL_MLX_ASR="${OMNIVOICE_INSTALL_MLX_ASR:-1}" "$ROOT_DIR/scripts/run-engine.sh" >"$DIST_DIR/engine.log" 2>&1 &
+    local rust_bin="${OMNIVOICE_RUST_ENGINE_BINARY:-$ROOT_DIR/core-rs/target/release/omnivoice-engine}"
+    if [[ ! -x "$rust_bin" ]]; then
+      (cd "$ROOT_DIR/core-rs" && cargo build --release --bin omnivoice-engine)
+      rust_bin="$ROOT_DIR/core-rs/target/release/omnivoice-engine"
+    fi
+    nohup env \
+      OMNIVOICE_ENGINE_PORT=8765 \
+      OMNIVOICE_MODEL_ROOT="${OMNIVOICE_MODEL_ROOT:-$ROOT_DIR/models}" \
+      OMNIVOICE_ENGINE_DATA_DIR="${OMNIVOICE_ENGINE_DATA_DIR:-$DIST_DIR/engine-data}" \
+      "$rust_bin" >"$DIST_DIR/engine.log" 2>&1 &
     echo "$!" >"$ENGINE_PID_FILE"
   fi
   echo "$RUN_APP_BUNDLE" >"$ENGINE_APP_PATH_FILE"
@@ -368,22 +388,48 @@ PY
 }
 
 protect_python_runtime() {
+  if [[ "$OMNIVOICE_BUNDLE_PYTHON" != "1" ]]; then
+    return 0
+  fi
   find "$PYTHON_RUNTIME_DIR" -name "__pycache__" -type d -prune -exec rm -rf {} +
   chmod -R a-w "$PYTHON_RUNTIME_DIR"
+}
+
+bundle_rust_engine() {
+  local rust_bin="${OMNIVOICE_RUST_ENGINE_BINARY:-}"
+  if [[ -z "$rust_bin" || ! -x "$rust_bin" ]]; then
+    (cd "$ROOT_DIR/core-rs" && cargo build --release --bin omnivoice-engine)
+    rust_bin="$ROOT_DIR/core-rs/target/release/omnivoice-engine"
+  fi
+  if [[ ! -x "$rust_bin" ]]; then
+    echo "Rust omnivoice-engine binary not found at $rust_bin" >&2
+    return 1
+  fi
+  cp "$rust_bin" "$ENGINE_BUNDLE_DIR/omnivoice-engine"
+  chmod +x "$ENGINE_BUNDLE_DIR/omnivoice-engine"
+
+  if [[ -n "${OMNIVOICE_LLAMA_SERVER_BIN:-}" && -x "${OMNIVOICE_LLAMA_SERVER_BIN:-}" ]]; then
+    cp "$OMNIVOICE_LLAMA_SERVER_BIN" "$ENGINE_BUNDLE_DIR/llama-server"
+    chmod +x "$ENGINE_BUNDLE_DIR/llama-server"
+  fi
 }
 
 bundle_engine() {
   rm -rf "$ENGINE_BUNDLE_DIR"
   mkdir -p "$ENGINE_BUNDLE_DIR"
 
-  cp "$ROOT_DIR/engine/pyproject.toml" "$ENGINE_BUNDLE_DIR/"
-  cp -R "$ROOT_DIR/engine/omnivoice_engine" "$ENGINE_BUNDLE_DIR/"
-  cp "$ROOT_DIR/scripts/run-bundled-engine.sh" "$ENGINE_BUNDLE_DIR/run-engine-bundled.sh"
-  chmod +x "$ENGINE_BUNDLE_DIR/run-engine-bundled.sh"
+  bundle_rust_engine
 
-  find "$ENGINE_BUNDLE_DIR" -name "__pycache__" -type d -prune -exec rm -rf {} +
-  find "$ENGINE_BUNDLE_DIR" -name "*.pyc" -type f -delete
-  find "$ENGINE_BUNDLE_DIR" -name "*.pyo" -type f -delete
+  if [[ "$OMNIVOICE_BUNDLE_PYTHON" == "1" ]]; then
+    cp "$ROOT_DIR/engine/pyproject.toml" "$ENGINE_BUNDLE_DIR/"
+    cp -R "$ROOT_DIR/engine/omnivoice_engine" "$ENGINE_BUNDLE_DIR/"
+    cp "$ROOT_DIR/scripts/run-bundled-engine.sh" "$ENGINE_BUNDLE_DIR/run-engine-bundled.sh"
+    chmod +x "$ENGINE_BUNDLE_DIR/run-engine-bundled.sh"
+
+    find "$ENGINE_BUNDLE_DIR" -name "__pycache__" -type d -prune -exec rm -rf {} +
+    find "$ENGINE_BUNDLE_DIR" -name "*.pyc" -type f -delete
+    find "$ENGINE_BUNDLE_DIR" -name "*.pyo" -type f -delete
+  fi
 }
 
 bundle_engine_wheelhouse() {
@@ -549,6 +595,14 @@ cat >"$INFO_PLIST" <<PLIST
   <string>OmniSpeak uses the microphone for push-to-talk dictation.</string>
   <key>NSAudioCaptureUsageDescription</key>
   <string>OmniSpeak captures system audio during Mic + System conversations so the other side of a call can be transcribed and labeled.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>OmniSpeak reads your active calendar meeting title, attendees, and agenda to give your Meeting Co-Pilot better context.</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>OmniSpeak reads your active calendar meeting title, attendees, and agenda to give your Meeting Co-Pilot better context.</string>
+  <key>NSRemindersFullAccessUsageDescription</key>
+  <string>OmniSpeak exports meeting action items and promises directly into Apple Reminders when you click Push to Reminders.</string>
+  <key>NSRemindersUsageDescription</key>
+  <string>OmniSpeak exports meeting action items and promises directly into Apple Reminders when you click Push to Reminders.</string>
   <key>SUFeedURL</key>
   <string>https://github.com/MichaelDanCurtis/OmniSpeak/releases/latest/download/appcast.xml</string>
   <key>SUPublicEDKey</key>
@@ -581,12 +635,63 @@ bundle_sparkle() {
   fi
 }
 
+bundle_mlx_metallib() {
+  # SwiftPM CLI (`swift build`) does not compile MLX Metal shaders into mlx.metallib.
+  # Compile mlx-swift's generated kernels once (cached by mlx-swift revision) and embed
+  # mlx.metallib into Contents/Resources and Contents/MacOS so MLX runs natively on Metal.
+  local metal_dir="$ROOT_DIR/.build/checkouts/mlx-swift/Source/Cmlx/mlx-generated/metal"
+  if [[ ! -d "$metal_dir" ]]; then
+    return 0
+  fi
+
+  local mlx_rev="local"
+  if [[ -f "$ROOT_DIR/Package.resolved" ]]; then
+    mlx_rev="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(next((p["state"]["revision"][:12] for p in d.get("pins",[]) if p.get("identity")=="mlx-swift"), "local"))' "$ROOT_DIR/Package.resolved" 2>/dev/null || echo "local")"
+  fi
+
+  local cache_dir="$DIST_DIR/mlx-cache"
+  local cached_lib="$cache_dir/mlx-${mlx_rev}.metallib"
+  mkdir -p "$cache_dir"
+
+  if [[ ! -f "$cached_lib" ]]; then
+    local air_dir
+    air_dir="$(mktemp -d)"
+    local metal_root="$ROOT_DIR/.build/checkouts/mlx-swift/Source/Cmlx/mlx"
+    local air_files=()
+    while IFS= read -r -d '' metal_file; do
+      local rel_name="${metal_file#"$metal_dir/"}"
+      local out_air="$air_dir/${rel_name//\//_}.air"
+      xcrun -sdk macosx metal \
+        -I "$metal_dir" \
+        -I "$metal_root" \
+        -c "$metal_file" \
+        -o "$out_air"
+      air_files+=("$out_air")
+    done < <(find "$metal_dir" -name '*.metal' -print0)
+
+    if [[ "${#air_files[@]}" -gt 0 ]]; then
+      xcrun -sdk macosx metallib "${air_files[@]}" -o "$cached_lib"
+    fi
+    rm -rf "$air_dir"
+  fi
+
+  if [[ -f "$cached_lib" ]]; then
+    cp "$cached_lib" "$APP_RESOURCES/mlx.metallib"
+    cp "$cached_lib" "$APP_MACOS/mlx.metallib"
+  fi
+}
+
 build_icon
-bundle_python_runtime
+if [[ "$OMNIVOICE_BUNDLE_PYTHON" == "1" ]]; then
+  bundle_python_runtime
+fi
 bundle_engine
-bundle_engine_wheelhouse
+if [[ "$OMNIVOICE_BUNDLE_PYTHON" == "1" ]]; then
+  bundle_engine_wheelhouse
+fi
 bundle_support_files
 bundle_sparkle
+bundle_mlx_metallib
 
 xattr -dr com.apple.quarantine "$APP_BUNDLE" >/dev/null 2>&1 || true
 protect_python_runtime
@@ -649,13 +754,13 @@ OmniSpeak local build
 
 Drag OmniSpeak.app to Applications.
 
-This package contains the desktop app, the OmniSpeak engine source bundle, and an embedded Python runtime.
+By default this package bundles the native Swift + CoreML Apple Neural Engine app alongside the zero-Python Rust engine binary (omnivoice-engine). When built with OMNIVOICE_BUNDLE_PYTHON=1, OmniSpeak includes its own Python runtime and a bundled Python wheelhouse for MLX models.
 
-On first launch, the app checks http://127.0.0.1:8765. If the engine is not already running, it starts the bundled engine and creates its Python virtual environment under:
+On first launch, local data and downloaded models are stored under:
 
 ~/Library/Application Support/OmniSpeak
 
-OmniSpeak includes its own Python runtime and a bundled Python wheelhouse for normal engine dependencies. Hugging Face model weights are downloaded locally and are not bundled into this DMG.
+Hugging Face model weights (CoreML ANE or optional Qwen3 GGUF cleanup models) are downloaded locally on demand and are not bundled into this DMG.
 
 This build is locally signed for development. Public distribution still needs Developer ID signing and notarization.
 README
@@ -678,6 +783,9 @@ README
 }
 
 case "$MODE" in
+  --bundle|bundle)
+    echo "bundled $APP_BUNDLE"
+    ;;
   run)
     open_app
     ;;
@@ -701,7 +809,7 @@ case "$MODE" in
     create_dmg
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--dmg]" >&2
+    echo "usage: $0 [run|--bundle|--debug|--logs|--telemetry|--verify|--dmg]" >&2
     exit 2
     ;;
 esac

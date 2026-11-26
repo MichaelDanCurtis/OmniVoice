@@ -127,15 +127,16 @@ enum AskAIAttachmentLoader {
 
         let pipe = Pipe()
         process.standardOutput = pipe
-        process.standardError = Pipe()
+        process.standardError = FileHandle.nullDevice
 
         do {
             try process.run()
+            // Drain stdout BEFORE waitUntilExit() so > 64 KB DOCX XML cannot deadlock the pipe.
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else {
                 return "No readable text could be extracted from \(url.lastPathComponent)."
             }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
             guard let xml = String(data: data, encoding: .utf8), !xml.isEmpty else {
                 return "No readable text could be extracted from \(url.lastPathComponent)."
             }

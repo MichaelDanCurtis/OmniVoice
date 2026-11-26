@@ -7,7 +7,7 @@ import SwiftUI
 final class TranscriptCacheOverlayWindow {
     private static let overlaySize = CGSize(width: 430, height: 278)
 
-    private var window: NSWindow?
+    private var window: NSPanel?
     private let state = TranscriptCacheOverlayState()
     private var selectionState = TranscriptCacheSelectionState()
     private var localMonitor: Any?
@@ -49,19 +49,29 @@ final class TranscriptCacheOverlayWindow {
         )
 
         if window == nil {
-            let created = NSWindow(
+            let created = NSPanel(
                 contentRect: CGRect(origin: origin, size: Self.overlaySize),
                 styleMask: [.borderless, .nonactivatingPanel],
                 backing: .buffered,
                 defer: false
             )
+            created.isFloatingPanel = true
+            created.becomesKeyOnlyIfNeeded = true
+            created.hidesOnDeactivate = false
             created.isOpaque = false
             created.backgroundColor = .clear
-            created.hasShadow = false
+            created.hasShadow = true
             created.level = .floating
             created.ignoresMouseEvents = false
             created.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-            created.contentView = NSHostingView(rootView: TranscriptCacheOverlayView(state: state))
+            created.contentView = NSHostingView(
+                rootView: TranscriptCacheOverlayView(
+                    state: state,
+                    onHoverSelect: { [weak self] index in
+                        self?.select(index: index)
+                    }
+                )
+            )
             window = created
         }
 
@@ -82,9 +92,18 @@ final class TranscriptCacheOverlayWindow {
             return
         }
 
+        let insertHandler = onInsert
         tearDown()
         window?.orderOut(nil)
-        onInsert?(transcript)
+        insertHandler?(transcript)
+    }
+
+    private func select(index: Int) {
+        guard state.transcripts.indices.contains(index), index != selectionState.selectedIndex else {
+            return
+        }
+        let delta = index - selectionState.selectedIndex
+        moveSelection(delta: delta)
     }
 
     private func moveSelection(delta: Int) {
@@ -194,6 +213,7 @@ private final class TranscriptCacheOverlayState {
 
 private struct TranscriptCacheOverlayView: View {
     @Bindable var state: TranscriptCacheOverlayState
+    let onHoverSelect: (Int) -> Void
     @Environment(\.colorScheme) private var colorScheme
 
     private var theme: OmniVoiceTheme { state.theme }
@@ -261,6 +281,12 @@ private struct TranscriptCacheOverlayView: View {
                     accent: accent,
                     secondary: secondary
                 )
+                .contentShape(Rectangle())
+                .onHover { hovering in
+                    if hovering {
+                        onHoverSelect(index)
+                    }
+                }
             }
         }
     }

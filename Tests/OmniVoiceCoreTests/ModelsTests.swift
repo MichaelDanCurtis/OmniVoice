@@ -29,7 +29,7 @@ final class ModelsTests: XCTestCase {
     func testASRProviderUserSelectableCasesUseProductionLocalModels() {
         XCTAssertEqual(
             ASRProviderKind.userSelectableCases,
-            [.parakeetTDTMLX, .whisperLargeV3TurboMLX6Bit, .canaryQwen25B, .appleSpeech]
+            [.parakeetTDTMLX, .parakeetCoreMLANE, .whisperLargeV3TurboMLX6Bit, .qwen3ASR17BMLX4Bit, .canaryQwen25B, .appleSpeech]
         )
         XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.fake))
         XCTAssertFalse(ASRProviderKind.userSelectableCases.contains(.parakeetTDT))
@@ -39,13 +39,19 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(SpeechModelRecommendation.defaultProviderID, "parakeet-tdt-mlx")
         XCTAssertEqual(SpeechModelRecommendation.allCases.map(\.providerID), [
             "parakeet-tdt-mlx",
+            "parakeet-tdt-coreml-ane",
             "whisper-large-v3-turbo-mlx-6bit",
+            "qwen3-asr-1.7b-mlx-4bit",
             "canary-qwen-2.5b",
         ])
         XCTAssertEqual(SpeechModelRecommendation.parakeetTDTMLX.displayName, "Parakeet TDT MLX")
         XCTAssertEqual(SpeechModelRecommendation.parakeetTDTMLX.badge, "Fast / Default")
+        XCTAssertEqual(SpeechModelRecommendation.parakeetCoreMLANE.displayName, "Parakeet TDT CoreML (Neural Engine)")
+        XCTAssertEqual(SpeechModelRecommendation.parakeetCoreMLANE.badge, "Neural Engine · Zero Python")
         XCTAssertEqual(SpeechModelRecommendation.whisperLargeV3TurboMLX6Bit.displayName, "Whisper Large v3 Turbo MLX 6-bit")
         XCTAssertEqual(SpeechModelRecommendation.whisperLargeV3TurboMLX6Bit.badge, "Multilingual")
+        XCTAssertEqual(SpeechModelRecommendation.qwen3ASR17BMLX4Bit.displayName, "Qwen3-ASR 1.7B MLX 4-bit")
+        XCTAssertEqual(SpeechModelRecommendation.qwen3ASR17BMLX4Bit.badge, "Multilingual Accuracy")
         XCTAssertEqual(SpeechModelRecommendation.canaryQwen25B.displayName, "Canary-Qwen-2.5B")
         XCTAssertEqual(SpeechModelRecommendation.canaryQwen25B.badge, "English Accuracy")
         XCTAssertEqual(SpeechModelRecommendation.canaryQwen25B.providerKind, .canaryQwen25B)
@@ -55,7 +61,9 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(ASRProviderKind.fake.displayName, "Fake ASR")
         XCTAssertEqual(ASRProviderKind.parakeetTDT.displayName, "Parakeet TDT")
         XCTAssertEqual(ASRProviderKind.parakeetTDTMLX.displayName, "Parakeet TDT MLX")
+        XCTAssertEqual(ASRProviderKind.parakeetCoreMLANE.displayName, "Parakeet TDT CoreML (Neural Engine)")
         XCTAssertEqual(ASRProviderKind.whisperLargeV3TurboMLX6Bit.displayName, "Whisper Large v3 Turbo MLX 6-bit")
+        XCTAssertEqual(ASRProviderKind.qwen3ASR17BMLX4Bit.displayName, "Qwen3-ASR 1.7B MLX 4-bit")
         XCTAssertEqual(ASRProviderKind.canaryQwen25B.displayName, "Canary-Qwen-2.5B")
     }
 
@@ -68,7 +76,7 @@ final class ModelsTests: XCTestCase {
 
         XCTAssertEqual(
             EngineProviderContract.missingRequiredASRProviderIDs(in: staleProviders),
-            ["whisper-large-v3-turbo-mlx-6bit"]
+            ["whisper-large-v3-turbo-mlx-6bit", "qwen3-asr-1.7b-mlx-4bit"]
         )
 
         let currentProviders = ASRProviderKind.userSelectableCases.map {

@@ -31,6 +31,8 @@ On first launch, if no engine is already running at `http://127.0.0.1:8765`, the
 
 The launcher installs normal runtime packages from the bundled wheelhouse by default, so users do not need a system Python installation for the packaged app.
 
+Parakeet dictation decodes the app's WAV audio with the bundled Python packages. It does not require a separate FFmpeg or Homebrew installation.
+
 Models are not bundled. They are downloaded locally from Hugging Face through the app settings or engine dashboard and stored under Application Support by default.
 
 Canary-Qwen remains an advanced optional runtime because its NeMo dependency is sourced separately from NVIDIA. The normal packaged runtime includes the local engine, Parakeet MLX, Whisper MLX, translation support plumbing, and MLX diarization package dependencies; Canary can still be enabled from the app when that runtime is available.

@@ -21,26 +21,22 @@ struct EngineFrameView: View {
 
     var body: some View {
         ZStack(alignment: side.stackAlignment) {
-            if isExpanded {
-                Color.black.opacity(0.001)
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        isExpanded = false
-                    }
-
-                drawerContent
-                    .frame(width: Self.drawerWidth)
-                    .padding(.vertical, 10)
-                    .padding(side == .left ? .leading : .trailing, Self.collapsedWidth)
-                    .transition(.move(edge: side.transitionEdge).combined(with: .opacity))
-                    .zIndex(2)
-            }
-
             collapseHandle
                 .zIndex(3)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: side.stackAlignment)
-        .animation(.snappy(duration: 0.24), value: isExpanded)
+        .frame(width: Self.collapsedWidth)
+        .frame(maxHeight: .infinity, alignment: side.stackAlignment)
+        .background {
+            TranscriptHistoryFloatingPanelBridge(
+                model: model,
+                side: side,
+                isExpanded: $isExpanded,
+                insertTranscript: insertTranscript,
+                copyTranscript: copyTranscript
+            )
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+        }
         .task {
             await model.refreshTranscripts()
         }
@@ -92,16 +88,27 @@ struct EngineFrameView: View {
 
             Spacer()
 
-            Button {
-                Task {
-                    await model.refreshTranscripts()
+            HStack(spacing: 6) {
+                Button {
+                    Task {
+                        await model.refreshTranscripts()
+                    }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
                 }
-            } label: {
-                Image(systemName: "arrow.clockwise")
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Refresh conversation history")
+
+                Button {
+                    isExpanded = false
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Close transcript history drawer")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help("Refresh conversation history")
         }
     }
 
@@ -284,18 +291,21 @@ private struct TranscriptHistoryCard: View {
         return "Raw: \(raw)"
     }
 
+    private static let fractionalISOFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let standardISOFormatter = ISO8601DateFormatter()
+
     private func shortDate(_ value: String) -> String {
-        let fractionalFormatter = ISO8601DateFormatter()
-        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractionalFormatter.date(from: value) {
+        if let date = Self.fractionalISOFormatter.date(from: value) {
             return date.formatted(date: .omitted, time: .shortened)
         }
-
-        let formatter = ISO8601DateFormatter()
-        if let date = formatter.date(from: value) {
+        if let date = Self.standardISOFormatter.date(from: value) {
             return date.formatted(date: .omitted, time: .shortened)
         }
-
         return value
     }
 }

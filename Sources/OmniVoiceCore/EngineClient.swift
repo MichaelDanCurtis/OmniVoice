@@ -413,10 +413,16 @@ public struct EngineClient: Sendable {
 
     public let baseURL: URL
     private let urlSession: URLSession
+    private let authTokenProvider: @Sendable () -> String?
 
-    public init(baseURL: URL = URL(string: "http://127.0.0.1:8765")!, urlSession: URLSession? = nil) {
+    public init(
+        baseURL: URL = URL(string: "http://127.0.0.1:8765")!,
+        urlSession: URLSession? = nil,
+        authTokenProvider: @escaping @Sendable () -> String? = { EngineAuthTokenStore.shared.token }
+    ) {
         self.baseURL = baseURL
         self.urlSession = urlSession ?? EngineClient.defaultSession()
+        self.authTokenProvider = authTokenProvider
     }
 
     /// Default session with bounded timeouts so a hung engine surfaces an error instead of
@@ -432,28 +438,28 @@ public struct EngineClient: Sendable {
 
     public func health() async throws -> EngineHealth {
         let endpoint = baseURL.appending(path: "health")
-        let (data, response) = try await urlSession.data(from: endpoint)
+        let (data, response) = try await performGET(endpoint)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(EngineHealth.self, from: data)
     }
 
     public func providers() async throws -> [EngineProviderInfo] {
         let endpoint = baseURL.appending(path: "providers")
-        let (data, response) = try await urlSession.data(from: endpoint)
+        let (data, response) = try await performGET(endpoint)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode([EngineProviderInfo].self, from: data)
     }
 
     public func diarizationProviders() async throws -> [EngineProviderInfo] {
         let endpoint = baseURL.appending(path: "diarization").appending(path: "providers")
-        let (data, response) = try await urlSession.data(from: endpoint)
+        let (data, response) = try await performGET(endpoint)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode([EngineProviderInfo].self, from: data)
     }
 
     public func models() async throws -> [EngineModelStatus] {
         let endpoint = baseURL.appending(path: "models")
-        let (data, response) = try await urlSession.data(from: endpoint)
+        let (data, response) = try await performGET(endpoint)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode([EngineModelStatus].self, from: data)
     }
@@ -463,7 +469,7 @@ public struct EngineClient: Sendable {
         components?.queryItems = [URLQueryItem(name: "limit", value: String(limit))]
         guard let endpoint = components?.url else { throw EngineError.invalidURL }
 
-        let (data, response) = try await urlSession.data(from: endpoint)
+        let (data, response) = try await performGET(endpoint)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode([EngineTranscriptRecord].self, from: data)
     }
@@ -475,7 +481,7 @@ public struct EngineClient: Sendable {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try EngineCoding.encoder.encode(request)
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(ConversationSession.self, from: data)
     }
@@ -485,7 +491,7 @@ public struct EngineClient: Sendable {
         components?.queryItems = [URLQueryItem(name: "limit", value: String(limit))]
         guard let endpoint = components?.url else { throw EngineError.invalidURL }
 
-        let (data, response) = try await urlSession.data(from: endpoint)
+        let (data, response) = try await performGET(endpoint)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode([ConversationSession].self, from: data)
     }
@@ -495,7 +501,7 @@ public struct EngineClient: Sendable {
             .appending(path: "api")
             .appending(path: "conversations")
             .appending(path: sessionID)
-        let (data, response) = try await urlSession.data(from: endpoint)
+        let (data, response) = try await performGET(endpoint)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(ConversationDetail.self, from: data)
     }
@@ -510,7 +516,7 @@ public struct EngineClient: Sendable {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try EngineCoding.encoder.encode(request)
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(ConversationDetail.self, from: data)
     }
@@ -523,7 +529,7 @@ public struct EngineClient: Sendable {
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "DELETE"
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
     }
 
@@ -537,7 +543,7 @@ public struct EngineClient: Sendable {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try EngineCoding.encoder.encode(detail)
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(ConversationImportResult.self, from: data)
     }
@@ -553,7 +559,7 @@ public struct EngineClient: Sendable {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try EngineCoding.encoder.encode(request)
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(ConversationSegment.self, from: data)
     }
@@ -570,7 +576,7 @@ public struct EngineClient: Sendable {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try EngineCoding.encoder.encode(request)
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(ConversationSegment.self, from: data)
     }
@@ -586,7 +592,7 @@ public struct EngineClient: Sendable {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try EngineCoding.encoder.encode(request)
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(ConversationAssistCard.self, from: data)
     }
@@ -600,7 +606,7 @@ public struct EngineClient: Sendable {
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "POST"
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(ConversationSession.self, from: data)
     }
@@ -616,7 +622,7 @@ public struct EngineClient: Sendable {
             .appending(path: "update")
         var urlRequest = URLRequest(url: endpoint)
         setHuggingFaceAuthorization(huggingFaceToken, on: &urlRequest)
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(EngineModelUpdateInfo.self, from: data)
     }
@@ -634,7 +640,7 @@ public struct EngineClient: Sendable {
         urlRequest.httpMethod = "POST"
         setHuggingFaceAuthorization(huggingFaceToken, on: &urlRequest)
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(EngineModelDownloadStatus.self, from: data)
     }
@@ -648,7 +654,7 @@ public struct EngineClient: Sendable {
             .appending(path: "models")
             .appending(path: providerID)
             .appending(path: "download")
-        let (data, response) = try await urlSession.data(from: endpoint)
+        let (data, response) = try await performGET(endpoint)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(EngineModelDownloadStatus.self, from: data)
     }
@@ -664,7 +670,7 @@ public struct EngineClient: Sendable {
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "DELETE"
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(EngineModelStatus.self, from: data)
     }
@@ -676,7 +682,7 @@ public struct EngineClient: Sendable {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try EngineCoding.encoder.encode(request)
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(HuggingFaceAuthStatus.self, from: data)
     }
@@ -688,7 +694,7 @@ public struct EngineClient: Sendable {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try EngineCoding.encoder.encode(request)
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(CleanupResult.self, from: data)
     }
@@ -697,7 +703,7 @@ public struct EngineClient: Sendable {
         let endpoint = baseURL
             .appending(path: "translation")
             .appending(path: "providers")
-        let (data, response) = try await urlSession.data(from: endpoint)
+        let (data, response) = try await performGET(endpoint)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode([TranslationProviderInfo].self, from: data)
     }
@@ -722,7 +728,7 @@ public struct EngineClient: Sendable {
             throw URLError(.badURL)
         }
 
-        let (data, response) = try await urlSession.data(from: url)
+        let (data, response) = try await performGET(url)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(TranslationCapabilities.self, from: data)
     }
@@ -734,7 +740,7 @@ public struct EngineClient: Sendable {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try EngineCoding.encoder.encode(request)
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(TranslationResult.self, from: data)
     }
@@ -749,7 +755,7 @@ public struct EngineClient: Sendable {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try EngineCoding.encoder.encode(request)
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(TranslationValidationResponse.self, from: data)
     }
@@ -764,7 +770,7 @@ public struct EngineClient: Sendable {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try EngineCoding.encoder.encode(request)
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(AIHandoffResult.self, from: data)
     }
@@ -779,7 +785,7 @@ public struct EngineClient: Sendable {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try EngineCoding.encoder.encode(request)
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(AIChatResult.self, from: data)
     }
@@ -794,7 +800,7 @@ public struct EngineClient: Sendable {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.httpBody = try EngineCoding.encoder.encode(request)
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(TextLLMModelListResponse.self, from: data)
     }
@@ -808,9 +814,21 @@ public struct EngineClient: Sendable {
         urlRequest.httpMethod = "POST"
         urlRequest.httpBody = audio
 
-        let (data, response) = try await urlSession.data(for: urlRequest)
+        let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(TranscribeResult.self, from: data)
+    }
+
+    private func performGET(_ url: URL) async throws -> (Data, URLResponse) {
+        try await perform(URLRequest(url: url))
+    }
+
+    private func perform(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        var authenticatedRequest = request
+        if let token = authTokenProvider()?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty {
+            authenticatedRequest.setValue(token, forHTTPHeaderField: EngineAuthTokenStore.headerName)
+        }
+        return try await urlSession.data(for: authenticatedRequest)
     }
 
     private func validate(_ response: URLResponse, data: Data) throws {

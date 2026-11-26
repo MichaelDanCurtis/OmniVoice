@@ -59,6 +59,7 @@ final class AppleSpeechTranscriber: @unchecked Sendable {
     private var analyzerFormat: AVAudioFormat?
     private let assemblerLock = NSLock()
     private var assembler = AppleSpeechTranscriptAssembler()
+    private var didYieldAudio = false
 
     /// Prepares the OS model for `locale` (downloading through AssetInventory if
     /// needed) and starts a streaming analysis session.
@@ -134,8 +135,10 @@ final class AppleSpeechTranscriber: @unchecked Sendable {
                 return buffer
             }
             guard conversionError == nil, converted.frameLength > 0 else { return }
+            assemblerLock.withLock { didYieldAudio = true }
             inputContinuation.yield(AnalyzerInput(buffer: converted))
         } else {
+            assemblerLock.withLock { didYieldAudio = true }
             inputContinuation.yield(AnalyzerInput(buffer: buffer))
         }
     }
@@ -144,6 +147,11 @@ final class AppleSpeechTranscriber: @unchecked Sendable {
     /// transcript (settled segments plus any never-finalized tail).
     func finish() async throws -> String {
         guard let analyzer else { throw TranscriberError.notStarted }
+        let yielded = assemblerLock.withLock { didYieldAudio }
+        guard yielded else {
+            cancel()
+            return ""
+        }
         inputContinuation?.finish()
         try await analyzer.finalizeAndFinishThroughEndOfInput()
         resultsTask?.cancel()

@@ -80,7 +80,11 @@ struct OmniVoiceApp: App {
                 },
                 openAskAI: {
                     openWindow(id: "ask-ai")
-                }
+                },
+                checkForUpdates: {
+                    updater.checkForUpdates()
+                },
+                canCheckForUpdates: updater.canCheckForUpdates
             )
             .preferredColorScheme(model.preferences.appearanceMode.colorScheme)
             .task {
@@ -88,13 +92,8 @@ struct OmniVoiceApp: App {
                 appDelegate.attach(model: model)
                 await model.refreshEngineStatus()
             }
-
-            Divider()
-            Button("Check for Updates…") {
-                updater.checkForUpdates()
-            }
-            .disabled(!updater.canCheckForUpdates)
         }
+        .menuBarExtraStyle(.window)
 
         Settings {
             settingsContent
@@ -104,14 +103,16 @@ struct OmniVoiceApp: App {
         }
     }
 
+    @ViewBuilder
     private var controlPanelContent: some View {
-        ZStack(alignment: model.activeTheme.engineFrameSide.stackAlignment) {
+        let side = model.activeTheme.engineFrameSide
+        ZStack(alignment: side.stackAlignment) {
             settingsContent
-                .frame(maxWidth: .infinity, alignment: model.activeTheme.engineFrameSide.settingsAlignment)
+                .frame(maxWidth: .infinity, alignment: side.settingsAlignment)
 
             EngineFrameView(
                 model: model,
-                side: model.activeTheme.engineFrameSide,
+                side: side,
                 isExpanded: $isEngineFrameExpanded,
                 insertTranscript: { transcript in
                     Task {

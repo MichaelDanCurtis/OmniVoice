@@ -34,6 +34,165 @@ public enum ConversationInsightSynthesis {
         """
     }
 
+    public static func liveQuestionAnswerPrompt(
+        question: String,
+        speakerName: String,
+        recentTranscript: String,
+        calendarContext: MeetingCalendarContext? = nil
+    ) -> String {
+        let contextBlock = calendarContext.map { "Calendar context:\n\($0.promptContextSummary)\n\n" } ?? ""
+        return """
+        A question was just asked during a live meeting.
+        \(contextBlock)Speaker: \(speakerName)
+        Question: "\(question)"
+
+        Provide a concise, immediately usable answer the user can glance at and say out loud.
+        Use facts from the recent transcript or calendar context if relevant; if it's a general technical or factual question, answer directly and briefly (1-3 sentences max).
+
+        Return only JSON with this exact shape:
+        {
+          "cards": [
+            {
+              "kind": "answer",
+              "title": "Short answer headline (max 6 words)",
+              "body": "Direct, clear answer (1-3 sentences).",
+              "source_references": ["\(speakerName)"],
+              "confidence": 0.85
+            }
+          ]
+        }
+
+        Recent transcript:
+        \(recentTranscript)
+        """
+    }
+
+    public static func screenAwareAnswerPrompt(
+        recentTranscript: String,
+        calendarContext: MeetingCalendarContext? = nil
+    ) -> String {
+        let contextBlock = calendarContext.map { "Calendar context:\n\($0.promptContextSummary)\n\n" } ?? ""
+        return """
+        The user is in a live meeting and captured their current screen (attached image).
+        \(contextBlock)Combine what is visible on screen with the recent meeting transcript to give a concise, high-signal insight or answer to whatever is being discussed or asked right now.
+
+        Return only JSON with this exact shape:
+        {
+          "cards": [
+            {
+              "kind": "answer",
+              "title": "Short headline about what's on screen",
+              "body": "Clear, helpful takeaway or answer (1-4 sentences).",
+              "source_references": ["Screen"],
+              "confidence": 0.9
+            }
+          ]
+        }
+
+        Recent transcript:
+        \(recentTranscript)
+        """
+    }
+
+    public static func meetingWrapUpPrompt(
+        title: String,
+        transcript: String,
+        calendarContext: MeetingCalendarContext? = nil
+    ) -> String {
+        let contextBlock = calendarContext.map { "Calendar context:\n\($0.promptContextSummary)\n\n" } ?? ""
+        return """
+        Create a crisp post-meeting wrap-up for "\(title)".
+        \(contextBlock)Only use facts from the transcript. Return ONLY JSON with this exact shape:
+        {
+          "executive_summary": "2-3 sentence overview of what was covered.",
+          "decisions": ["Concrete decision 1"],
+          "action_items": ["Owner: concrete next step"],
+          "follow_up_draft": "Short, ready-to-send Slack or email follow-up message."
+        }
+
+        Transcript:
+        \(transcript)
+        """
+    }
+
+    public static func jargonDecoderPrompt(terms: [String], recentTranscript: String) -> String {
+        let joined = terms.joined(separator: ", ")
+        return """
+        Define these acronyms/terms mentioned in a live meeting as ultra-crisp 1-line glossary cards using the conversation context: \(joined).
+
+        Return only JSON with this exact shape:
+        {
+          "cards": [
+            {
+              "kind": "answer",
+              "title": "TERM — Short expansion",
+              "body": "Plain-English 1-sentence explanation in this meeting's context.",
+              "source_references": ["Glossary"],
+              "confidence": 0.9
+            }
+          ]
+        }
+
+        Recent transcript:
+        \(recentTranscript)
+        """
+    }
+
+    public static func catchUpPrompt(
+        recentTranscript: String,
+        calendarContext: MeetingCalendarContext? = nil
+    ) -> String {
+        let contextBlock = calendarContext.map { "Calendar context:\n\($0.promptContextSummary)\n\n" } ?? ""
+        return """
+        The user briefly tuned out and clicked "What Did I Miss?" during a live meeting.
+        \(contextBlock)Summarize the last ~2 minutes of transcript in at most 3 ultra-short bullet points so they can rejoin seamlessly.
+
+        Return only JSON with this exact shape:
+        {
+          "cards": [
+            {
+              "kind": "follow_up",
+              "title": "Catch-Up (Last 2 Min)",
+              "body": "• Point 1\\n• Point 2\\n• Point 3",
+              "source_references": ["Catch-Up"],
+              "confidence": 0.95
+            }
+          ]
+        }
+
+        Recent transcript:
+        \(recentTranscript)
+        """
+    }
+
+    public static func preMeetingBriefPrompt(
+        upcoming: MeetingCalendarContext,
+        pastMeetingNotes: String
+    ) -> String {
+        """
+        The user has a meeting starting in 2 minutes:
+        \(upcoming.promptContextSummary)
+
+        Create a crisp Pre-Meeting Brief (2-4 short bullets) summarizing what was decided last time and any open action items from past notes below.
+
+        Return only JSON with this exact shape:
+        {
+          "cards": [
+            {
+              "kind": "follow_up",
+              "title": "Pre-Meeting Brief: \(upcoming.title)",
+              "body": "• Last time: ...\\n• Open items: ...",
+              "source_references": ["Calendar"],
+              "confidence": 0.9
+            }
+          ]
+        }
+
+        Past OmniSpeak meeting history:
+        \(pastMeetingNotes)
+        """
+    }
+
     public static func cardRequests(from response: String) -> [ConversationAssistCardCreateRequest] {
         guard let jsonData = jsonData(from: response),
               let object = try? JSONSerialization.jsonObject(with: jsonData) else {

@@ -67,3 +67,23 @@ def test_strips_claude_command_placeholder_suffix():
 
 def test_strips_spoken_claude_command_placeholder_suffix():
     assert clean("Open the release notes. Type slash for commands") == "Open the release notes."
+
+
+def test_preserves_normal_use_of_actually():
+    assert clean("That's actually really helpful") == "That's actually really helpful."
+
+
+def test_concise_strips_mid_sentence_fillers():
+    assert clean("I was, um, thinking that, like, we should ship this, you know", "concise") == (
+        "I was thinking that we should ship this."
+    )
+
+
+def test_professional_polishes_casual_speech():
+    assert clean("Hey so I'm gonna wanna send this kinda soon", "professional") == (
+        "I'm going to want to send this kind of soon."
+    )
+
+
+def test_capitalizes_multiple_sentences_and_preserves_filenames():
+    assert clean("first sentence. i think main.py looks good") == "First sentence. I think main.py looks good."

@@ -18,12 +18,28 @@ public struct AgentDescriptor: Identifiable, Equatable, Sendable {
     public let invocation: AgentInvocation
     public let streamFormat: AgentStreamFormat
 
+    public var primaryKeyword: String {
+        keywords.first ?? id.lowercased()
+    }
+
     public init(id: String, displayName: String, keywords: [String],
                 binaryName: String, binaryPath: String? = nil,
                 invocation: AgentInvocation, streamFormat: AgentStreamFormat) {
         self.id = id; self.displayName = displayName; self.keywords = keywords
         self.binaryName = binaryName; self.binaryPath = binaryPath
         self.invocation = invocation; self.streamFormat = streamFormat
+    }
+
+    public func withBinaryPath(_ path: String) -> AgentDescriptor {
+        AgentDescriptor(
+            id: id,
+            displayName: displayName,
+            keywords: keywords,
+            binaryName: binaryName,
+            binaryPath: path,
+            invocation: invocation,
+            streamFormat: streamFormat
+        )
     }
 
     public func render(prompt: String) -> (args: [String], stdin: String?) {
@@ -33,6 +49,20 @@ public struct AgentDescriptor: Identifiable, Equatable, Sendable {
         case .stdin(let args):
             return (args, prompt)
         }
+    }
+}
+
+public struct DiscoveredAgent: Identifiable, Equatable, Sendable {
+    public let descriptor: AgentDescriptor
+    public let resolvedPath: String
+
+    public var id: String { descriptor.id }
+    public var displayName: String { descriptor.displayName }
+    public var primaryKeyword: String { descriptor.primaryKeyword }
+
+    public init(descriptor: AgentDescriptor, resolvedPath: String) {
+        self.descriptor = descriptor.withBinaryPath(resolvedPath)
+        self.resolvedPath = resolvedPath
     }
 }
 

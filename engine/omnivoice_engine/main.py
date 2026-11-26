@@ -2,6 +2,7 @@ import asyncio
 import base64
 import binascii
 import hashlib
+import hmac
 import json
 import os
 import subprocess
@@ -17,15 +18,21 @@ from typing import Iterable
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .cleanup import clean_transcript
+from .cleanup import build_llm_cleanup_messages, clean_transcript, sanitize_llm_cleanup_output
 from .conversation_alignment import build_speaker_lines
 from .diarization import DiarizationAudio, DiarizationRegistry
+from .local_cleanup import DEFAULT_LOCAL_CLEANUP_MODEL_ID, LocalMLXCleanupEngine
 from .model_manager import ModelManager
 from .providers.registry import ProviderRegistry
 from .runtime_store import RuntimeStore
+from .security import (
+    attach_dashboard_auth_cookie_if_needed,
+    check_http_security,
+    enforce_websocket_security,
+)
 from .schemas import (
     AIChatRequest,
     AIChatResponse,
@@ -70,6 +77,7 @@ app = FastAPI(title="OmniSpeak Local Engine")
 registry = ProviderRegistry()
 diarization_registry = DiarizationRegistry()
 translation_registry = TranslationRegistry()
+local_cleanup_engine = LocalMLXCleanupEngine()
 model_manager = ModelManager()
 runtime_store = RuntimeStore()
 STARTED_MONOTONIC = time.monotonic()
@@ -123,7 +131,13 @@ async def record_http_event(request: Request, call_next):
     started = time.monotonic()
     status_code = 500
     try:
+        denied = check_http_security(request)
+        if denied is not None:
+            status_code = denied.status_code
+            return denied
+
         response = await call_next(request)
+        attach_dashboard_auth_cookie_if_needed(request, response)
         status_code = response.status_code
         return response
     except Exception as exc:
@@ -180,6 +194,11 @@ def diarization_providers() -> list[ProviderInfo]:
 @app.get("/translation/providers", response_model=list[ProviderInfo])
 def translation_providers() -> list[ProviderInfo]:
     return translation_registry.list_providers()
+
+
+@app.get("/cleanup/providers", response_model=list[ProviderInfo])
+def cleanup_providers() -> list[ProviderInfo]:
+    return local_cleanup_engine.list_providers()
 
 
 @app.get("/translation/capabilities", response_model=TranslationCapabilities)
@@ -303,9 +322,73 @@ def start_desktop_app() -> DesktopAppLaunchResponse:
     )
 
 
-@app.post("/cleanup", response_model=CleanupResponse)
+@app.post("/cleanup", response_model=CleanupResponse, response_model_exclude_unset=True)
 def cleanup(request: CleanupRequest) -> CleanupResponse:
     result = clean_transcript(request)
+    llm = request.llm
+    if (
+        llm is not None
+        and llm.enabled
+        and request.style != "raw"
+        and result.text.strip()
+        and _llm_cleanup_is_configured(llm)
+    ):
+        messages = build_llm_cleanup_messages(request, result.text)
+        try:
+            if llm.transport == "local_mlx":
+                llm_raw = local_cleanup_engine.cleanup(
+                    messages=messages,
+                    model_id=llm.model.strip() or DEFAULT_LOCAL_CLEANUP_MODEL_ID,
+                    model_path=llm.model_path.strip(),
+                )
+            else:
+                chat_completion = ai_handoff_completion_handler(llm.transport)
+                llm_raw = chat_completion(
+                    base_url=llm.base_url.strip(),
+                    api_key=llm.api_key.strip(),
+                    oauth_access_token=llm.oauth_access_token.strip(),
+                    headers=normalized_headers(llm.headers),
+                    model=llm.model.strip(),
+                    messages=messages,
+                    timeout=llm.timeout_seconds,
+                )
+            polished = sanitize_llm_cleanup_output(
+                llm_raw,
+                raw_transcript=request.raw_transcript,
+                dictionary_terms=request.dictionary_terms,
+                dictionary_entries=request.dictionary_entries,
+            )
+            if polished:
+                result = CleanupResponse(
+                    text=polished,
+                    cleanup_applied=True,
+                    llm_applied=True,
+                )
+            else:
+                result = CleanupResponse(
+                    text=result.text,
+                    cleanup_applied=result.cleanup_applied,
+                    llm_applied=False,
+                    llm_fallback_reason="LLM returned empty text",
+                )
+        except Exception as exc:
+            runtime_store.record_event(
+                "cleanup.llm_fallback",
+                "LLM cleanup failed; fell back to deterministic cleanup",
+                level="warning",
+                detail={
+                    "provider": llm.provider,
+                    "model": llm.model,
+                    "error": str(exc),
+                },
+            )
+            result = CleanupResponse(
+                text=result.text,
+                cleanup_applied=result.cleanup_applied,
+                llm_applied=False,
+                llm_fallback_reason=str(exc),
+            )
+
     runtime_store.record_transcript(
         source="cleanup",
         raw_text=request.raw_transcript,
@@ -318,11 +401,24 @@ def cleanup(request: CleanupRequest) -> CleanupResponse:
         detail={
             "style": request.style,
             "cleanup_applied": result.cleanup_applied,
+            "llm_applied": result.llm_applied,
             "raw_length": len(request.raw_transcript),
             "cleaned_length": len(result.text),
         },
     )
     return result
+
+
+def _llm_cleanup_is_configured(llm) -> bool:
+    if llm.transport == "local_mlx":
+        return bool(llm.model.strip() or llm.model_path.strip())
+    if not llm.model.strip():
+        return False
+    if llm.transport in {"openai_compatible", "anthropic"}:
+        return bool(llm.base_url.strip())
+    if llm.transport in {"openai_codex_oauth", "github_copilot_oauth"}:
+        return bool(llm.oauth_access_token.strip())
+    return False
 
 
 @app.post("/api/ai/handoff", response_model=AIHandoffResponse)
@@ -642,6 +738,8 @@ async def translation_stream(
     target_language: str = "en",
     model_path: str = "",
 ) -> None:
+    if not await enforce_websocket_security(websocket):
+        return
     await websocket.accept()
     try:
         translator = translation_registry.get(provider)
@@ -706,6 +804,8 @@ async def stream(
     translation_model_path: str = "",
     partial_window_seconds: int = 0,
 ) -> None:
+    if not await enforce_websocket_security(websocket):
+        return
     await websocket.accept()
     runtime_store.record_stream_opened(provider=provider, sample_rate=sample_rate)
     runtime_store.record_event(

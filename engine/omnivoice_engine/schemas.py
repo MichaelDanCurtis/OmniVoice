@@ -14,6 +14,13 @@ ConversationSegmentState = Literal["live", "settled", "corrected_speaker"]
 ConversationAssistCardKind = Literal["question", "answer", "time_zone", "follow_up", "action_item", "warning"]
 ConversationAssistCardStatus = Literal["active", "copied", "spoken", "pinned", "dismissed"]
 AIHandoffTransport = Literal["openai_compatible", "anthropic", "openai_codex_oauth", "github_copilot_oauth"]
+CleanupLLMTransport = Literal[
+    "openai_compatible",
+    "anthropic",
+    "openai_codex_oauth",
+    "github_copilot_oauth",
+    "local_mlx",
+]
 AIChatMessageRole = Literal["system", "user", "assistant"]
 AIChatAttachmentKind = Literal["file", "image", "audio", "subject", "conversation", "document", "transcript"]
 TranslationProviderID = Literal["fake", "translategemma-mlx", "nllb-200-distilled-600m"]
@@ -28,16 +35,33 @@ class DictionaryEntryModel(BaseModel):
     enabled: bool = True
 
 
+class CleanupLLMConfig(BaseModel):
+    enabled: bool = False
+    provider: str = "custom"
+    base_url: str = ""
+    model: str = ""
+    model_path: str = ""
+    api_key: str = ""
+    transport: CleanupLLMTransport = "openai_compatible"
+    oauth_access_token: str = ""
+    headers: dict[str, str] = Field(default_factory=dict)
+    timeout_seconds: float = Field(default=6.0, ge=0.5, le=30.0)
+
+
 class CleanupRequest(BaseModel):
     raw_transcript: str = Field(min_length=0)
     style: str = "neutral"
     dictionary_terms: list[str] = Field(default_factory=list)
     dictionary_entries: list[DictionaryEntryModel] = Field(default_factory=list)
+    app_context: str = ""
+    llm: CleanupLLMConfig | None = None
 
 
 class CleanupResponse(BaseModel):
     text: str
     cleanup_applied: bool
+    llm_applied: bool = False
+    llm_fallback_reason: str | None = None
 
 
 class AIHandoffRequest(BaseModel):

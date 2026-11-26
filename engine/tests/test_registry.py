@@ -1,5 +1,7 @@
 import importlib.util
+import io
 import sys
+import wave
 from types import ModuleType
 from types import SimpleNamespace
 
@@ -8,6 +10,53 @@ from omnivoice_engine.providers.canary_qwen import CanaryQwenProvider
 from omnivoice_engine.providers.parakeet_sherpa import ParakeetSherpaProvider
 from omnivoice_engine.providers.parakeet_mlx import ParakeetMLXProvider
 from omnivoice_engine.providers.whisper_mlx import WhisperMLXProvider
+
+
+def install_fake_parakeet(monkeypatch, model_dir, result):
+    import numpy as np
+
+    captured = {}
+    package = ModuleType("parakeet_mlx")
+    audio = ModuleType("parakeet_mlx.audio")
+    mlx = ModuleType("mlx")
+    core = ModuleType("mlx.core")
+    core.array = np.asarray
+    mlx.core = core
+    audio.get_logmel = lambda samples, _config: samples
+
+    class FakeModel:
+        preprocessor_config = SimpleNamespace(sample_rate=16000, hop_length=160)
+
+        def generate(self, samples):
+            captured["samples"] = samples
+            return [result]
+
+        def transcribe(self, _path):
+            raise AssertionError("The file API requires external ffmpeg")
+
+    def from_pretrained(path):
+        captured["model_path"] = path
+        return FakeModel()
+
+    package.from_pretrained = from_pretrained
+    for filename in ["config.json", "model.safetensors"]:
+        (model_dir / filename).write_text("model")
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    monkeypatch.setattr("platform.machine", lambda: "arm64")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "parakeet_mlx" else None)
+    for name, module in [("parakeet_mlx", package), ("parakeet_mlx.audio", audio), ("mlx", mlx), ("mlx.core", core)]:
+        monkeypatch.setitem(sys.modules, name, module)
+    return captured
+
+
+def wav_bytes(samples, sample_rate=16000, channels=1):
+    output = io.BytesIO()
+    with wave.open(output, "wb") as wav:
+        wav.setnchannels(channels)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(samples)
+    return output.getvalue()
 
 
 def test_fake_provider_is_available():
@@ -78,65 +127,37 @@ def test_mlx_parakeet_provider_reports_missing_runtime(tmp_path, monkeypatch):
 
 
 def test_mlx_parakeet_provider_transcribes_with_local_model_dir(tmp_path, monkeypatch):
-    captured = {}
-    fake_module = ModuleType("parakeet_mlx")
-
-    for filename in ["config.json", "model.safetensors"]:
-        (tmp_path / filename).write_text("model")
-
-    class FakeModel:
-        def transcribe(self, audio_path):
-            captured["audio_path"] = audio_path
-            return SimpleNamespace(text="hello from mlx")
-
-    def fake_from_pretrained(model_path):
-        captured["model_path"] = model_path
-        return FakeModel()
-
-    fake_module.from_pretrained = fake_from_pretrained
-    monkeypatch.setattr("platform.system", lambda: "Darwin")
-    monkeypatch.setattr("platform.machine", lambda: "arm64")
-    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "parakeet_mlx" else None)
-    monkeypatch.setitem(sys.modules, "parakeet_mlx", fake_module)
-
-    result = ParakeetMLXProvider(str(tmp_path)).transcribe(b"fake wav")
+    captured = install_fake_parakeet(monkeypatch, tmp_path, SimpleNamespace(text="hello from mlx"))
+    monkeypatch.setenv("PATH", "")
+    result = ParakeetMLXProvider(str(tmp_path)).transcribe(wav_bytes(b"\0\0" * 1600))
 
     assert result == "hello from mlx"
     assert captured["model_path"] == str(tmp_path)
-    assert captured["audio_path"].endswith(".wav")
+    assert captured["samples"].shape == (1600,)
 
 
 def test_mlx_parakeet_provider_preserves_aligned_tokens(tmp_path, monkeypatch):
-    fake_module = ModuleType("parakeet_mlx")
+    install_fake_parakeet(
+        monkeypatch,
+        tmp_path,
+        SimpleNamespace(
+            text="hello world",
+            sentences=[
+                SimpleNamespace(
+                    text="hello world",
+                    start=0.10,
+                    end=0.85,
+                    confidence=0.91,
+                    tokens=[
+                        SimpleNamespace(text="hello", start=0.10, end=0.40, confidence=0.9),
+                        SimpleNamespace(text=" world", start=0.40, duration=0.45, confidence=0.8),
+                    ],
+                )
+            ],
+        ),
+    )
 
-    for filename in ["config.json", "model.safetensors"]:
-        (tmp_path / filename).write_text("model")
-
-    class FakeModel:
-        def transcribe(self, _audio_path):
-            return SimpleNamespace(
-                text="hello world",
-                sentences=[
-                    SimpleNamespace(
-                        text="hello world",
-                        start=0.10,
-                        end=0.85,
-                        confidence=0.91,
-                        tokens=[
-                            SimpleNamespace(text="hello", start=0.10, end=0.40, confidence=0.9),
-                            SimpleNamespace(text=" world", start=0.40, duration=0.45, confidence=0.8),
-                        ],
-                    )
-                ],
-            )
-
-    fake_module.from_pretrained = lambda _model_path: FakeModel()
-    monkeypatch.setattr("platform.system", lambda: "Darwin")
-    monkeypatch.setattr("platform.machine", lambda: "arm64")
-    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object() if name == "parakeet_mlx" else None)
-    monkeypatch.setitem(sys.modules, "parakeet_mlx", fake_module)
-
-    transcript = ParakeetMLXProvider(str(tmp_path)).transcribe_aligned_pcm_float32(b"\0\0\0\0" * 16, 16000)
+    transcript = ParakeetMLXProvider(str(tmp_path)).transcribe_aligned_pcm_float32(b"\0\0\0\0" * 1600, 16000)
 
     assert transcript.text == "hello world"
     assert len(transcript.sentences) == 1
@@ -144,6 +165,45 @@ def test_mlx_parakeet_provider_preserves_aligned_tokens(tmp_path, monkeypatch):
     assert transcript.sentences[0].end_ms == 850
     assert [token.text for token in transcript.tokens] == ["hello", " world"]
     assert [(token.start_ms, token.end_ms) for token in transcript.tokens] == [(100, 400), (400, 850)]
+
+
+def test_mlx_parakeet_downmixes_and_resamples_without_ffmpeg(tmp_path, monkeypatch):
+    import numpy as np
+
+    captured = install_fake_parakeet(monkeypatch, tmp_path, SimpleNamespace(text="resampled"))
+    monkeypatch.setenv("PATH", "")
+    stereo = np.tile(np.array([8192, 24576], dtype="<i2"), (4800, 1))
+    result = ParakeetMLXProvider(str(tmp_path)).transcribe(wav_bytes(stereo.tobytes(), 48000, 2))
+
+    assert result == "resampled"
+    assert captured["samples"].shape == (1600,)
+    np.testing.assert_allclose(captured["samples"][20:-20], 0.5, atol=0.001)
+
+
+def test_mlx_parakeet_skips_audio_shorter_than_one_hop(tmp_path, monkeypatch):
+    captured = install_fake_parakeet(monkeypatch, tmp_path, SimpleNamespace(text="unexpected"))
+    transcript = ParakeetMLXProvider(str(tmp_path)).transcribe_aligned_pcm_float32(b"\0\0\0\0" * 16, 16000)
+
+    assert transcript.text == ""
+    assert "samples" not in captured
+
+
+def test_mlx_parakeet_pcm_float32_decodes_in_memory_without_temp_files(tmp_path, monkeypatch):
+    import numpy as np
+    import tempfile
+
+    captured = install_fake_parakeet(monkeypatch, tmp_path, SimpleNamespace(text="in memory"))
+
+    def forbid_tempfile(*_args, **_kwargs):
+        raise AssertionError("PCM decoding should not create temp files on disk")
+
+    monkeypatch.setattr(tempfile, "NamedTemporaryFile", forbid_tempfile)
+    pcm = np.full(1600, 0.25, dtype=np.float32).tobytes()
+    transcript = ParakeetMLXProvider(str(tmp_path)).transcribe_aligned_pcm_float32(pcm, 16000)
+
+    assert transcript.text == "in memory"
+    assert captured["samples"].shape == (1600,)
+    np.testing.assert_allclose(captured["samples"], 0.25, atol=1e-6)
 
 
 def test_whisper_mlx_provider_is_visible_as_multilingual_apple_silicon_backend(monkeypatch):

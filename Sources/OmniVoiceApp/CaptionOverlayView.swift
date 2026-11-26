@@ -17,6 +17,8 @@ enum CaptionOverlayPhase: Equatable {
 
     var duration: TimeInterval {
         switch mode {
+        case .some(.magicPoof):
+            0.58
         case .some(.glyphStream):
             0.52
         case .some(.beamSnap):
@@ -29,6 +31,24 @@ enum CaptionOverlayPhase: Equatable {
     }
 }
 
+struct CaptionOverlayLiveHost: View {
+    @Bindable var state: CaptionOverlayState
+
+    var body: some View {
+        CaptionOverlayView(
+            text: state.text,
+            styleName: state.styleName,
+            translationStatus: state.translationStatus,
+            level: state.level,
+            theme: state.theme,
+            appearanceMode: state.appearanceMode,
+            glassOpacity: state.glassOpacity,
+            phase: state.phase,
+            appearanceToken: state.appearanceToken
+        )
+    }
+}
+
 struct CaptionOverlayView: View {
     let text: String
     let styleName: String
@@ -36,9 +56,15 @@ struct CaptionOverlayView: View {
     let level: Float
     let theme: OmniVoiceTheme
     let appearanceMode: AppAppearanceMode
+    let glassOpacity: Double
     let phase: CaptionOverlayPhase
+    let appearanceToken: Int
 
     @State private var commitStarted = false
+    @State private var drawProgress: CGFloat = 1
+    @State private var drawGlowOpacity: Double = 0
+    @State private var bloomReady = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(
         text: String,
@@ -47,7 +73,9 @@ struct CaptionOverlayView: View {
         level: Float,
         theme: OmniVoiceTheme,
         appearanceMode: AppAppearanceMode = .system,
-        phase: CaptionOverlayPhase = .live
+        glassOpacity: Double = 0.05,
+        phase: CaptionOverlayPhase = .live,
+        appearanceToken: Int = 0
     ) {
         self.text = text
         self.styleName = styleName
@@ -55,7 +83,9 @@ struct CaptionOverlayView: View {
         self.level = level
         self.theme = theme
         self.appearanceMode = appearanceMode
+        self.glassOpacity = glassOpacity
         self.phase = phase
+        self.appearanceToken = appearanceToken
     }
 
     var body: some View {
@@ -69,7 +99,11 @@ struct CaptionOverlayView: View {
 
         ZStack {
             if let mode = phase.mode, mode != .none {
-                CommitTrail(mode: mode, accent: accent, secondary: secondary, isActive: commitStarted)
+                if mode == .magicPoof {
+                    MagicPoofEffect(accent: accent, secondary: secondary, isActive: commitStarted)
+                } else {
+                    CommitTrail(mode: mode, accent: accent, secondary: secondary, isActive: commitStarted)
+                }
             }
 
             VStack(spacing: 7) {
@@ -87,25 +121,58 @@ struct CaptionOverlayView: View {
                                 .stroke(accent.opacity(0.24), lineWidth: 1)
                         }
                         .shadow(color: captionTextShadowColor.opacity(0.42), radius: 6, x: 0, y: 2)
-                        .opacity(commitStarted ? 0 : 1)
+                        .opacity(commitStarted ? 0 : (bloomReady ? 1 : 0))
                 }
 
                 Text(text.isEmpty ? "Listening..." : text)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 14, weight: .medium, design: theme.look.bodyFontDesign))
                     .foregroundStyle(textColor)
-                    .shadow(color: captionTextShadowColor, radius: 5, x: 0, y: 1)
-                    .shadow(color: captionTextShadowColor.opacity(0.55), radius: 12, x: 0, y: 3)
+                    .shadow(color: captionTextShadowColor.opacity(0.95), radius: 6, x: 0, y: 1)
+                    .shadow(color: captionTextShadowColor.opacity(0.70), radius: 14, x: 0, y: 2)
                     .lineLimit(CaptionOverlayLayout.captionLineLimit)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.center)
-                    .frame(width: CaptionOverlayLayout.captionWidth)
-                    .padding(.horizontal, 22)
-                    .padding(.vertical, 14)
-                    .captionGlassSurface(accent: accent, secondary: secondary, tint: tint)
-                    .scaleEffect(x: captionScale.width, y: captionScale.height)
-                    .opacity(captionOpacity)
-                    .blur(radius: commitStarted ? captionBlurRadius : 0)
-                    .offset(y: commitStarted ? captionYOffset : 0)
+                    .frame(minWidth: 148, maxWidth: CaptionOverlayLayout.captionWidth)
+                    .fixedSize(horizontal: text.count < 48, vertical: false)
+                    .padding(.horizontal, 26)
+                    .padding(.vertical, 12)
+                    .captionSurface(
+                        theme: theme,
+                        accent: accent,
+                        secondary: secondary,
+                        tint: tint,
+                        glassOpacity: glassOpacity,
+                        colorScheme: effectiveColorScheme
+                    )
+                    .overlay {
+                        // Swifty stroke-draw outline that sketches the Listening box onto the screen.
+                        if drawGlowOpacity > 0.001 {
+                            let drawShape = Capsule(style: .continuous)
+                            drawShape
+                                .trim(from: 0, to: drawProgress)
+                                .stroke(
+                                    LinearGradient(
+                                        colors: [
+                                            accent.opacity(0.95),
+                                            Color.white.opacity(0.95),
+                                            secondary.opacity(0.90),
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round)
+                                )
+                                .shadow(color: accent.opacity(0.75), radius: 8)
+                                .opacity(drawGlowOpacity)
+                        }
+                    }
+                    .scaleEffect(
+                        x: bloomReady ? captionScale.width : 0.90,
+                        y: bloomReady ? captionScale.height : 0.86
+                    )
+                    .opacity(bloomReady ? captionOpacity : 0.08)
+                    .blur(radius: commitStarted ? captionBlurRadius : (bloomReady ? 0 : 4))
+                    .offset(y: commitStarted ? captionYOffset : (bloomReady ? 0 : 6))
 
                 WaveformPreview(
                     mode: theme.waveformMode,
@@ -114,12 +181,22 @@ struct CaptionOverlayView: View {
                     secondary: secondary,
                     muted: mutedTextColor
                 )
-                .opacity(commitStarted ? 0 : 1)
-                .scaleEffect(commitStarted ? 0.72 : 1)
+                .opacity(commitStarted ? 0 : (bloomReady ? 1 : 0))
+                .scaleEffect(commitStarted ? 0.72 : (bloomReady ? 1 : 0.85))
 
-                Text(styleName)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(mutedTextColor.opacity(commitStarted ? 0 : theme.mutedTextOpacity))
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(accent)
+                        .frame(width: 5, height: 5)
+                        .opacity(commitStarted ? 0 : (bloomReady ? (level > 0.08 ? 1.0 : 0.65) : 0))
+                        .scaleEffect(level > 0.15 ? 1.25 : 1.0)
+                        .animation(.easeOut(duration: 0.14), value: level)
+
+                    Text(styleName)
+                        .font(.caption2.weight(.semibold))
+                        .fontDesign(theme.look.bodyFontDesign)
+                        .foregroundStyle(mutedTextColor.opacity(commitStarted ? 0 : (bloomReady ? theme.mutedTextOpacity : 0)))
+                }
             }
         }
         .padding(.horizontal, CaptionOverlayLayout.haloBleedPaddingHorizontal)
@@ -129,12 +206,66 @@ struct CaptionOverlayView: View {
             maxWidth: CaptionOverlayLayout.windowMaxWidth
         )
         .onAppear {
-            guard let mode = phase.mode, mode != .none else { return }
+            triggerAppearanceOrCommit()
+        }
+        .onChange(of: appearanceToken) { _, _ in
+            if phase == .live {
+                playDrawInAnimation()
+            }
+        }
+        .onChange(of: phase) { _, newPhase in
+            if case .committing(let mode) = newPhase, mode != .none {
+                playCommitAnimation(mode: mode)
+            } else {
+                commitStarted = false
+            }
+        }
+    }
+
+    private func triggerAppearanceOrCommit() {
+        if case .committing(let mode) = phase, mode != .none {
+            bloomReady = true
+            drawProgress = 1
+            drawGlowOpacity = 0
+            playCommitAnimation(mode: mode)
+        } else {
             commitStarted = false
-            DispatchQueue.main.async {
-                withAnimation(.easeInOut(duration: phase.duration)) {
-                    commitStarted = true
-                }
+            playDrawInAnimation()
+        }
+    }
+
+    private func playDrawInAnimation() {
+        commitStarted = false
+        guard !reduceMotion else {
+            drawProgress = 1
+            drawGlowOpacity = 0
+            bloomReady = true
+            return
+        }
+        drawProgress = 0.02
+        drawGlowOpacity = 1
+        bloomReady = false
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.38)) {
+                drawProgress = 1
+            }
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) {
+                bloomReady = true
+            }
+            withAnimation(.easeOut(duration: 0.48).delay(0.22)) {
+                drawGlowOpacity = 0
+            }
+        }
+    }
+
+    private func playCommitAnimation(mode: CommitAnimationMode) {
+        commitStarted = false
+        DispatchQueue.main.async {
+            let curve: Animation = mode == .magicPoof
+                ? .timingCurve(0.16, 1.0, 0.3, 1.0, duration: phase.duration)
+                : .easeInOut(duration: phase.duration)
+            withAnimation(curve) {
+                commitStarted = true
             }
         }
     }
@@ -145,6 +276,8 @@ struct CaptionOverlayView: View {
         }
 
         switch mode {
+        case .magicPoof:
+            return CGSize(width: 1.12, height: 1.14)
         case .glyphStream:
             return CGSize(width: 0.32, height: 0.36)
         case .beamSnap:
@@ -162,6 +295,8 @@ struct CaptionOverlayView: View {
         }
 
         switch mode {
+        case .magicPoof:
+            return 0.0
         case .glyphStream:
             return 0.18
         case .beamSnap:
@@ -176,6 +311,8 @@ struct CaptionOverlayView: View {
     private var captionBlurRadius: CGFloat {
         guard let mode = phase.mode else { return 0 }
         switch mode {
+        case .magicPoof:
+            return 14
         case .glyphStream:
             return 2
         case .beamSnap:
@@ -190,6 +327,8 @@ struct CaptionOverlayView: View {
     private var captionYOffset: CGFloat {
         guard let mode = phase.mode else { return 0 }
         switch mode {
+        case .magicPoof:
+            return -10
         case .glyphStream:
             return 20
         case .beamSnap:
@@ -266,6 +405,8 @@ private struct CommitTrail: View {
 
     private var trailWidth: CGFloat {
         switch mode {
+        case .magicPoof:
+            0
         case .glyphStream:
             210
         case .beamSnap:
@@ -279,6 +420,8 @@ private struct CommitTrail: View {
 
     private var trailHeight: CGFloat {
         switch mode {
+        case .magicPoof:
+            0
         case .glyphStream:
             4
         case .beamSnap:
@@ -296,6 +439,8 @@ private struct CommitTrail: View {
 
     private func glyphOpacity(_ index: Int) -> Double {
         switch mode {
+        case .magicPoof:
+            return 0
         case .glyphStream:
             return index.isMultiple(of: 2) ? 0.78 : 0.40
         case .beamSnap:
@@ -312,34 +457,231 @@ private struct CommitTrail: View {
     }
 }
 
+private struct MagicPoofEffect: View {
+    let accent: Color
+    let secondary: Color
+    let isActive: Bool
+
+    private struct PoofParticle: Identifiable {
+        let id: Int
+        let angle: Double
+        let radiusX: CGFloat
+        let radiusY: CGFloat
+        let size: CGFloat
+        let isStar: Bool
+        let useSecondary: Bool
+        let upwardDrift: CGFloat
+        let spinDegrees: Double
+    }
+
+    private static let particles: [PoofParticle] = (0..<18).map { index in
+        let fraction = Double(index) / 18.0
+        let angle = fraction * Double.pi * 2.0 + (index.isMultiple(of: 2) ? 0.12 : -0.08)
+        let ringBoost: CGFloat = index.isMultiple(of: 3) ? 1.22 : (index.isMultiple(of: 2) ? 0.94 : 1.08)
+        return PoofParticle(
+            id: index,
+            angle: angle,
+            radiusX: 118 * ringBoost,
+            radiusY: 46 * ringBoost,
+            size: index.isMultiple(of: 2) ? 11 : 7,
+            isStar: index.isMultiple(of: 2),
+            useSecondary: index.isMultiple(of: 3),
+            upwardDrift: CGFloat(10 + (index % 5) * 5),
+            spinDegrees: index.isMultiple(of: 2) ? 95 : -75
+        )
+    }
+
+    var body: some View {
+        ZStack {
+            // Ethereal expanding mist capsule
+            Capsule(style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [accent.opacity(0.85), Color.white.opacity(0.9), secondary.opacity(0.75)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: isActive ? 1.0 : 3.5
+                )
+                .frame(width: 240, height: 52)
+                .scaleEffect(isActive ? 1.38 : 0.92)
+                .blur(radius: isActive ? 10 : 1.5)
+                .opacity(isActive ? 0 : 0.85)
+
+            // Secondary luminous puff halo
+            Capsule(style: .continuous)
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color.white.opacity(0.65),
+                            accent.opacity(0.35),
+                            secondary.opacity(0.18),
+                            Color.clear,
+                        ],
+                        center: .center,
+                        startRadius: 8,
+                        endRadius: 120
+                    )
+                )
+                .frame(width: 230, height: 64)
+                .scaleEffect(isActive ? 1.55 : 0.78)
+                .blur(radius: isActive ? 18 : 4)
+                .opacity(isActive ? 0 : 0.78)
+
+            // Stardust sparkles & mist orbs bursting outward
+            ForEach(Self.particles) { particle in
+                let dx = CGFloat(cos(particle.angle)) * particle.radiusX
+                let dy = CGFloat(sin(particle.angle)) * particle.radiusY - particle.upwardDrift
+                let color = particle.useSecondary ? secondary : (particle.id.isMultiple(of: 4) ? Color.white : accent)
+
+                Group {
+                    if particle.isStar {
+                        MagicSparkleShape()
+                            .fill(color)
+                            .shadow(color: color.opacity(0.85), radius: 4)
+                    } else {
+                        Circle()
+                            .fill(color)
+                            .blur(radius: isActive ? 2.4 : 0.5)
+                    }
+                }
+                .frame(width: particle.size, height: particle.size)
+                .scaleEffect(isActive ? 0.15 : 1.15)
+                .rotationEffect(.degrees(isActive ? particle.spinDegrees : 0))
+                .offset(x: isActive ? dx : dx * 0.28, y: isActive ? dy : dy * 0.25)
+                .opacity(isActive ? 0 : 0.95)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+private struct MagicSparkleShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let cx = rect.midX
+        let cy = rect.midY
+        let rx = rect.width / 2
+        let ry = rect.height / 2
+        let innerX = rx * 0.28
+        let innerY = ry * 0.28
+
+        var path = Path()
+        path.move(to: CGPoint(x: cx, y: cy - ry))
+        path.addQuadCurve(to: CGPoint(x: cx + rx, y: cy), control: CGPoint(x: cx + innerX, y: cy - innerY))
+        path.addQuadCurve(to: CGPoint(x: cx, y: cy + ry), control: CGPoint(x: cx + innerX, y: cy + innerY))
+        path.addQuadCurve(to: CGPoint(x: cx - rx, y: cy), control: CGPoint(x: cx - innerX, y: cy + innerY))
+        path.addQuadCurve(to: CGPoint(x: cx, y: cy - ry), control: CGPoint(x: cx - innerX, y: cy - innerY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// Ethereal, truly see-through floating mist surface with soft feathered edges.
+/// Avoids macOS `.glassEffect` inside borderless detached `NSPanel`s (which falls back
+/// to an opaque matte grey slab with hard edges).
 private struct CaptionGlassSurface: ViewModifier {
     let accent: Color
     let secondary: Color
     let tint: Color
+    let glassOpacity: Double
+    let colorScheme: ColorScheme
 
     func body(content: Content) -> some View {
+        let clamped = min(max(glassOpacity, 0), 1)
+        let isDark = colorScheme == .dark
+        let mistBase = isDark ? Color.black : Color.white
+        // At 0-10%: whisper-sheer feathered mist (nearly invisible, stars/windows show straight through).
+        // Sliding up toward 100% smoothly deepens the soft translucent cloud while keeping edges fuzzy.
+        let coreOpacity = 0.05 + clamped * 0.48
+        let haloOpacity = 0.12 + clamped * 0.18
+        let sheenOpacity = 0.04 + clamped * 0.12
+
         content
-            .whisperBlobSurface(
-                accent: accent,
-                secondary: secondary,
-                tint: tint,
-                fillOpacity: 0.018,
-                materialOpacity: 0.78,
-                edgeOpacity: 0.13,
-                highlightOpacity: 0.24,
-                depthOpacity: 0.08,
-                innerRimOpacity: 0.24,
-                glowOpacity: 0.18,
-                shadowOpacity: 0.05,
-                edgeBlurRadius: 24,
-                edgeBleed: 30
-            )
+            .background {
+                ZStack {
+                    // Wide, softly feathered outer glow (accent -> secondary)
+                    Capsule(style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    accent.opacity(haloOpacity),
+                                    secondary.opacity(haloOpacity * 0.78),
+                                    accent.opacity(haloOpacity * 0.55),
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .padding(.horizontal, -14)
+                        .padding(.vertical, -8)
+                        .blur(radius: 22)
+
+                    // Soft feathered readability cloud behind the text (fuzzy edges, zero hard border)
+                    Capsule(style: .continuous)
+                        .fill(mistBase.opacity(coreOpacity))
+                        .padding(.horizontal, -4)
+                        .padding(.vertical, -2)
+                        .blur(radius: 14 - CGFloat(clamped * 4))
+
+                    // Delicate luminous glass shimmer inside the cloud
+                    Capsule(style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(sheenOpacity),
+                                    tint.opacity(clamped * 0.16),
+                                    Color.clear,
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .blur(radius: 8)
+                }
+                .allowsHitTesting(false)
+            }
     }
 }
 
 private extension View {
-    func captionGlassSurface(accent: Color, secondary: Color, tint: Color) -> some View {
-        modifier(CaptionGlassSurface(accent: accent, secondary: secondary, tint: tint))
+    func captionGlassSurface(
+        accent: Color,
+        secondary: Color,
+        tint: Color,
+        glassOpacity: Double,
+        colorScheme: ColorScheme
+    ) -> some View {
+        modifier(
+            CaptionGlassSurface(
+                accent: accent,
+                secondary: secondary,
+                tint: tint,
+                glassOpacity: glassOpacity,
+                colorScheme: colorScheme
+            )
+        )
+    }
+
+    @ViewBuilder
+    func captionSurface(
+        theme: OmniVoiceTheme,
+        accent: Color,
+        secondary: Color,
+        tint: Color,
+        glassOpacity: Double,
+        colorScheme: ColorScheme
+    ) -> some View {
+        if theme.look == .liquidGlass {
+            captionGlassSurface(
+                accent: accent,
+                secondary: secondary,
+                tint: tint,
+                glassOpacity: glassOpacity,
+                colorScheme: colorScheme
+            )
+        } else {
+            themeSurface(theme, cornerRadius: theme.look.cardRadius(forRequested: 16), strong: true, interactive: false)
+        }
     }
 }
 

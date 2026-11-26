@@ -13,3 +13,4 @@ engine/**/__pycache__/
 models/
 dist/
 .superpowers/
+core-rs/target/

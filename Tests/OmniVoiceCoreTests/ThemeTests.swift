@@ -2,9 +2,14 @@ import XCTest
 @testable import OmniVoiceCore
 
 final class ThemeTests: XCTestCase {
-    func testBuiltInThemesContainThirtyPresets() {
-        XCTAssertEqual(OmniVoiceTheme.builtIn.count, 30)
-        XCTAssertEqual(Set(OmniVoiceTheme.builtIn.map(\.id)).count, 30)
+    func testBuiltInThemesContainFortyPresets() {
+        XCTAssertEqual(OmniVoiceTheme.builtIn.count, 40)
+        XCTAssertEqual(Set(OmniVoiceTheme.builtIn.map(\.id)).count, 40)
+        XCTAssertNotNil(OmniVoiceTheme.builtInTheme(id: .synthwaveHorizon))
+        XCTAssertNotNil(OmniVoiceTheme.builtInTheme(id: .bioluminescentReef))
+        XCTAssertNotNil(OmniVoiceTheme.builtInTheme(id: .tokyoRain))
+        XCTAssertNotNil(OmniVoiceTheme.builtInTheme(id: .kintsugiGold))
+        XCTAssertNotNil(OmniVoiceTheme.builtInTheme(id: .blueprintDraft))
     }
 
     func testWaveformModesExposeFifteenDisplayNames() {
@@ -34,7 +39,7 @@ final class ThemeTests: XCTestCase {
         XCTAssertEqual(theme.name, "Aurora Blue")
         XCTAssertEqual(theme.accentColor.hex, "#38BDF8")
         XCTAssertEqual(theme.waveformMode, .bars)
-        XCTAssertEqual(theme.commitAnimationMode, .glyphStream)
+        XCTAssertEqual(theme.commitAnimationMode, .magicPoof)
         XCTAssertEqual(theme.engineFrameSide, .right)
     }
 
@@ -183,5 +188,34 @@ final class ThemeTests: XCTestCase {
         XCTAssertEqual(theme.cssVariables["--ov-border"], "rgba(56, 189, 248, 0.26)")
         XCTAssertEqual(theme.cssVariables["--ov-caption-bg"], "rgba(6, 18, 28, 0.14)")
         XCTAssertEqual(theme.cssVariables["--ov-glow"], "rgba(56, 189, 248, 0.34)")
+    }
+
+    func testThemeLooksAreStructurallyDistinctAndSignatureLooksCoverAllTen() throws {
+        XCTAssertEqual(ThemeLook.allCases.count, 10)
+        XCTAssertEqual(OmniVoiceTheme.signatureLooks.count, 10)
+        XCTAssertEqual(Set(OmniVoiceTheme.signatureLooks.map(\.look)).count, 10)
+
+        XCTAssertTrue(ThemeLook.liquidGlass.usesGlassMaterial)
+        XCTAssertTrue(ThemeLook.crystalPrism.usesGlassMaterial)
+        XCTAssertFalse(ThemeLook.studioPro.usesGlassMaterial)
+        XCTAssertFalse(ThemeLook.cyberTerminal.usesGlassMaterial)
+        XCTAssertFalse(ThemeLook.editorialPaper.usesGlassMaterial)
+        XCTAssertFalse(ThemeLook.softClay.usesGlassMaterial)
+        XCTAssertFalse(ThemeLook.brutalistInk.usesGlassMaterial)
+        XCTAssertFalse(ThemeLook.blueprintGrid.usesGlassMaterial)
+        XCTAssertFalse(ThemeLook.retroSynth.usesGlassMaterial)
+        XCTAssertFalse(ThemeLook.zenWashi.usesGlassMaterial)
+
+        XCTAssertEqual(ThemeLook.cyberTerminal.cardCornerRadius, 3)
+        XCTAssertEqual(ThemeLook.blueprintGrid.cardCornerRadius, 4)
+        XCTAssertEqual(ThemeLook.softClay.cardCornerRadius, 22)
+        XCTAssertEqual(ThemeLook.crystalPrism.cardCornerRadius, 18)
+        XCTAssertEqual(ThemeLook.brutalistInk.borderWidth, 1.75)
+
+        var prefs = OmniVoicePreferences.defaults
+        prefs.themeLookOverride = .crystalPrism
+        let encoded = try JSONEncoder().encode(prefs)
+        let decoded = try JSONDecoder().decode(OmniVoicePreferences.self, from: encoded)
+        XCTAssertEqual(decoded.themeLookOverride, .crystalPrism)
     }
 }

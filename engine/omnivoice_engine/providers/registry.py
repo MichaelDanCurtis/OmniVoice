@@ -7,6 +7,7 @@ from .canary_qwen import CanaryQwenProvider
 from .fake import FakeASRProvider
 from .parakeet_mlx import ParakeetMLXProvider
 from .parakeet_sherpa import ParakeetSherpaProvider
+from .qwen3_asr_mlx import Qwen3ASRMLXProvider
 from .whisper_mlx import WhisperMLXProvider
 
 
@@ -17,6 +18,7 @@ class ProviderRegistry:
             "parakeet-tdt": ParakeetSherpaProvider(),
             "parakeet-tdt-mlx": ParakeetMLXProvider(),
             "whisper-large-v3-turbo-mlx-6bit": WhisperMLXProvider(),
+            "qwen3-asr-1.7b-mlx-4bit": Qwen3ASRMLXProvider(),
             "canary-qwen-2.5b": CanaryQwenProvider(),
         }
 

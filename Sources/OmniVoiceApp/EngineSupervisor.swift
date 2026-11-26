@@ -30,6 +30,41 @@ final class EngineSupervisor {
     private let engineClient = EngineClient()
     private var process: Process?
     private var didAttemptStart = false
+    var preferredBackendMode: EngineBackendMode = .auto
+    var selectedASRProvider: ASRProviderKind = .parakeetTDTMLX
+    private(set) var activeBackendMode: EngineBackendMode = .pythonLegacy
+
+    var isUsingRustBackend: Bool {
+        activeBackendMode == .rustNative
+    }
+
+    var isRustBinaryAvailable: Bool {
+        rustEngineBinaryURL() != nil
+    }
+
+    var isPythonLauncherAvailable: Bool {
+        engineLauncherURL() != nil
+    }
+
+    var activeBackendLabel: String {
+        switch activeBackendMode {
+        case .rustNative:
+            "Rust Native (CoreML ANE)"
+        case .auto, .pythonLegacy:
+            shouldPreferRustEngine() ? "Rust Native (CoreML ANE)" : "Python Legacy (MLX)"
+        }
+    }
+
+    func shouldPreferRustEngine() -> Bool {
+        switch preferredBackendMode {
+        case .rustNative:
+            return true
+        case .pythonLegacy:
+            return false
+        case .auto:
+            return isRustBinaryAvailable && (!selectedASRProvider.isEngineBacked || !isPythonLauncherAvailable)
+        }
+    }
 
     func startIfNeeded(healthAttempts: Int = 120) async -> EngineStartResult {
         if await isHealthy() {
@@ -45,12 +80,28 @@ final class EngineSupervisor {
         }
         didAttemptStart = true
 
+        if shouldPreferRustEngine() {
+            if let rustURL = rustEngineBinaryURL() {
+                do {
+                    try launchRustEngine(using: rustURL)
+                    activeBackendMode = .rustNative
+                    return await waitForHealth(attempts: healthAttempts)
+                } catch {
+                    return .failed("Rust engine launch failed: \(error.localizedDescription)")
+                }
+            }
+            if preferredBackendMode == .rustNative {
+                return .unavailable("Rust omnivoice-engine binary not found. Build core-rs or switch Engine Runtime to Auto.")
+            }
+        }
+
         guard let launcherURL = engineLauncherURL() else {
             return .unavailable("Bundled engine launcher was not found.")
         }
 
         do {
             try launchEngine(using: launcherURL)
+            activeBackendMode = .pythonLegacy
         } catch {
             return .failed("Engine launch failed: \(error.localizedDescription)")
         }
@@ -96,7 +147,7 @@ final class EngineSupervisor {
         return await restart(forceExternal: true, healthAttempts: 900)
     }
 
-    private func launchEngine(using launcherURL: URL) throws {
+    private func prepareLaunchContext(engineLabel: String) throws -> (FileHandle, [String: String]) {
         let supportURL = try applicationSupportURL()
         let modelRoot = supportURL.appending(path: "models", directoryHint: .isDirectory)
         let dataURL = supportURL.appending(path: "engine-data", directoryHint: .isDirectory)
@@ -110,24 +161,49 @@ final class EngineSupervisor {
 
         let logHandle = try FileHandle(forWritingTo: logURL)
         try logHandle.seekToEnd()
-        logHandle.write(Data("\n--- OmniSpeak engine launch \(Date()) ---\n".utf8))
+        logHandle.write(Data("\n--- OmniSpeak \(engineLabel) launch \(Date()) ---\n".utf8))
+
+        let engineToken = EngineAuthTokenStore.generateToken()
+        EngineAuthTokenStore.shared.token = engineToken
 
         var environment = ProcessInfo.processInfo.environment
+        environment[EngineAuthTokenStore.environmentKey] = engineToken
         environment["OMNIVOICE_APP_SUPPORT_DIR"] = supportURL.path
         environment["OMNIVOICE_MODEL_ROOT"] = modelRoot.path
         environment["OMNIVOICE_PARAKEET_MODEL_DIR"] = modelRoot.appending(path: "parakeet-tdt").path
         environment["OMNIVOICE_PARAKEET_MLX_MODEL_DIR"] = modelRoot.appending(path: "parakeet-tdt-mlx").path
         environment["OMNIVOICE_WHISPER_MLX_MODEL_DIR"] = modelRoot.appending(path: "whisper-large-v3-turbo-mlx-6bit").path
+        environment["OMNIVOICE_QWEN3_ASR_MLX_MODEL_DIR"] = modelRoot.appending(path: "qwen3-asr-1.7b-mlx-4bit").path
+        environment["OMNIVOICE_CLEANUP_QWEN3_1_7B_DIR"] = modelRoot.appending(path: "qwen3-1.7b-mlx-4bit").path
+        environment["OMNIVOICE_CLEANUP_QWEN3_4B_DIR"] = modelRoot.appending(path: "qwen3-4b-instruct-mlx-4bit").path
         environment["OMNIVOICE_CANARY_MODEL_DIR"] = modelRoot.appending(path: "canary-qwen-2.5b").path
         environment["OMNIVOICE_MLX_SORTFORMER_FP16_DIR"] = modelRoot.appending(path: "mlx-sortformer-streaming-fp16").path
         environment["OMNIVOICE_MLX_SORTFORMER_FP32_DIR"] = modelRoot.appending(path: "mlx-sortformer-streaming-fp32").path
         environment["OMNIVOICE_ENGINE_DATA_DIR"] = dataURL.path
+        environment["OMNIVOICE_ENGINE_PORT"] = "8765"
         environment["OMNIVOICE_DESKTOP_APP_PATH"] = Bundle.main.bundleURL.path
         environment["OMNIVOICE_INSTALL_ASR"] = environment["OMNIVOICE_INSTALL_ASR"] ?? "1"
         environment["OMNIVOICE_INSTALL_MLX_DIARIZATION"] = environment["OMNIVOICE_INSTALL_MLX_DIARIZATION"] ?? "1"
         environment["OMNIVOICE_INSTALL_MLX_ASR"] = environment["OMNIVOICE_INSTALL_MLX_ASR"] ?? "1"
         environment["OMNIVOICE_INSTALL_CANARY_ASR"] = environment["OMNIVOICE_INSTALL_CANARY_ASR"] ?? (canaryRuntimeInstallIsEnabled(supportURL: supportURL) ? "1" : "0")
+        return (logHandle, environment)
+    }
 
+    private func launchRustEngine(using binaryURL: URL) throws {
+        let (logHandle, environment) = try prepareLaunchContext(engineLabel: "Rust engine")
+        let launched = Process()
+        launched.executableURL = binaryURL
+        launched.environment = environment
+        launched.currentDirectoryURL = binaryURL.deletingLastPathComponent()
+        launched.standardOutput = logHandle
+        launched.standardError = logHandle
+        try launched.run()
+
+        process = launched
+    }
+
+    private func launchEngine(using launcherURL: URL) throws {
+        let (logHandle, environment) = try prepareLaunchContext(engineLabel: "Python engine")
         let launched = Process()
         launched.executableURL = launcherURL
         launched.environment = environment
@@ -200,6 +276,7 @@ final class EngineSupervisor {
 
     private func isOmniVoiceEngineCommand(_ command: String) -> Bool {
         command.contains("omnivoice_engine.main:app")
+            || command.contains("omnivoice-engine")
             || command.contains("Application Support/OmniSpeak/engine-venv")
             || command.contains("/OmniSpeak/engine/.venv/bin/uvicorn")
             || command.contains("scripts/run-engine.sh")
@@ -211,15 +288,35 @@ final class EngineSupervisor {
         task.executableURL = URL(fileURLWithPath: executable)
         task.arguments = arguments
         task.standardOutput = pipe
-        task.standardError = Pipe()
+        task.standardError = FileHandle.nullDevice
         do {
             try task.run()
-            task.waitUntilExit()
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            task.waitUntilExit()
             return String(decoding: data, as: UTF8.self)
         } catch {
             return ""
         }
+    }
+
+    private func rustEngineBinaryURL() -> URL? {
+        if let bundled = Bundle.main.resourceURL?.appending(path: "Engine/omnivoice-engine"),
+           FileManager.default.isExecutableFile(atPath: bundled.path) {
+            return bundled
+        }
+
+        let cwdURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let releaseBinary = cwdURL.appending(path: "core-rs/target/release/omnivoice-engine")
+        if FileManager.default.isExecutableFile(atPath: releaseBinary.path) {
+            return releaseBinary
+        }
+
+        let debugBinary = cwdURL.appending(path: "core-rs/target/debug/omnivoice-engine")
+        if FileManager.default.isExecutableFile(atPath: debugBinary.path) {
+            return debugBinary
+        }
+
+        return nil
     }
 
     private func engineLauncherURL() -> URL? {

@@ -115,6 +115,7 @@ enum EngineStreamingMessage: Equatable {
 public final class EngineStreamingClient: @unchecked Sendable {
     private let baseURL: URL
     private let session: URLSession
+    private let authTokenProvider: @Sendable () -> String?
     private let queue = DispatchQueue(label: "omnispeak.engine.streaming")
     private var task: URLSessionWebSocketTask?
     private let connectionGate = EngineStreamingConnectionGate()
@@ -124,9 +125,14 @@ public final class EngineStreamingClient: @unchecked Sendable {
     private var diagnostics: EngineStreamingDiagnostics = .idle
     private var lastDiagnosticsEmit: DispatchTime = .now()
 
-    public init(baseURL: URL = URL(string: "ws://127.0.0.1:8765")!, session: URLSession = .shared) {
+    public init(
+        baseURL: URL = URL(string: "ws://127.0.0.1:8765")!,
+        session: URLSession = .shared,
+        authTokenProvider: @escaping @Sendable () -> String? = { EngineAuthTokenStore.shared.token }
+    ) {
         self.baseURL = baseURL
         self.session = session
+        self.authTokenProvider = authTokenProvider
     }
 
     public func setOnUpdate(_ handler: (@Sendable (TranscriptUpdate) -> Void)?) {
@@ -174,19 +180,27 @@ public final class EngineStreamingClient: @unchecked Sendable {
                 )
             }
 
-            let task = self.session.webSocketTask(
-                with: Self.streamURL(
-                    baseURL: self.baseURL,
-                    provider: provider,
-                    sampleRate: sampleRate,
-                    translation: translation,
-                    partialWindowSeconds: partialWindowSeconds
-                )
+            let url = Self.streamURL(
+                baseURL: self.baseURL,
+                provider: provider,
+                sampleRate: sampleRate,
+                translation: translation,
+                partialWindowSeconds: partialWindowSeconds
             )
+            let request = Self.streamRequest(url: url, authToken: self.authTokenProvider())
+            let task = self.session.webSocketTask(with: request)
             self.task = task
             task.resume()
             self.receiveNext(task: task, token: token)
         }
+    }
+
+    public static func streamRequest(url: URL, authToken: String?) -> URLRequest {
+        var request = URLRequest(url: url)
+        if let token = authToken?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty {
+            request.setValue(token, forHTTPHeaderField: EngineAuthTokenStore.headerName)
+        }
+        return request
     }
 
     public static func streamURL(

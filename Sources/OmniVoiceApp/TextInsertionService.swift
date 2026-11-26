@@ -16,12 +16,19 @@ final class TextInsertionService {
         let caretFrame: CGRect?
     }
 
+    enum LiveDraftMode {
+        case accessibility(
+            element: AXUIElement,
+            originalText: String,
+            selectedRange: NSRange,
+            placeholderValues: [String]
+        )
+        case syntheticDiff
+    }
+
     struct LiveDraft {
         let application: NSRunningApplication?
-        let element: AXUIElement
-        let originalText: String
-        let selectedRange: NSRange
-        let placeholderValues: [String]
+        let mode: LiveDraftMode
         var currentText: String
     }
 
@@ -56,7 +63,14 @@ final class TextInsertionService {
         let previousCursorLocation: Int
     }
 
+    private struct PendingPasteboardRestore {
+        let originalItems: [NSPasteboardItem]
+        let expectedChangeCount: Int
+        let workItem: DispatchWorkItem
+    }
+
     private var lastDirectInsertion: DirectInsertionRecord?
+    private var pendingPasteboardRestore: PendingPasteboardRestore?
 
     func captureTarget() -> Target {
         let focusedElement = Self.focusedElement()
@@ -100,9 +114,11 @@ final class TextInsertionService {
         }
         let insertionText = TextInsertionEdit.sanitizedInsertionText(text)
 
-        if let application = target?.application, application.bundleIdentifier != Bundle.main.bundleIdentifier {
+        if let application = target?.application,
+           application.bundleIdentifier != Bundle.main.bundleIdentifier,
+           application.processIdentifier != NSWorkspace.shared.frontmostApplication?.processIdentifier {
             application.activate()
-            try await Task.sleep(nanoseconds: 150_000_000)
+            try await Task.sleep(nanoseconds: 60_000_000)
         }
 
         if target?.insertionStrategy == .pasteboardOnly {
@@ -135,21 +151,34 @@ final class TextInsertionService {
             logger.warning("Live draft skipped because accessibility trust is missing")
             return nil
         }
-        guard let target,
-              let focusedElement = target.focusedElement,
-              let selectedRange = target.selectedRange,
-              target.insertionStrategy == .directAccessibility,
-              selectedRange.length == 0 else {
-            logger.info("Live draft skipped because the target is not a plain insertion point")
+        // Do not overwrite highlighted text while live drafting (preserves Voice Edit selection).
+        if let selectedText = target?.selectedText, !selectedText.isEmpty {
+            logger.info("Live draft skipped because text is currently selected")
             return nil
         }
+        if let target,
+           let focusedElement = target.focusedElement,
+           let selectedRange = target.selectedRange,
+           target.insertionStrategy == .directAccessibility,
+           selectedRange.length == 0 {
+            return LiveDraft(
+                application: target.application,
+                mode: .accessibility(
+                    element: focusedElement,
+                    originalText: target.currentValue,
+                    selectedRange: selectedRange,
+                    placeholderValues: Self.placeholderValues(for: focusedElement)
+                ),
+                currentText: ""
+            )
+        }
 
+        // For Electron/Chromium/rich composers (Antigravity, Chrome, Slack, VS Code, Terminal, etc.),
+        // stream live drafts via modifier-isolated synthetic diff keystrokes right at the active cursor.
+        logger.info("Starting synthetic-diff live draft for app=\(target?.application?.bundleIdentifier ?? "unknown", privacy: .public)")
         return LiveDraft(
-            application: target.application,
-            element: focusedElement,
-            originalText: target.currentValue,
-            selectedRange: selectedRange,
-            placeholderValues: Self.placeholderValues(for: focusedElement),
+            application: target?.application,
+            mode: .syntheticDiff,
             currentText: ""
         )
     }
@@ -166,11 +195,17 @@ final class TextInsertionService {
 
     func cancelLiveDraft(_ draft: LiveDraft) {
         guard AXIsProcessTrusted() else { return }
-        guard AXUIElementSetAttributeValue(draft.element, kAXValueAttribute as CFString, draft.originalText as CFString) == .success else {
-            logger.warning("Live draft restore failed")
-            return
+        switch draft.mode {
+        case .accessibility(let element, let originalText, let selectedRange, _):
+            guard AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, originalText as CFString) == .success else {
+                logger.warning("Live draft restore failed")
+                return
+            }
+            _ = setCaretLocation(selectedRange.location, in: element)
+        case .syntheticDiff:
+            guard !draft.currentText.isEmpty else { return }
+            postBackspaces(count: draft.currentText.count)
         }
-        _ = setCaretLocation(draft.selectedRange.location, in: draft.element)
     }
 
     func undoLastInsertion() async throws {
@@ -290,6 +325,18 @@ final class TextInsertionService {
             return false
         }
 
+        // Verify the write actually took effect. Electron/Chromium webviews and custom
+        // editors often return AXError.success as a no-op without mutating the field.
+        if edit.text != currentValue {
+            var verifiedRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(focused, kAXValueAttribute as CFString, &verifiedRef) == .success,
+               let verifiedValue = verifiedRef as? String,
+               verifiedValue == currentValue {
+                logger.warning("Accessibility value write was ignored by target element; falling back to pasteboard")
+                return false
+            }
+        }
+
         lastDirectInsertion = DirectInsertionRecord(
             application: Self.application(for: focused),
             element: focused,
@@ -308,31 +355,80 @@ final class TextInsertionService {
         guard !insertionText.isEmpty else {
             return false
         }
-        guard let edit = TextInsertionEdit.make(
-            currentValue: draft.originalText,
-            selectedRange: draft.selectedRange,
-            insertion: insertionText,
-            placeholderValues: draft.placeholderValues
-        ) else {
-            return false
-        }
 
-        guard AXUIElementSetAttributeValue(draft.element, kAXValueAttribute as CFString, edit.text as CFString) == .success else {
-            logger.warning("Live draft accessibility update failed")
-            return false
+        switch draft.mode {
+        case .accessibility(let element, let originalText, let selectedRange, let placeholderValues):
+            guard let edit = TextInsertionEdit.make(
+                currentValue: originalText,
+                selectedRange: selectedRange,
+                insertion: insertionText,
+                placeholderValues: placeholderValues
+            ) else {
+                return false
+            }
+
+            guard AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, edit.text as CFString) == .success else {
+                logger.warning("Live draft accessibility update failed")
+                return false
+            }
+            if recordUndo {
+                lastDirectInsertion = DirectInsertionRecord(
+                    application: draft.application,
+                    element: element,
+                    previousText: originalText,
+                    insertedValue: edit.text,
+                    previousCursorLocation: selectedRange.location
+                )
+            }
+            draft.currentText = insertionText
+            _ = setCaretLocation(edit.cursorLocation, in: element)
+            return true
+
+        case .syntheticDiff:
+            guard insertionText != draft.currentText else {
+                return true
+            }
+            let oldChars = Array(draft.currentText)
+            let newChars = Array(insertionText)
+            var prefixCount = 0
+            while prefixCount < oldChars.count,
+                  prefixCount < newChars.count,
+                  oldChars[prefixCount] == newChars[prefixCount] {
+                prefixCount += 1
+            }
+
+            let deleteCount = oldChars.count - prefixCount
+            if deleteCount > 0 {
+                postBackspaces(count: deleteCount)
+            }
+
+            let suffix = String(newChars[prefixCount...])
+            if !suffix.isEmpty {
+                do {
+                    try typeWithSyntheticKeystrokes(suffix)
+                } catch {
+                    logger.warning("Synthetic live draft typing failed: \(error.localizedDescription, privacy: .public)")
+                    return false
+                }
+            }
+            draft.currentText = insertionText
+            return true
         }
-        if recordUndo {
-            lastDirectInsertion = DirectInsertionRecord(
-                application: draft.application,
-                element: draft.element,
-                previousText: draft.originalText,
-                insertedValue: edit.text,
-                previousCursorLocation: draft.selectedRange.location
-            )
+    }
+
+    private func postBackspaces(count: Int) {
+        guard count > 0 else { return }
+        let source = CGEventSource(stateID: .privateState)
+        for _ in 0..<count {
+            guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x33, keyDown: true),
+                  let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x33, keyDown: false) else {
+                break
+            }
+            keyDown.flags = []
+            keyUp.flags = []
+            keyDown.post(tap: .cghidEventTap)
+            keyUp.post(tap: .cghidEventTap)
         }
-        draft.currentText = insertionText
-        _ = setCaretLocation(edit.cursorLocation, in: draft.element)
-        return true
     }
 
     private func setCaretLocation(_ location: Int, in element: AXUIElement) -> Bool {
@@ -483,15 +579,20 @@ final class TextInsertionService {
 
     private func insertWithPasteboard(_ text: String) throws {
         let pasteboard = NSPasteboard.general
-        let previousItems = pasteboard.pasteboardItems?.map { item -> NSPasteboardItem in
-            let copy = NSPasteboardItem()
-            for type in item.types {
-                if let data = item.data(forType: type) {
-                    copy.setData(data, forType: type)
-                }
+        let previousItems: [NSPasteboardItem]
+        if let pending = pendingPasteboardRestore {
+            pending.workItem.cancel()
+            pendingPasteboardRestore = nil
+            if pasteboard.changeCount == pending.expectedChangeCount {
+                // Back-to-back dictation before the previous restore fired: preserve the
+                // user's original pre-dictation clipboard rather than our prior dictation.
+                previousItems = pending.originalItems
+            } else {
+                previousItems = snapshotPasteboardItems(from: pasteboard)
             }
-            return copy
-        } ?? []
+        } else {
+            previousItems = snapshotPasteboardItems(from: pasteboard)
+        }
 
         pasteboard.clearContents()
         guard pasteboard.setString(text, forType: .string) else {
@@ -503,29 +604,64 @@ final class TextInsertionService {
         _ = pasteboard.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
         let ownChangeCount = pasteboard.changeCount
 
-        let source = CGEventSource(stateID: .combinedSessionState)
-        let commandDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
-        let commandUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
-        commandDown?.flags = .maskCommand
-        commandUp?.flags = .maskCommand
-        commandDown?.post(tap: .cghidEventTap)
-        commandUp?.post(tap: .cghidEventTap)
+        // Use .privateState so residual physical modifier keys from the dictation hotkey
+        // (e.g. Option in ⌥Space) cannot leak into Cmd+V and turn it into Opt+Cmd+V.
+        let source = CGEventSource(stateID: .privateState)
+        guard let cmdKeyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true),
+              let vKeyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
+              let vKeyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false),
+              let cmdKeyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: false) else {
+            restore(previousItems, to: pasteboard)
+            throw InsertionError.syntheticTypingUnavailable
+        }
+        cmdKeyDown.flags = .maskCommand
+        vKeyDown.flags = .maskCommand
+        vKeyUp.flags = .maskCommand
+        cmdKeyUp.flags = []
+        cmdKeyDown.post(tap: .cghidEventTap)
+        vKeyDown.post(tap: .cghidEventTap)
+        vKeyUp.post(tap: .cghidEventTap)
+        cmdKeyUp.post(tap: .cghidEventTap)
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingPasteboardRestore = nil
             if pasteboard.changeCount == ownChangeCount {
                 self.restore(previousItems, to: pasteboard)
             }
         }
+        pendingPasteboardRestore = PendingPasteboardRestore(
+            originalItems: previousItems,
+            expectedChangeCount: ownChangeCount,
+            workItem: workItem
+        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: workItem)
+    }
+
+    private func snapshotPasteboardItems(from pasteboard: NSPasteboard) -> [NSPasteboardItem] {
+        pasteboard.pasteboardItems?.map { item -> NSPasteboardItem in
+            let copy = NSPasteboardItem()
+            for type in item.types {
+                if let data = item.data(forType: type) {
+                    copy.setData(data, forType: type)
+                }
+            }
+            return copy
+        } ?? []
     }
 
     private func typeWithSyntheticKeystrokes(_ text: String) throws {
-        let source = CGEventSource(stateID: .combinedSessionState)
+        // Use .privateState with empty flags so held push-to-talk modifiers (Option/Control)
+        // never leak into synthetic Unicode characters during live drafting.
+        let source = CGEventSource(stateID: .privateState)
         for codeUnit in text.utf16 {
             var value = UniChar(codeUnit)
             guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
                   let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) else {
                 throw InsertionError.syntheticTypingUnavailable
             }
+            keyDown.flags = []
+            keyUp.flags = []
             keyDown.keyboardSetUnicodeString(stringLength: 1, unicodeString: &value)
             keyUp.keyboardSetUnicodeString(stringLength: 1, unicodeString: &value)
             keyDown.post(tap: .cghidEventTap)

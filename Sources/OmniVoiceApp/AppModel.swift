@@ -144,6 +144,10 @@ final class AppModel {
     var modelStatuses: [EngineModelStatus]
     var modelUpdateInfo: EngineModelUpdateInfo?
     var modelDownloadStatus: EngineModelDownloadStatus?
+    var activeLocalDownloads: Set<String> = []
+    var localDownloadProgress: [String: Double] = [:]
+    var localDownloadMessages: [String: String] = [:]
+    var installedMLXModelIDs: Set<String> = []
     var transcripts: [EngineTranscriptRecord]
     var microphoneDevices: [MicrophoneDevice]
     var lastTestResult: String
@@ -187,6 +191,7 @@ final class AppModel {
     @ObservationIgnored private let huggingFaceTokenStore = HuggingFaceTokenStore()
     @ObservationIgnored private let llmSecretStore = LLMSecretStore()
     private static let legacyOpenAIProviderID = "openai_compatible_legacy"
+    private static let deepgramSecretProviderID = "deepgram"
     private static let logger = Logger(subsystem: "com.omnispeak.OmniVoiceApp", category: "AppModel")
     /// True when saved preferences couldn't be decoded at launch and defaults were used.
     @ObservationIgnored private(set) var preferencesLoadFailed = false
@@ -204,6 +209,23 @@ final class AppModel {
     @ObservationIgnored var onMouseShortcutsChanged: ((OmniVoicePreferences) -> Void)?
     @ObservationIgnored var onThemeChanged: ((OmniVoiceTheme, AppAppearanceMode) -> Void)?
     @ObservationIgnored var onCustomAgentsChanged: (([AgentConfiguration]) -> Void)?
+    @ObservationIgnored var onMeetingCopilotModal: ((MeetingCopilotModalItem) -> Void)?
+    @ObservationIgnored var onMeetingCopilotSessionChanged: ((String?, String?, Bool) -> Void)?
+    @ObservationIgnored var onMeetingCopilotAnalyzingChanged: ((Bool) -> Void)?
+    @ObservationIgnored var onMeetingCopilotTalkTimeChanged: ((MeetingTalkTimeStats) -> Void)?
+    @ObservationIgnored var onMeetingWrapUpReady: ((MeetingWrapUpSummary) -> Void)?
+    @ObservationIgnored private var meetingCopilotLoopTask: Task<Void, Never>?
+    @ObservationIgnored private var lastCopilotAnalyzedSegmentCount = 0
+    @ObservationIgnored private var answeredQuestionSegmentIDs = Set<String>()
+    @ObservationIgnored private var decodedJargonTerms = Set<String>()
+    @ObservationIgnored private var activeMeetingPromises: [String] = []
+    @ObservationIgnored private var preBriefedEventKeys = Set<String>()
+    @ObservationIgnored private var preMeetingBriefMonitorTask: Task<Void, Never>?
+    @ObservationIgnored private let meetingAgentRunner = AgentRunner()
+    @ObservationIgnored private let calendarService = MeetingCalendarService()
+    @ObservationIgnored private var meetingStartedByAutoDetect = false
+    var activeMeetingCalendarContext: MeetingCalendarContext?
+    var calendarAccessGranted = false
 
     // MARK: - Account + entitlement gate
     /// Gates the four premium features. Created lazily so it can read the cached
@@ -216,6 +238,13 @@ final class AppModel {
     @ObservationIgnored var onManageBilling: (() -> Void)?
     /// Email of the signed-in account, or nil when signed out. Drives the Account UI.
     var accountEmail: String?
+    /// Local AI agent CLIs discovered on this Mac at boot or on Rescan.
+    var discoveredAgents: [DiscoveredAgent] = []
+    var isScanningAgents = false
+    var dictationStats: DictationStatsSnapshot = AppModel.loadDictationStats()
+    var deepgramAPIKey: String = ""
+    var deepgramConnectionStatus: String?
+    var isTestingDeepgramConnection = false
 
     init(
         preferences: OmniVoicePreferences? = nil,
@@ -336,6 +365,14 @@ final class AppModel {
         self.selectedAskAIThreadID = selectedAskAIThreadID
         self.askAIPromptDraft = askAIPromptDraft
         self.isAskAISending = isAskAISending
+        EngineSupervisor.shared.preferredBackendMode = resolvedPreferences.engineBackendMode
+        if EngineSupervisor.shared.isRustBinaryAvailable
+            && !EngineSupervisor.shared.isPythonLauncherAvailable
+            && resolvedPreferences.engineBackendMode == .auto
+            && resolvedPreferences.asrProvider.isEngineBacked {
+            self.preferences.asrProvider = .parakeetCoreMLANE
+        }
+        EngineSupervisor.shared.selectedASRProvider = self.preferences.asrProvider
         loadWorkspace()
     }
 
@@ -346,11 +383,13 @@ final class AppModel {
             OmniVoiceTheme.builtInTheme(id: preferences.themeID) ?? .defaultTheme
         }
 
-        return baseTheme.withModes(
-            waveformMode: preferences.waveformMode,
-            commitAnimationMode: preferences.commitAnimationMode,
-            engineFrameSide: preferences.engineFrameSide
-        )
+        return baseTheme
+            .withLook(preferences.themeLookOverride)
+            .withModes(
+                waveformMode: preferences.waveformMode,
+                commitAnimationMode: preferences.commitAnimationMode,
+                engineFrameSide: preferences.engineFrameSide
+            )
     }
 
     var selectedTranscriptionSubject: TranscriptionSubject? {
@@ -443,16 +482,94 @@ final class AppModel {
         persistWorkspace()
     }
 
+    func performCleanup(
+        rawTranscript: String,
+        style: StyleProfile,
+        appContext: String = ""
+    ) async throws -> CleanupResult {
+        if preferences.serviceMode.enabled,
+           preferences.llmCleanupEnabled,
+           style != .raw {
+            let instructions = MLXLocalCleanupService.systemPrompt(
+                style: style,
+                dictionaryTerms: preferences.dictionaryTerms,
+                appContext: appContext
+            )
+            if let response = await runServiceModeLLM(
+                systemPrompt: instructions,
+                userPrompt: "Transcript:\n\(rawTranscript)"
+            ) {
+                let sanitized = MLXLocalCleanupService.sanitizeOutput(response)
+                if !sanitized.isEmpty {
+                    return CleanupResult(
+                        text: sanitized,
+                        cleanupApplied: true,
+                        llmApplied: true,
+                        llmFallbackReason: nil
+                    )
+                }
+            }
+        }
+
+        if preferences.llmCleanupEnabled,
+           preferences.llmCleanupBackend == .localMLX,
+           style != .raw {
+            do {
+                let cleaned = try await MLXLocalCleanupService.shared.cleanup(
+                    rawTranscript: rawTranscript,
+                    style: style,
+                    dictionaryTerms: preferences.dictionaryTerms,
+                    appContext: appContext,
+                    providerID: preferences.llmCleanupLocalModelID
+                )
+                return CleanupResult(
+                    text: cleaned,
+                    cleanupApplied: true,
+                    llmApplied: true,
+                    llmFallbackReason: nil
+                )
+            } catch {
+                let fallback = try await engineClient.cleanup(
+                    CleanupRequest(
+                        rawTranscript: rawTranscript,
+                        style: style,
+                        dictionaryTerms: preferences.dictionaryTerms,
+                        dictionaryEntries: CleanupRequest.entries(from: preferences.dictionaryEntries),
+                        appContext: appContext,
+                        llm: preferences.resolvedLLMCleanupConfig()
+                    )
+                )
+                if fallback.llmApplied {
+                    return fallback
+                }
+                return CleanupResult(
+                    text: fallback.text,
+                    cleanupApplied: fallback.cleanupApplied,
+                    llmApplied: false,
+                    llmFallbackReason: "MLX-Swift: \(error.localizedDescription)"
+                )
+            }
+        }
+
+        return try await engineClient.cleanup(
+            CleanupRequest(
+                rawTranscript: rawTranscript,
+                style: style,
+                dictionaryTerms: preferences.dictionaryTerms,
+                dictionaryEntries: CleanupRequest.entries(from: preferences.dictionaryEntries),
+                appContext: appContext,
+                llm: preferences.resolvedLLMCleanupConfig()
+            )
+        )
+    }
+
     func cleanupSelectedTranscriptionNote() async {
         guard let note = selectedTranscriptionNote else { return }
         do {
-            let result = try await engineClient.cleanup(
-                CleanupRequest(
-                    rawTranscript: note.body,
-                    style: .neutral,
-                    dictionaryTerms: preferences.dictionaryTerms,
-                    dictionaryEntries: CleanupRequest.entries(from: preferences.dictionaryEntries)
-                )
+            let result = try await performCleanup(
+                rawTranscript: note.body,
+                style: .neutral,
+                appContext: "OmniSpeak Notes"
             )
             updateSelectedTranscriptionNote(body: result.text)
             statusText = "Note cleaned"
@@ -1178,6 +1295,7 @@ final class AppModel {
         if preferences.asrProvider == .appleSpeech, !AppleSpeechAvailability.isSupported {
             preferences.cycleASRProvider()
         }
+        EngineSupervisor.shared.selectedASRProvider = preferences.asrProvider
         persistPreferences()
         statusText = "ASR: \(preferences.asrProvider.rawValue)"
     }
@@ -1186,6 +1304,53 @@ final class AppModel {
         preferences.style = style
         persistPreferences()
         statusText = "Style: \(style.displayName)"
+    }
+
+    func setLLMCleanupEnabled(_ enabled: Bool) {
+        guard preferences.llmCleanupEnabled != enabled else { return }
+        preferences.llmCleanupEnabled = enabled
+        guard persistPreferences() else { return }
+        statusText = enabled ? "Smart AI cleanup enabled" : "Smart AI cleanup disabled"
+    }
+
+    func setLLMCleanupBackend(_ backend: CleanupLLMBackend) {
+        guard preferences.llmCleanupBackend != backend else { return }
+        preferences.llmCleanupBackend = backend
+        guard persistPreferences() else { return }
+        statusText = "Cleanup backend: \(backend.displayName)"
+    }
+
+    func setLLMCleanupLocalModelID(_ modelID: String) {
+        let normalized = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let target = normalized.isEmpty ? CleanupModelRecommendation.defaultProviderID : normalized
+        guard preferences.llmCleanupLocalModelID != target else { return }
+        preferences.llmCleanupLocalModelID = target
+        guard persistPreferences() else { return }
+        statusText = "Cleanup model: \(CleanupModelRecommendation(providerID: target).displayName)"
+    }
+
+    func setLLMCleanupProvider(_ provider: TextLLMProviderKind?) {
+        guard preferences.llmCleanupProvider != provider else { return }
+        preferences.llmCleanupProvider = provider
+        guard persistPreferences() else { return }
+        let label = provider?.displayName ?? "Default Text LLM"
+        statusText = "Cleanup LLM: \(label)"
+    }
+
+    func downloadSelectedCleanupModel() async {
+        let providerID = preferences.llmCleanupLocalModelID
+        do {
+            let download = try await engineClient.downloadModel(
+                providerID: providerID,
+                huggingFaceToken: huggingFaceTokenForRequest()
+            )
+            modelDownloadStatus = download
+            statusText = download.message ?? "Cleanup model download queued"
+            await pollModelDownload(providerID: providerID)
+            await refreshProviderAndModelStatus()
+        } catch {
+            statusText = "Cleanup model download failed"
+        }
     }
 
     func setRecordingSoundCuesEnabled(_ enabled: Bool) {
@@ -1241,12 +1406,16 @@ final class AppModel {
         case .stop:
             recordingCuePlayer.preview(.stop, preferences: preferences)
             statusText = "Previewing stop cue"
+        case .empty:
+            recordingCuePlayer.preview(.empty, preferences: preferences)
+            statusText = "Previewing empty/error cue"
         }
     }
 
     func setASRProvider(_ provider: ASRProviderKind) {
         let normalizedProvider = provider.normalizedForUserSelection
         preferences.asrProvider = normalizedProvider
+        EngineSupervisor.shared.selectedASRProvider = normalizedProvider
         persistPreferences()
         modelUpdateInfo = nil
         modelDownloadStatus = nil
@@ -1254,6 +1423,25 @@ final class AppModel {
         statusText = "ASR: \(normalizedProvider.rawValue)"
         Task {
             await refreshTranslationCapabilities()
+        }
+    }
+
+    var activeEngineBackendLabel: String {
+        EngineSupervisor.shared.activeBackendLabel
+    }
+
+    func setEngineBackendMode(_ mode: EngineBackendMode) {
+        guard preferences.engineBackendMode != mode else { return }
+        preferences.engineBackendMode = mode
+        if mode == .rustNative && preferences.asrProvider.isEngineBacked {
+            preferences.asrProvider = .parakeetCoreMLANE
+        }
+        EngineSupervisor.shared.preferredBackendMode = mode
+        EngineSupervisor.shared.selectedASRProvider = preferences.asrProvider
+        persistPreferences()
+        statusText = "Engine runtime: \(mode.displayName)"
+        Task {
+            await restartEngine(forceExternal: true)
         }
     }
 
@@ -1291,6 +1479,35 @@ final class AppModel {
         }
 
         statusText = "Theme: \(activeTheme.name)"
+        notifyThemeChanged()
+    }
+
+    func setThemeLookOverride(_ look: ThemeLook?) {
+        guard preferences.themeLookOverride != look else {
+            return
+        }
+        preferences.themeLookOverride = look
+        guard persistPreferences() else {
+            return
+        }
+        statusText = "Look: \(activeTheme.look.displayName)"
+        notifyThemeChanged()
+    }
+
+    func applySignatureLook(_ look: ThemeLook) {
+        let targetID = look.signatureThemeID
+        let presetTheme = OmniVoiceTheme.builtInTheme(id: targetID)
+        preferences.themeID = targetID
+        preferences.themeLookOverride = look
+        if let presetTheme {
+            preferences.waveformMode = presetTheme.waveformMode
+            preferences.commitAnimationMode = presetTheme.commitAnimationMode
+            preferences.engineFrameSide = presetTheme.engineFrameSide
+        }
+        guard persistPreferences() else {
+            return
+        }
+        statusText = "Theme: \(look.displayName)"
         notifyThemeChanged()
     }
 
@@ -1334,6 +1551,19 @@ final class AppModel {
         }
 
         statusText = "Waveform: \(mode.displayName)"
+    }
+
+    func setCommitAnimationMode(_ mode: CommitAnimationMode) {
+        guard preferences.commitAnimationMode != mode else {
+            return
+        }
+
+        preferences.commitAnimationMode = mode
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = "Commit effect: \(mode.displayName)"
     }
 
     func setEngineFrameSide(_ side: EngineFrameSide) {
@@ -2104,6 +2334,53 @@ final class AppModel {
         onCustomAgentsChanged?(preferences.customAgents)
     }
 
+    var defaultAskTarget: AskTarget? {
+        preferences.askKeywordBindings.first {
+            $0.keyword.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ai"
+        }?.target
+    }
+
+    func selectAgentForDefaultAsk(_ agent: DiscoveredAgent) {
+        let target = AskTarget(kind: .agent, id: agent.id)
+        if let idx = preferences.askKeywordBindings.firstIndex(where: {
+            $0.keyword.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ai"
+        }) {
+            preferences.askKeywordBindings[idx].target = target
+        } else {
+            preferences.askKeywordBindings.insert(
+                AskKeywordBinding(id: "builtin-ai", keyword: "ai", target: target),
+                at: 0
+            )
+        }
+        guard persistPreferences() else {
+            return
+        }
+        onCustomAgentsChanged?(preferences.customAgents)
+        statusText = "Default “ask ai” set to \(agent.displayName)"
+    }
+
+    func discoverSystemAgents() async {
+        guard !isScanningAgents else { return }
+        isScanningAgents = true
+        defer { isScanningAgents = false }
+
+        let found = await Task.detached(priority: .utility) {
+            ExecutableResolver.discoverInstalledAgents()
+        }.value
+
+        discoveredAgents = found
+
+        let merged = AgentRegistry.mergedAskKeywordBindings(
+            existing: preferences.askKeywordBindings,
+            discovered: found
+        )
+        if merged != preferences.askKeywordBindings {
+            preferences.askKeywordBindings = merged
+            _ = persistPreferences()
+        }
+        onCustomAgentsChanged?(preferences.customAgents)
+    }
+
     func testTextLLMProvider(_ provider: TextLLMProviderKind) async {
         let configuration = preferences.textLLMConfiguration(for: provider)
         guard configuration.isConfigured else {
@@ -2390,11 +2667,13 @@ final class AppModel {
         await refreshStartupChecks()
     }
 
-    func restartEngine() async {
+    func restartEngine(forceExternal: Bool = false) async {
         engineState = .checking
         statusText = "Restarting engine"
 
-        let startResult = await EngineSupervisor.shared.restart()
+        EngineSupervisor.shared.preferredBackendMode = preferences.engineBackendMode
+        EngineSupervisor.shared.selectedASRProvider = preferences.asrProvider
+        let startResult = await EngineSupervisor.shared.restart(forceExternal: forceExternal)
         switch startResult {
         case .alreadyOnline, .started:
             await loadEngineStatus(startEngineIfOffline: false)
@@ -2550,7 +2829,11 @@ final class AppModel {
         do {
             _ = try await engineClient.health()
             let fetchedProviderStatuses = try await engineClient.providers()
-            let missingProviderIDs = EngineProviderContract.missingRequiredASRProviderIDs(in: fetchedProviderStatuses)
+            let expectPythonProviders = !EngineSupervisor.shared.isUsingRustBackend
+                && !preferences.prefersRustEngine(rustBinaryAvailable: EngineSupervisor.shared.isRustBinaryAvailable)
+            let missingProviderIDs = expectPythonProviders
+                ? EngineProviderContract.missingRequiredASRProviderIDs(in: fetchedProviderStatuses)
+                : []
             if !missingProviderIDs.isEmpty {
                 if startEngineIfOffline {
                     statusText = "Restarting outdated engine"
@@ -2847,11 +3130,14 @@ final class AppModel {
         }
     }
 
-    func createConversationSession(captureMode: ConversationCaptureMode = .microphoneOnly) async -> ConversationSession? {
+    func createConversationSession(
+        captureMode: ConversationCaptureMode = .microphoneOnly,
+        title: String = "Conversation"
+    ) async -> ConversationSession? {
         do {
             let session = try await engineClient.createConversation(
                 ConversationSessionCreateRequest(
-                    title: "Conversation",
+                    title: title,
                     captureMode: captureMode,
                     asrProvider: preferences.asrProvider.rawValue,
                     diarizationProvider: effectiveConversationDiarizationProviderID(),
@@ -2897,6 +3183,35 @@ final class AppModel {
             // Two lanes finalize independently, so arrival order isn't
             // chronological; keep the live transcript sorted by start time.
             ConversationSegmentOrdering.insert(segment, into: &conversationSegments)
+            if preferences.meetingLiveCopilotEnabled {
+                onMeetingCopilotTalkTimeChanged?(MeetingTalkTimeStats.compute(from: conversationSegments))
+                if MeetingQuestionDetector.looksLikeQuestion(segment.text),
+                   answeredQuestionSegmentIDs.insert(segment.id).inserted {
+                    Task { @MainActor [weak self] in
+                        await self?.answerLiveMeetingQuestion(segment: segment)
+                    }
+                }
+                if let promise = MeetingCommitmentDetector.extractCommitment(
+                    from: segment.text,
+                    speakerID: segment.speakerID,
+                    speakerDisplayName: segment.speakerDisplayName
+                ) {
+                    Task { @MainActor [weak self] in
+                        await self?.recordMeetingPromise(promise)
+                    }
+                }
+                let newJargon = MeetingJargonDetector.extractAcronyms(
+                    from: segment.text,
+                    excluding: decodedJargonTerms
+                )
+                if !newJargon.isEmpty {
+                    let batch = Array(newJargon.prefix(2))
+                    for term in batch { decodedJargonTerms.insert(term) }
+                    Task { @MainActor [weak self] in
+                        await self?.decodeLiveMeetingJargon(terms: batch)
+                    }
+                }
+            }
         } catch {
             statusText = "Conversation segment failed"
         }
@@ -3077,7 +3392,512 @@ final class AppModel {
         systemConversationRecorder = nil
     }
 
-    func startConversationRecording() async {
+    func setMeetingAutoDetectEnabled(_ enabled: Bool) {
+        guard preferences.meetingAutoDetectEnabled != enabled else { return }
+        preferences.meetingAutoDetectEnabled = enabled
+        _ = persistPreferences()
+    }
+
+    func setMeetingAutoStartWithoutPrompt(_ enabled: Bool) {
+        guard preferences.meetingAutoStartWithoutPrompt != enabled else { return }
+        preferences.meetingAutoStartWithoutPrompt = enabled
+        _ = persistPreferences()
+    }
+
+    func setMeetingLiveCopilotEnabled(_ enabled: Bool) {
+        guard preferences.meetingLiveCopilotEnabled != enabled else { return }
+        preferences.meetingLiveCopilotEnabled = enabled
+        _ = persistPreferences()
+        if !enabled {
+            stopMeetingCopilotLoop(keepPinnedModals: false)
+        } else if isConversationRecording, let active = activeConversation {
+            startMeetingCopilotLoop(title: active.title)
+        }
+    }
+
+    func setMeetingCopilotCorner(_ corner: MeetingCopilotCorner) {
+        guard preferences.meetingCopilotCorner != corner else { return }
+        preferences.meetingCopilotCorner = corner
+        _ = persistPreferences()
+        onThemeChanged?(activeTheme, preferences.appearanceMode)
+    }
+
+    func toggleMeetingCopilotCorner() {
+        setMeetingCopilotCorner(preferences.meetingCopilotCorner == .topRight ? .topLeft : .topRight)
+    }
+
+    func setMeetingStealthModeEnabled(_ enabled: Bool) {
+        guard preferences.meetingStealthModeEnabled != enabled else { return }
+        preferences.meetingStealthModeEnabled = enabled
+        _ = persistPreferences()
+        onThemeChanged?(activeTheme, preferences.appearanceMode)
+    }
+
+    func setMeetingAutoStopOnCallEnd(_ enabled: Bool) {
+        guard preferences.meetingAutoStopOnCallEnd != enabled else { return }
+        preferences.meetingAutoStopOnCallEnd = enabled
+        _ = persistPreferences()
+    }
+
+    // MARK: - Command Mode, Snippets, Zero-Config Translation, Voice Edit & Stats
+
+    private static let dictationStatsDefaultsKey = "OmniSpeak.dictationStats.v1"
+
+    private static func loadDictationStats() -> DictationStatsSnapshot {
+        guard let data = UserDefaults.standard.data(forKey: dictationStatsDefaultsKey),
+              let decoded = try? JSONDecoder().decode(DictationStatsSnapshot.self, from: data) else {
+            return DictationStatsSnapshot()
+        }
+        return decoded
+    }
+
+    func recordDictationStats(text: String, speakingSeconds: Double, appName: String?) {
+        dictationStats.record(text: text, speakingSeconds: speakingSeconds, appName: appName)
+        if let data = try? JSONEncoder().encode(dictationStats) {
+            UserDefaults.standard.set(data, forKey: Self.dictationStatsDefaultsKey)
+        }
+    }
+
+    func setCommandModeCorner(_ corner: CommandModeCorner) {
+        guard preferences.commandModeCorner != corner else { return }
+        preferences.commandModeCorner = corner
+        _ = persistPreferences()
+        onThemeChanged?(activeTheme, preferences.appearanceMode)
+    }
+
+    func cycleCommandModeCorner() {
+        setCommandModeCorner(preferences.commandModeCorner.next)
+    }
+
+    func setCommandModeMCPCommand(_ command: String) {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolved = trimmed.isEmpty ? "cua-driver" : trimmed
+        guard preferences.commandModeMCPCommand != resolved else { return }
+        preferences.commandModeMCPCommand = resolved
+        _ = persistPreferences()
+    }
+
+    func addVoiceSnippet(trigger: String, expansion: String) {
+        let cleanTrigger = trigger.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanExpansion = expansion.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTrigger.isEmpty, !cleanExpansion.isEmpty else { return }
+        preferences.voiceSnippets.append(VoiceSnippet(trigger: cleanTrigger, expansion: cleanExpansion))
+        _ = persistPreferences()
+        statusText = "Snippet “\(cleanTrigger)” added"
+    }
+
+    func removeVoiceSnippet(id: String) {
+        preferences.voiceSnippets.removeAll { $0.id == id }
+        _ = persistPreferences()
+    }
+
+    func setAutoTonePerAppEnabled(_ enabled: Bool) {
+        guard preferences.autoTonePerAppEnabled != enabled else { return }
+        preferences.autoTonePerAppEnabled = enabled
+        _ = persistPreferences()
+    }
+
+    func setVoiceEditSelectionEnabled(_ enabled: Bool) {
+        guard preferences.voiceEditSelectionEnabled != enabled else { return }
+        preferences.voiceEditSelectionEnabled = enabled
+        _ = persistPreferences()
+    }
+
+    func setClipboardAskContextEnabled(_ enabled: Bool) {
+        guard preferences.clipboardAskContextEnabled != enabled else { return }
+        preferences.clipboardAskContextEnabled = enabled
+        _ = persistPreferences()
+    }
+
+    // MARK: - Service Mode (Cloud / Outbound: Deepgram + Subscriptions)
+
+    var isServiceModeEnabled: Bool {
+        preferences.serviceMode.enabled
+    }
+
+    var effectiveDeepgramAPIKey: String {
+        let direct = deepgramAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !direct.isEmpty { return direct }
+        return (ProcessInfo.processInfo.environment["DEEPGRAM_API_KEY"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var isServiceModeReady: Bool {
+        preferences.serviceMode.enabled && !effectiveDeepgramAPIKey.isEmpty
+    }
+
+    var serviceModeLLMLabel: String {
+        switch preferences.serviceMode.llmRoute {
+        case .auto:
+            if let cfg = configuredConversationTextLLMConfiguration() {
+                return "Auto (\(cfg.displayName))"
+            }
+            if let firstAgent = discoveredAgents.first {
+                return "Auto (\(firstAgent.displayName) CLI)"
+            }
+            return "Auto"
+        case .subscriptionAgent(let agentID):
+            let registry = AgentRegistry(custom: preferences.customAgents)
+            if let agent = registry.all.first(where: { $0.id == agentID }) {
+                return "\(agent.displayName) CLI"
+            }
+            return "\(agentID) CLI"
+        case .configuredTextLLM(let provider):
+            return preferences.textLLMConfiguration(for: provider).displayName
+        }
+    }
+
+    var serviceModeStatusSummary: String {
+        "Deepgram \(preferences.serviceMode.deepgramModel.displayName) · \(serviceModeLLMLabel)"
+    }
+
+    func setServiceModeEnabled(_ enabled: Bool) {
+        guard preferences.serviceMode.enabled != enabled else { return }
+        preferences.serviceMode.enabled = enabled
+        _ = persistPreferences()
+        if enabled {
+            if preferences.serviceMode.unloadLocalModelsWhenEnabled {
+                Task {
+                    await MLXLocalCleanupService.shared.unload()
+                }
+            }
+            statusText = isServiceModeReady
+                ? "Service Mode on (\(serviceModeStatusSummary))"
+                : "Service Mode on — add Deepgram API key in Models"
+        } else {
+            statusText = "Local mode active (\(label(for: preferences.asrProvider)))"
+        }
+    }
+
+    func setServiceModeDeepgramModel(_ model: DeepgramModel) {
+        guard preferences.serviceMode.deepgramModel != model else { return }
+        preferences.serviceMode.deepgramModel = model
+        _ = persistPreferences()
+    }
+
+    func setServiceModeDeepgramLanguage(_ code: String) {
+        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolved = trimmed.isEmpty ? "multi" : trimmed
+        guard preferences.serviceMode.deepgramLanguage != resolved else { return }
+        preferences.serviceMode.deepgramLanguage = resolved
+        _ = persistPreferences()
+    }
+
+    func setServiceModeDeepgramSmartFormat(_ enabled: Bool) {
+        guard preferences.serviceMode.deepgramSmartFormat != enabled else { return }
+        preferences.serviceMode.deepgramSmartFormat = enabled
+        _ = persistPreferences()
+    }
+
+    func setServiceModeLLMRoute(_ route: ServiceModeLLMRoute) {
+        guard preferences.serviceMode.llmRoute != route else { return }
+        preferences.serviceMode.llmRoute = route
+        _ = persistPreferences()
+        if preferences.serviceMode.enabled {
+            statusText = "Service Mode LLM → \(serviceModeLLMLabel)"
+        }
+    }
+
+    func setServiceModeUnloadLocalModels(_ enabled: Bool) {
+        guard preferences.serviceMode.unloadLocalModelsWhenEnabled != enabled else { return }
+        preferences.serviceMode.unloadLocalModelsWhenEnabled = enabled
+        _ = persistPreferences()
+        if enabled && preferences.serviceMode.enabled {
+            Task {
+                await MLXLocalCleanupService.shared.unload()
+            }
+        }
+    }
+
+    func setDeepgramAPIKey(_ key: String) {
+        let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard deepgramAPIKey != trimmed else { return }
+        deepgramAPIKey = trimmed
+        deepgramConnectionStatus = nil
+        _ = llmSecretStore.setValue(trimmed, provider: Self.deepgramSecretProviderID, field: .apiKey)
+    }
+
+    func testDeepgramConnection() async {
+        let key = effectiveDeepgramAPIKey
+        guard !key.isEmpty else {
+            deepgramConnectionStatus = "Enter a Deepgram API key first."
+            return
+        }
+        isTestingDeepgramConnection = true
+        deepgramConnectionStatus = "Testing Deepgram key…"
+        defer { isTestingDeepgramConnection = false }
+
+        do {
+            deepgramConnectionStatus = try await DeepgramClient.testConnection(apiKey: key)
+        } catch {
+            deepgramConnectionStatus = error.localizedDescription
+        }
+    }
+
+    /// Executes an LLM prompt through the user's configured Service Mode subscription
+    /// (OAuth/API Text LLM provider OR installed subscription CLI such as Claude/Codex/Gemini).
+    func runServiceModeLLM(
+        systemPrompt: String,
+        userPrompt: String,
+        attachments: [AIChatAttachment] = []
+    ) async -> String? {
+        switch preferences.serviceMode.llmRoute {
+        case .configuredTextLLM(let provider):
+            let cfg = preferences.textLLMConfiguration(for: provider)
+            if let text = await callTextLLMConfiguration(cfg, systemPrompt: systemPrompt, userPrompt: userPrompt, attachments: attachments) {
+                return text
+            }
+            if let fallbackCfg = configuredConversationTextLLMConfiguration(), fallbackCfg.provider != provider {
+                return await callTextLLMConfiguration(fallbackCfg, systemPrompt: systemPrompt, userPrompt: userPrompt, attachments: attachments)
+            }
+            return nil
+
+        case .subscriptionAgent(let agentID):
+            guard attachments.isEmpty else {
+                if let cfg = configuredConversationTextLLMConfiguration() {
+                    return await callTextLLMConfiguration(cfg, systemPrompt: systemPrompt, userPrompt: userPrompt, attachments: attachments)
+                }
+                return nil
+            }
+            let registry = AgentRegistry(custom: preferences.customAgents)
+            if let descriptor = registry.all.first(where: { $0.id == agentID }) ?? discoveredAgents.first?.descriptor {
+                let combinedPrompt = "\(systemPrompt)\n\n\(userPrompt)"
+                if let output = try? await meetingAgentRunner.run(descriptor, prompt: combinedPrompt, onChunk: { _ in }) {
+                    let sanitized = MLXLocalCleanupService.sanitizeOutput(output)
+                    if !sanitized.isEmpty { return sanitized }
+                }
+            }
+            return nil
+
+        case .auto:
+            if let cfg = configuredConversationTextLLMConfiguration(),
+               let text = await callTextLLMConfiguration(cfg, systemPrompt: systemPrompt, userPrompt: userPrompt, attachments: attachments) {
+                return text
+            }
+            if attachments.isEmpty, let localAgent = discoveredAgents.first?.descriptor {
+                let combinedPrompt = "\(systemPrompt)\n\n\(userPrompt)"
+                if let output = try? await meetingAgentRunner.run(localAgent, prompt: combinedPrompt, onChunk: { _ in }) {
+                    let sanitized = MLXLocalCleanupService.sanitizeOutput(output)
+                    if !sanitized.isEmpty { return sanitized }
+                }
+            }
+            return nil
+        }
+    }
+
+    private func callTextLLMConfiguration(
+        _ configuration: TextLLMProviderConfiguration,
+        systemPrompt: String,
+        userPrompt: String,
+        attachments: [AIChatAttachment]
+    ) async -> String? {
+        guard configuration.isConfigured else { return nil }
+        do {
+            let result = try await engineClient.aiChat(
+                AIChatRequest(
+                    provider: configuration.provider.rawValue,
+                    baseURL: configuration.resolvedBaseURL,
+                    model: configuration.trimmedModel,
+                    apiKey: configuration.trimmedAPIKey,
+                    transport: configuration.transport,
+                    oauthAccessToken: configuration.trimmedOAuthAccessToken,
+                    headers: configuration.resolvedHeaders,
+                    messages: [
+                        AIChatMessage(role: .system, content: systemPrompt),
+                        AIChatMessage(role: .user, content: userPrompt),
+                    ],
+                    attachments: attachments,
+                    webSearchEnabled: false
+                )
+            )
+            let cleaned = MLXLocalCleanupService.sanitizeOutput(result.text)
+            return cleaned.isEmpty ? nil : cleaned
+        } catch {
+            return nil
+        }
+    }
+
+    func setCaptionGlassOpacity(_ opacity: Double) {
+        let clamped = min(max(opacity, 0), 1)
+        guard abs(preferences.captionGlassOpacity - clamped) > 0.001 else { return }
+        preferences.captionGlassOpacity = clamped
+        _ = persistPreferences()
+        onThemeChanged?(activeTheme, preferences.appearanceMode)
+    }
+
+    func selectQuickTranslationLanguage(_ code: String?) {
+        guard let code = code?.trimmingCharacters(in: .whitespacesAndNewlines), !code.isEmpty else {
+            preferences.liveTranslationEnabled = false
+            _ = persistPreferences()
+            statusText = "Live translation off"
+            return
+        }
+        preferences.translationTargetLanguage = code.lowercased()
+        preferences.liveTranslationEnabled = true
+        _ = persistPreferences()
+        let label = InlineTranslationParser.languageInfo(forCode: code)?.name ?? code.uppercased()
+        statusText = "Translating to \(label)"
+    }
+
+    /// Zero-config translation: uses the engine translation model if available,
+    /// seamlessly falling back to on-device MLX-Swift Qwen3 or configured Text LLM
+    /// so translation works with zero Hugging Face token setup.
+    func translateTextZeroConfig(
+        _ text: String,
+        targetLanguageCode: String,
+        targetLanguageName: String? = nil
+    ) async -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let languageName = targetLanguageName
+            ?? InlineTranslationParser.languageInfo(forCode: targetLanguageCode)?.name
+            ?? targetLanguageCode.uppercased()
+
+        // 0. Service Mode: route translation directly through your selected subscription LLM
+        if preferences.serviceMode.enabled {
+            if let result = await runServiceModeLLM(
+                systemPrompt: "Translate the user's text into \(languageName). Output ONLY the translation with no commentary or quotes.",
+                userPrompt: trimmed
+            ) {
+                let cleaned = TextInsertionEdit.sanitizedInsertionText(result)
+                if !cleaned.isEmpty { return cleaned }
+            }
+        }
+
+        // 1. Try engine translator first if an engine translation model is installed
+        if selectedTranslationModelInstalled {
+            if let result = try? await engineClient.translate(
+                TranslationRequest(
+                    text: trimmed,
+                    provider: preferences.translationProvider,
+                    sourceLanguage: preferences.translationSourceLanguage,
+                    targetLanguage: targetLanguageCode,
+                    context: [trimmed],
+                    modelPath: effectiveTranslationModelPath()
+                )
+            ) {
+                let cleaned = TextInsertionEdit.sanitizedInsertionText(result.text)
+                if !cleaned.isEmpty { return cleaned }
+            }
+        }
+
+        // 2. Fast local Apple Silicon MLX-Swift Qwen3 translation (zero token / offline!)
+        if let local = try? await MLXLocalCleanupService.shared.translate(
+            text: trimmed,
+            targetLanguage: languageName,
+            providerID: preferences.llmCleanupLocalModelID
+        ) {
+            let cleaned = TextInsertionEdit.sanitizedInsertionText(local)
+            if !cleaned.isEmpty { return cleaned }
+        }
+
+        // 3. Configured cloud/OAuth Text LLM fallback
+        if let result = await synthesizeMeetingAIResponse(
+            systemPrompt: "Translate the user's text into \(languageName). Output ONLY the translation with no commentary or quotes.",
+            userPrompt: trimmed
+        ) {
+            let cleaned = TextInsertionEdit.sanitizedInsertionText(result)
+            if !cleaned.isEmpty { return cleaned }
+        }
+
+        return nil
+    }
+
+    private var selectedTranslationModelInstalled: Bool {
+        modelStatus(forProviderID: selectedTranslationModelProviderID())?.installed == true
+    }
+
+    /// Rewrites currently highlighted text according to a spoken instruction ("make this shorter", etc.).
+    func transformSelectedText(_ selectedText: String, instruction: String) async -> String? {
+        if preferences.serviceMode.enabled {
+            if let cloud = await runServiceModeLLM(
+                systemPrompt: "You are a crisp inline text editor. Apply the user's instruction to the selected text and return ONLY the transformed text with no quotes or preamble.",
+                userPrompt: "Instruction: \(instruction)\n\nSelected text:\n\(selectedText)"
+            ) {
+                let cleaned = TextInsertionEdit.sanitizedInsertionText(cloud)
+                if !cleaned.isEmpty { return cleaned }
+            }
+        }
+
+        if let local = try? await MLXLocalCleanupService.shared.transformSelection(
+            selectedText: selectedText,
+            instruction: instruction,
+            providerID: preferences.llmCleanupLocalModelID
+        ) {
+            let cleaned = TextInsertionEdit.sanitizedInsertionText(local)
+            if !cleaned.isEmpty { return cleaned }
+        }
+
+        if let cloud = await synthesizeMeetingAIResponse(
+            systemPrompt: "You are a crisp inline text editor. Apply the user's instruction to the selected text and return ONLY the transformed text with no quotes or preamble.",
+            userPrompt: "Instruction: \(instruction)\n\nSelected text:\n\(selectedText)"
+        ) {
+            let cleaned = TextInsertionEdit.sanitizedInsertionText(cloud)
+            if !cleaned.isEmpty { return cleaned }
+        }
+        return nil
+    }
+
+    func planCommandModeTools(systemPrompt: String, userPrompt: String) async -> String? {
+        if preferences.serviceMode.enabled,
+           let servicePlan = await runServiceModeLLM(systemPrompt: systemPrompt, userPrompt: userPrompt) {
+            return servicePlan
+        }
+        if let cloud = await synthesizeMeetingAIResponse(systemPrompt: systemPrompt, userPrompt: userPrompt) {
+            return cloud
+        }
+        return try? await MLXLocalCleanupService.shared.generateRaw(
+            instructions: systemPrompt,
+            prompt: userPrompt,
+            maxTokens: 512,
+            providerID: preferences.llmCleanupLocalModelID
+        )
+    }
+
+    func refreshCalendarAuthorizationStatus() {
+        calendarAccessGranted = calendarService.isAuthorized
+    }
+
+    func connectMeetingCalendar() async {
+        let granted = await calendarService.requestAccess()
+        calendarAccessGranted = granted
+        statusText = granted
+            ? "Calendar connected for meeting context"
+            : "Calendar access denied — grant access in System Settings"
+    }
+
+    func startDetectedMeeting(_ event: DetectedMeetingEvent) async {
+        // Turn on Me + Them two-track diarization automatically for calls & meetings.
+        if preferences.conversationCaptureMode != .microphoneAndSystemAudio {
+            preferences.conversationCaptureMode = .microphoneAndSystemAudio
+            _ = persistPreferences()
+        }
+        // Enable local diarization if an engine provider is available and currently off.
+        if preferences.conversationDiarizationProvider == "off",
+           let ready = diarizationProviderStatuses.first(where: { $0.id != "off" && $0.available }) {
+            preferences.conversationDiarizationProvider = ready.id
+            _ = persistPreferences()
+        }
+        meetingStartedByAutoDetect = true
+        let calendarContext = calendarService.currentMeetingContext()
+        let title = calendarContext?.title ?? event.app.defaultSessionTitle()
+        await startConversationRecording(title: title, calendarContext: calendarContext)
+    }
+
+    func handleDetectedCallEnded() async {
+        guard meetingStartedByAutoDetect,
+              preferences.meetingAutoStopOnCallEnd,
+              isConversationRecording else {
+            return
+        }
+        meetingStartedByAutoDetect = false
+        await stopConversationRecording()
+    }
+
+    func startConversationRecording(
+        title: String = "Conversation",
+        calendarContext: MeetingCalendarContext? = nil
+    ) async {
         if !isEntitled(to: .conversationMode) {
             presentPaywall(for: .conversationMode)
             return
@@ -3090,6 +3910,13 @@ final class AppModel {
         isConversationStartInFlight = true
         deferredConversationAction = nil
         liveDiarizationPreviewGeneration = 0
+        lastCopilotAnalyzedSegmentCount = 0
+        answeredQuestionSegmentIDs.removeAll()
+        decodedJargonTerms.removeAll()
+        activeMeetingPromises.removeAll()
+        let resolvedCalendar = calendarContext ?? calendarService.currentMeetingContext()
+        activeMeetingCalendarContext = resolvedCalendar
+        let resolvedTitle = (title == "Conversation" ? resolvedCalendar?.title : nil) ?? title
         defer { isConversationStartInFlight = false }
 
         let captureMode = resolvedConversationCaptureMode()
@@ -3100,7 +3927,7 @@ final class AppModel {
             ? preferences.asrProvider
             : .parakeetTDTMLX
 
-        guard let session = await createConversationSession(captureMode: captureMode) else {
+        guard let session = await createConversationSession(captureMode: captureMode, title: resolvedTitle) else {
             return
         }
 
@@ -3141,6 +3968,9 @@ final class AppModel {
                     referenceDate: referenceDate
                 )
             }
+            if preferences.meetingLiveCopilotEnabled {
+                startMeetingCopilotLoop(title: session.title)
+            }
             statusText = "Conversation recording"
         } catch {
             deferredConversationAction = nil
@@ -3176,13 +4006,518 @@ final class AppModel {
         } catch {
             recorderError = error
         }
+        let wrapUpTitle = activeConversation?.title ?? "Meeting"
+        let wrapUpSegments = conversationSegments.filter {
+            $0.state != .live && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let wrapUpCalendar = activeMeetingCalendarContext
+        let wrapUpPromises = activeMeetingPromises
+        meetingStartedByAutoDetect = false
+
         await stopSystemAudioLane()
+        stopMeetingCopilotLoop(keepPinnedModals: true)
         recordingCuePlayer.playStopCue(preferences: preferences)
 
         await stopConversationSession()
         if let recorderError {
             statusText = "Conversation saved; recorder warning: \(recorderError.localizedDescription)"
         }
+
+        if preferences.meetingLiveCopilotEnabled, !wrapUpSegments.isEmpty {
+            Task { @MainActor [weak self] in
+                await self?.generateMeetingWrapUp(
+                    title: wrapUpTitle,
+                    segments: wrapUpSegments,
+                    promises: wrapUpPromises,
+                    calendarContext: wrapUpCalendar
+                )
+            }
+        }
+    }
+
+    private func startMeetingCopilotLoop(title: String) {
+        meetingCopilotLoopTask?.cancel()
+        let subtitle: String?
+        if let attendees = activeMeetingCalendarContext?.attendees, !attendees.isEmpty {
+            subtitle = "With \(attendees.prefix(3).joined(separator: ", "))"
+        } else {
+            subtitle = nil
+        }
+        onMeetingCopilotSessionChanged?(title, subtitle, true)
+        meetingCopilotLoopTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(20))
+                guard !Task.isCancelled, let self, self.isConversationRecording else { break }
+                guard self.preferences.meetingLiveCopilotEnabled else { continue }
+                await self.runLiveMeetingInsightPass(force: false)
+            }
+        }
+    }
+
+    private func stopMeetingCopilotLoop(keepPinnedModals: Bool) {
+        meetingCopilotLoopTask?.cancel()
+        meetingCopilotLoopTask = nil
+        onMeetingCopilotAnalyzingChanged?(false)
+        onMeetingCopilotSessionChanged?(nil, nil, keepPinnedModals)
+    }
+
+    func captureScreenAndAnswerInMeeting() async {
+        guard isConversationRecording, let session = activeConversation else { return }
+        onMeetingCopilotAnalyzingChanged?(true)
+        defer { onMeetingCopilotAnalyzingChanged?(false) }
+
+        guard let attachment = await MeetingScreenCaptureHelper.captureMainDisplayAttachment() else {
+            onMeetingCopilotModal?(
+                MeetingCopilotModalItem(
+                    id: "screen-err-\(UUID().uuidString)",
+                    kind: .warning,
+                    title: "Screen capture unavailable",
+                    body: "Grant Screen Recording permission in System Settings to enable screen-aware meeting answers.",
+                    questionText: nil,
+                    speakerLabel: "Screen",
+                    createdAt: Date()
+                )
+            )
+            return
+        }
+
+        let recentLines = conversationSegments
+            .filter { $0.state != .live }
+            .suffix(10)
+            .map { "\($0.speakerDisplayName): \($0.text)" }
+            .joined(separator: "\n")
+
+        let responseText = await synthesizeMeetingAIResponse(
+            systemPrompt: ConversationInsightSynthesis.systemPrompt,
+            userPrompt: ConversationInsightSynthesis.screenAwareAnswerPrompt(
+                recentTranscript: recentLines.isEmpty ? "_No speech yet._" : recentLines,
+                calendarContext: activeMeetingCalendarContext
+            ),
+            attachments: [attachment]
+        )
+        guard let responseText else { return }
+
+        let requests = ConversationInsightSynthesis.cardRequests(from: responseText)
+        let cardRequest = requests.first ?? ConversationAssistCardCreateRequest(
+            kind: .answer,
+            title: "Screen Insight",
+            body: responseText.trimmingCharacters(in: .whitespacesAndNewlines),
+            sourceReferences: ["Screen"],
+            confidence: 0.85
+        )
+        if let card = try? await engineClient.addConversationAssistCard(sessionID: session.id, request: cardRequest) {
+            conversationAssistCards.append(card)
+            onMeetingCopilotModal?(
+                MeetingCopilotModalItem(
+                    id: card.id,
+                    kind: .answer,
+                    title: card.title,
+                    body: card.body,
+                    questionText: nil,
+                    speakerLabel: "Screen",
+                    createdAt: Date()
+                )
+            )
+        }
+    }
+
+    func bookmarkCurrentMeetingMoment() async {
+        guard isConversationRecording, let session = activeConversation else { return }
+        let latest = conversationSegments.last(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+        let excerpt = latest?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Flagged key moment during meeting."
+        let speaker = latest?.speakerDisplayName ?? "Bookmark"
+        let request = ConversationAssistCardCreateRequest(
+            kind: .followUp,
+            title: "Bookmarked Moment",
+            body: excerpt,
+            sourceReferences: [speaker],
+            confidence: 1.0
+        )
+        if let card = try? await engineClient.addConversationAssistCard(sessionID: session.id, request: request) {
+            conversationAssistCards.append(card)
+            var modal = MeetingCopilotModalItem(
+                id: card.id,
+                kind: .followUp,
+                title: "Bookmarked Moment",
+                body: excerpt,
+                questionText: nil,
+                speakerLabel: speaker,
+                createdAt: Date()
+            )
+            modal.isPinned = true
+            onMeetingCopilotModal?(modal)
+        }
+    }
+
+    private func generateMeetingWrapUp(
+        title: String,
+        segments: [ConversationSegment],
+        promises: [String],
+        calendarContext: MeetingCalendarContext?
+    ) async {
+        let transcript = segments
+            .map { "\($0.speakerDisplayName): \($0.text)" }
+            .joined(separator: "\n")
+        guard !transcript.isEmpty else { return }
+
+        let responseText = await synthesizeMeetingAIResponse(
+            systemPrompt: ConversationInsightSynthesis.systemPrompt,
+            userPrompt: ConversationInsightSynthesis.meetingWrapUpPrompt(
+                title: title,
+                transcript: transcript,
+                calendarContext: calendarContext
+            )
+        )
+        guard let responseText,
+              let parsed = MeetingWrapUpSummary.parse(from: responseText, fallbackTitle: title) else {
+            return
+        }
+        onMeetingWrapUpReady?(parsed.withPromises(promises))
+    }
+
+    func catchUpLastTwoMinutesInMeeting() async {
+        guard isConversationRecording else { return }
+        let settled = conversationSegments.filter {
+            $0.state != .live && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard !settled.isEmpty else {
+            onMeetingCopilotModal?(
+                MeetingCopilotModalItem(
+                    id: "catchup-empty-\(UUID().uuidString)",
+                    kind: .followUp,
+                    title: "Catch-Up (Last 2 Min)",
+                    body: "No settled speech yet in this meeting.",
+                    questionText: nil,
+                    speakerLabel: "Catch-Up",
+                    createdAt: Date()
+                )
+            )
+            return
+        }
+
+        let maxMs = settled.compactMap(\.endMs).max() ?? (settled.last?.startMs ?? 0)
+        let cutoffMs = max(0, maxMs - 120_000)
+        let recent = settled.filter { ($0.endMs ?? $0.startMs) >= cutoffMs }
+        let windowSegments = recent.isEmpty ? Array(settled.suffix(12)) : Array(recent.suffix(20))
+        let transcript = windowSegments
+            .map { "\($0.speakerDisplayName): \($0.text)" }
+            .joined(separator: "\n")
+
+        onMeetingCopilotAnalyzingChanged?(true)
+        defer { onMeetingCopilotAnalyzingChanged?(false) }
+
+        let responseText = await synthesizeMeetingAIResponse(
+            systemPrompt: ConversationInsightSynthesis.systemPrompt,
+            userPrompt: ConversationInsightSynthesis.catchUpPrompt(
+                recentTranscript: transcript,
+                calendarContext: activeMeetingCalendarContext
+            )
+        )
+        guard let responseText else { return }
+
+        let requests = ConversationInsightSynthesis.cardRequests(from: responseText)
+        let body = requests.first?.body ?? responseText.trimmingCharacters(in: .whitespacesAndNewlines)
+        var modal = MeetingCopilotModalItem(
+            id: "catchup-\(UUID().uuidString)",
+            kind: .followUp,
+            title: requests.first?.title ?? "Catch-Up (Last 2 Min)",
+            body: body,
+            questionText: nil,
+            speakerLabel: "Catch-Up",
+            createdAt: Date()
+        )
+        modal.isPinned = false
+        onMeetingCopilotModal?(modal)
+    }
+
+    private func recordMeetingPromise(_ promise: String) async {
+        guard isConversationRecording, let session = activeConversation else { return }
+        guard !activeMeetingPromises.contains(where: { $0.caseInsensitiveCompare(promise) == .orderedSame }) else {
+            return
+        }
+        activeMeetingPromises.append(promise)
+
+        let request = ConversationAssistCardCreateRequest(
+            kind: .actionItem,
+            title: "My Promise",
+            body: promise,
+            sourceReferences: ["Me"],
+            confidence: 0.95
+        )
+        if let card = try? await engineClient.addConversationAssistCard(sessionID: session.id, request: request) {
+            conversationAssistCards.append(card)
+            var modal = MeetingCopilotModalItem(
+                id: card.id,
+                kind: .actionItem,
+                title: "Promise Tracked",
+                body: promise,
+                questionText: nil,
+                speakerLabel: "Me",
+                createdAt: Date()
+            )
+            modal.isPinned = true
+            onMeetingCopilotModal?(modal)
+        }
+    }
+
+    private func decodeLiveMeetingJargon(terms: [String]) async {
+        guard isConversationRecording, !terms.isEmpty else { return }
+        let recentLines = conversationSegments
+            .filter { $0.state != .live }
+            .suffix(8)
+            .map { "\($0.speakerDisplayName): \($0.text)" }
+            .joined(separator: "\n")
+
+        let responseText = await synthesizeMeetingAIResponse(
+            systemPrompt: ConversationInsightSynthesis.systemPrompt,
+            userPrompt: ConversationInsightSynthesis.jargonDecoderPrompt(
+                terms: terms,
+                recentTranscript: recentLines
+            )
+        )
+        guard let responseText else { return }
+        let requests = ConversationInsightSynthesis.cardRequests(from: responseText)
+        for request in requests.prefix(2) {
+            onMeetingCopilotModal?(
+                MeetingCopilotModalItem(
+                    id: "jargon-\(UUID().uuidString)",
+                    kind: .answer,
+                    title: request.title,
+                    body: request.body,
+                    questionText: nil,
+                    speakerLabel: "Glossary",
+                    createdAt: Date()
+                )
+            )
+        }
+    }
+
+    func startPreMeetingBriefMonitor() {
+        preMeetingBriefMonitorTask?.cancel()
+        preMeetingBriefMonitorTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled, let self else { break }
+                guard self.preferences.meetingLiveCopilotEnabled,
+                      !self.isConversationRecording else { continue }
+                await self.checkUpcomingPreMeetingBrief()
+            }
+        }
+    }
+
+    func stopPreMeetingBriefMonitor() {
+        preMeetingBriefMonitorTask?.cancel()
+        preMeetingBriefMonitorTask = nil
+    }
+
+    private func checkUpcomingPreMeetingBrief() async {
+        guard let upcoming = calendarService.upcomingMeetingSoon(withinMinutes: 3.0) else {
+            return
+        }
+        let startStamp = Int((upcoming.startDate ?? Date()).timeIntervalSince1970 / 60)
+        let eventKey = "\(upcoming.title.lowercased())|\(startStamp)"
+        guard preBriefedEventKeys.insert(eventKey).inserted else { return }
+
+        if conversationSessions.isEmpty {
+            await loadConversations()
+        }
+
+        // Match past meetings sharing keywords from the calendar title or attendees.
+        let tokens = Set(
+            upcoming.title
+                .lowercased()
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { $0.count >= 4 }
+        )
+        let matchingSessions = conversationSessions.filter { session in
+            let lowerTitle = session.title.lowercased()
+            return tokens.contains { lowerTitle.contains($0) }
+        }.prefix(2)
+
+        var pastNotes: [String] = []
+        for session in matchingSessions {
+            if let detail = try? await engineClient.conversationDetail(sessionID: session.id) {
+                let cards = detail.assistCards.prefix(4).map { "• \($0.title): \($0.body)" }
+                let tail = detail.segments.suffix(6).map { "\($0.speakerDisplayName): \($0.text)" }
+                pastNotes.append("Past meeting '\(session.title)':\n" + (cards + tail).joined(separator: "\n"))
+            }
+        }
+
+        let briefBody: String
+        if !pastNotes.isEmpty,
+           let response = await synthesizeMeetingAIResponse(
+               systemPrompt: ConversationInsightSynthesis.systemPrompt,
+               userPrompt: ConversationInsightSynthesis.preMeetingBriefPrompt(
+                   upcoming: upcoming,
+                   pastMeetingNotes: pastNotes.joined(separator: "\n\n")
+               )
+           ),
+           let first = ConversationInsightSynthesis.cardRequests(from: response).first {
+            briefBody = first.body
+        } else {
+            var lines: [String] = ["Starts in ~2 min."]
+            if !upcoming.attendees.isEmpty {
+                lines.append("Attendees: \(upcoming.attendees.prefix(5).joined(separator: ", "))")
+            }
+            if let notes = upcoming.notes, !notes.isEmpty {
+                lines.append("Agenda: \(notes.prefix(180))")
+            }
+            briefBody = lines.joined(separator: "\n")
+        }
+
+        var modal = MeetingCopilotModalItem(
+            id: "prebrief-\(eventKey)",
+            kind: .followUp,
+            title: "Pre-Meeting Brief: \(upcoming.title)",
+            body: briefBody,
+            questionText: nil,
+            speakerLabel: "Starting Soon",
+            createdAt: Date()
+        )
+        modal.isPinned = true
+        onMeetingCopilotModal?(modal)
+    }
+
+    func runLiveMeetingInsightPass(force: Bool = false) async {
+        guard isConversationRecording, !isGeneratingConversationInsights else { return }
+        let settled = conversationSegments.filter {
+            $0.state != .live && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard !settled.isEmpty else { return }
+        guard force || settled.count > lastCopilotAnalyzedSegmentCount else { return }
+        guard let session = activeConversation else { return }
+
+        let detail = ConversationDetail(
+            session: session,
+            segments: settled,
+            assistCards: conversationAssistCards
+        )
+        isGeneratingConversationInsights = true
+        onMeetingCopilotAnalyzingChanged?(true)
+        defer {
+            isGeneratingConversationInsights = false
+            onMeetingCopilotAnalyzingChanged?(false)
+        }
+
+        let responseText = await synthesizeMeetingAIResponse(
+            systemPrompt: ConversationInsightSynthesis.systemPrompt,
+            userPrompt: ConversationInsightSynthesis.userPrompt(for: detail, maxCards: 3)
+        )
+        lastCopilotAnalyzedSegmentCount = settled.count
+        guard let responseText else { return }
+
+        let requests = nonDuplicateInsightRequests(
+            ConversationInsightSynthesis.cardRequests(from: responseText),
+            existingCards: conversationAssistCards
+        )
+        guard !requests.isEmpty else { return }
+
+        for request in requests {
+            if let card = try? await engineClient.addConversationAssistCard(sessionID: session.id, request: request) {
+                conversationAssistCards.append(card)
+                onMeetingCopilotModal?(
+                    MeetingCopilotModalItem(
+                        id: card.id,
+                        kind: card.kind,
+                        title: card.title,
+                        body: card.body,
+                        questionText: nil,
+                        speakerLabel: card.sourceReferences.first,
+                        createdAt: Date()
+                    )
+                )
+            }
+        }
+    }
+
+    private func answerLiveMeetingQuestion(segment: ConversationSegment) async {
+        guard isConversationRecording, let session = activeConversation else { return }
+        let recentLines = conversationSegments
+            .filter { $0.state != .live }
+            .suffix(12)
+            .map { "\($0.speakerDisplayName): \($0.text)" }
+            .joined(separator: "\n")
+
+        onMeetingCopilotAnalyzingChanged?(true)
+        defer { onMeetingCopilotAnalyzingChanged?(false) }
+
+        let responseText = await synthesizeMeetingAIResponse(
+            systemPrompt: ConversationInsightSynthesis.systemPrompt,
+            userPrompt: ConversationInsightSynthesis.liveQuestionAnswerPrompt(
+                question: segment.text,
+                speakerName: segment.speakerDisplayName,
+                recentTranscript: recentLines,
+                calendarContext: activeMeetingCalendarContext
+            )
+        )
+        guard let responseText else { return }
+
+        let requests = ConversationInsightSynthesis.cardRequests(from: responseText)
+        guard let first = requests.first else { return }
+
+        if let card = try? await engineClient.addConversationAssistCard(sessionID: session.id, request: first) {
+            conversationAssistCards.append(card)
+            onMeetingCopilotModal?(
+                MeetingCopilotModalItem(
+                    id: card.id,
+                    kind: .answer,
+                    title: card.title,
+                    body: card.body,
+                    questionText: segment.text,
+                    speakerLabel: segment.speakerDisplayName,
+                    createdAt: Date()
+                )
+            )
+        }
+    }
+
+    /// Runs a meeting Co-Pilot prompt through the configured cloud/OAuth Text LLM,
+    /// falling back cleanly to a discovered local AI agent CLI if no API key is configured.
+    private func synthesizeMeetingAIResponse(
+        systemPrompt: String,
+        userPrompt: String,
+        attachments: [AIChatAttachment] = []
+    ) async -> String? {
+        if preferences.serviceMode.enabled,
+           let routed = await runServiceModeLLM(
+               systemPrompt: systemPrompt,
+               userPrompt: userPrompt,
+               attachments: attachments
+           ) {
+            return routed
+        }
+
+        if let configuration = configuredConversationTextLLMConfiguration() {
+            do {
+                let result = try await engineClient.aiChat(
+                    AIChatRequest(
+                        provider: configuration.provider.rawValue,
+                        baseURL: configuration.resolvedBaseURL,
+                        model: configuration.trimmedModel,
+                        apiKey: configuration.trimmedAPIKey,
+                        transport: configuration.transport,
+                        oauthAccessToken: configuration.trimmedOAuthAccessToken,
+                        headers: configuration.resolvedHeaders,
+                        messages: [
+                            AIChatMessage(role: .system, content: systemPrompt),
+                            AIChatMessage(role: .user, content: userPrompt),
+                        ],
+                        attachments: attachments,
+                        webSearchEnabled: conversationAIWebSearchEnabled
+                    )
+                )
+                return result.text
+            } catch {
+                // Fall through to local agent fallback if available.
+            }
+        }
+
+        if attachments.isEmpty, let localAgent = discoveredAgents.first?.descriptor {
+            let combinedPrompt = "\(systemPrompt)\n\n\(userPrompt)"
+            return try? await meetingAgentRunner.run(localAgent, prompt: combinedPrompt, onChunk: { _ in })
+        }
+
+        return nil
     }
 
     func cancelConversationRecording() {
@@ -3197,6 +4532,7 @@ final class AppModel {
         liveDiarizationPreviewGeneration += 1
         conversationRecorder.cancel()
         cancelSystemAudioLane()
+        stopMeetingCopilotLoop(keepPinnedModals: false)
         recordingCuePlayer.playStopCue(preferences: preferences)
         activeConversation = nil
         isConversationRecording = false
@@ -3208,7 +4544,7 @@ final class AppModel {
         disableConversationDiarizationWhenIdle()
 
         if let sessionID {
-            Task { [engineClient] in
+            Task {
                 await bestEffortStopConversation(sessionID)
             }
         }
@@ -3649,13 +4985,83 @@ final class AppModel {
             return
         }
 
+        activeLocalDownloads.insert(providerID)
+        localDownloadProgress[providerID] = 0.02
+        localDownloadMessages[providerID] = "Starting download..."
+        defer {
+            activeLocalDownloads.remove(providerID)
+        }
+
+        if providerID == ASRProviderKind.parakeetCoreMLANE.rawValue {
+            localDownloadMessages[providerID] = "Downloading & preparing CoreML Neural Engine model..."
+            statusText = "Preparing CoreML Neural Engine model..."
+            do {
+                try await CoreMLParakeetTranscriber().prepareIfNeeded()
+                localDownloadProgress[providerID] = 1.0
+                localDownloadMessages[providerID] = "CoreML Neural Engine model ready on-device."
+                statusText = "Parakeet TDT CoreML (Neural Engine) ready"
+            } catch {
+                localDownloadProgress.removeValue(forKey: providerID)
+                localDownloadMessages[providerID] = "Download failed: \(error.localizedDescription)"
+                statusText = "CoreML model download failed: \(error.localizedDescription)"
+            }
+            return
+        }
+
+        if providerID == CleanupModelRecommendation.qwen3_1_7BMLX4Bit.providerID
+            || providerID == CleanupModelRecommendation.qwen3_4BInstructMLX4Bit.providerID {
+            let label = CleanupModelRecommendation(providerID: providerID).displayName
+            localDownloadMessages[providerID] = "Downloading \(label) from Hugging Face (MLX-Swift)..."
+            statusText = "Downloading \(label) (MLX-Swift)..."
+            do {
+                try await MLXLocalCleanupService.shared.prepareModel(providerID: providerID) { [weak self] fraction in
+                    let clamped = min(max(fraction, 0.01), 1.0)
+                    let pct = Int((clamped * 100).rounded())
+                    Task { @MainActor [weak self] in
+                        self?.localDownloadProgress[providerID] = clamped
+                        self?.localDownloadMessages[providerID] = pct >= 100
+                            ? "Loading \(label) onto Apple Silicon GPU..."
+                            : "Downloading \(label) (\(pct)%)..."
+                        self?.statusText = "Downloading \(label) (\(pct)%)..."
+                    }
+                }
+                installedMLXModelIDs.insert(providerID)
+                localDownloadProgress[providerID] = 1.0
+                localDownloadMessages[providerID] = "\(label) installed and loaded on Apple Silicon MLX."
+                statusText = "\(label) ready (Apple Silicon MLX)"
+            } catch {
+                localDownloadProgress.removeValue(forKey: providerID)
+                localDownloadMessages[providerID] = "Download failed: \(error.localizedDescription)"
+                statusText = "\(label) download failed: \(error.localizedDescription)"
+            }
+            return
+        }
+
         do {
-            let download = try await engineClient.downloadModel(providerID: providerID)
+            localDownloadMessages[providerID] = "Requesting download from engine..."
+            let download = try await engineClient.downloadModel(
+                providerID: providerID,
+                huggingFaceToken: huggingFaceTokenForRequest()
+            )
             modelDownloadStatus = download
-            statusText = download.message ?? "Model download queued"
+            let initialMessage = download.message ?? "Model download queued"
+            localDownloadMessages[providerID] = initialMessage
+            statusText = initialMessage
             await pollModelDownload(providerID: providerID)
+            if let finalStatus = modelDownloadStatus, finalStatus.providerID == providerID {
+                if finalStatus.state == "completed" {
+                    localDownloadProgress[providerID] = 1.0
+                } else {
+                    localDownloadProgress.removeValue(forKey: providerID)
+                }
+                if let finalMessage = finalStatus.message, !finalMessage.isEmpty {
+                    localDownloadMessages[providerID] = finalMessage
+                }
+            }
         } catch {
-            statusText = "Model download failed"
+            localDownloadProgress.removeValue(forKey: providerID)
+            localDownloadMessages[providerID] = "Download failed: \(error.localizedDescription)"
+            statusText = "Model download failed: \(error.localizedDescription)"
         }
     }
 
@@ -3711,16 +5117,19 @@ final class AppModel {
     func runCleanupTest() async {
         lastTestResult = "Running..."
         do {
-            let result = try await engineClient.cleanup(
-                CleanupRequest(
-                    rawTranscript: "I am going to the store. No wait, I am going to the house.",
-                    style: preferences.style,
-                    dictionaryTerms: preferences.dictionaryTerms,
-                    dictionaryEntries: CleanupRequest.entries(from: preferences.dictionaryEntries)
-                )
+            let result = try await performCleanup(
+                rawTranscript: "I am going to the store. No wait, I am going to the house.",
+                style: preferences.style,
+                appContext: "OmniSpeak Test"
             )
             lastTestResult = result.text
-            statusText = "Cleanup test passed"
+            if result.llmApplied {
+                statusText = "AI cleanup test passed"
+            } else if let reason = result.llmFallbackReason, !reason.isEmpty {
+                statusText = "Cleanup passed (AI fallback: \(reason))"
+            } else {
+                statusText = "Cleanup test passed"
+            }
         } catch {
             lastTestResult = error.localizedDescription
             statusText = "Cleanup test failed"
@@ -3890,6 +5299,9 @@ final class AppModel {
     }
 
     func providerIssue(for provider: ASRProviderKind) -> ProviderRecoveryIssue? {
+        guard provider.isEngineBacked else {
+            return nil
+        }
         if let info = providerInfo(for: provider), !info.available {
             return ProviderRecoveryIssue(
                 title: "\(info.label) unavailable",
@@ -4025,6 +5437,9 @@ final class AppModel {
             migrateSecret(&preferences.textLLMProviders[index].oauthRefreshToken, provider: providerID, field: .oauthRefreshToken, migrated: &migrated)
         }
         migrateSecret(&preferences.openAICompatibleAPIKey, provider: Self.legacyOpenAIProviderID, field: .apiKey, migrated: &migrated)
+        if let storedDeepgram = llmSecretStore.value(provider: Self.deepgramSecretProviderID, field: .apiKey), !storedDeepgram.isEmpty {
+            deepgramAPIKey = storedDeepgram
+        }
         if migrated {
             _ = persistPreferences()
         }
@@ -4221,14 +5636,9 @@ final class AppModel {
     }
 
     private static func omniVoiceLaunchServicesRegistrationCount() async -> Int {
-        guard let output = await commandOutput(
-            "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
-            arguments: ["-dump"]
-        ) else {
-            return 0
-        }
-
-        return output.components(separatedBy: "identifier:                 com.omnispeak.OmniVoiceApp").count - 1
+        // Native LaunchServices lookup avoids spawning `lsregister -dump` (which dumps tens of MB
+        // and can stall/spike CPU).
+        NSWorkspace.shared.urlsForApplications(withBundleIdentifier: "com.omnispeak.OmniVoiceApp").count
     }
 
     private static func omniVoiceSigningIdentityCount() async -> Int {
@@ -4249,16 +5659,17 @@ final class AppModel {
             process.executableURL = URL(fileURLWithPath: executable)
             process.arguments = arguments
             process.standardOutput = pipe
-            process.standardError = Pipe()
+            process.standardError = FileHandle.nullDevice
 
             do {
                 try process.run()
-                process.waitUntilExit()
             } catch {
                 return nil
             }
 
+            // Drain stdout BEFORE waitUntilExit() to prevent POSIX 64 KB pipe buffer deadlocks.
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
             return String(data: data, encoding: .utf8)
         }.value
     }

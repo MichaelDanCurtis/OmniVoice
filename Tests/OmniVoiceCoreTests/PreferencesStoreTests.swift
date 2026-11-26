@@ -64,7 +64,7 @@ final class PreferencesStoreTests: XCTestCase {
         XCTAssertEqual(preferences.customAccentColor, ThemeColor(hex: "#38BDF8"))
         XCTAssertEqual(preferences.appearanceMode, .system)
         XCTAssertEqual(preferences.waveformMode, .bars)
-        XCTAssertEqual(preferences.commitAnimationMode, .glyphStream)
+        XCTAssertEqual(preferences.commitAnimationMode, .magicPoof)
         XCTAssertEqual(preferences.engineFrameSide, .right)
         XCTAssertEqual(preferences.engineFrameHandlePosition, 0.5)
     }
@@ -509,7 +509,15 @@ final class PreferencesStoreTests: XCTestCase {
 
         preferences.cycleASRProvider()
 
+        XCTAssertEqual(preferences.asrProvider, .parakeetCoreMLANE)
+
+        preferences.cycleASRProvider()
+
         XCTAssertEqual(preferences.asrProvider, .whisperLargeV3TurboMLX6Bit)
+
+        preferences.cycleASRProvider()
+
+        XCTAssertEqual(preferences.asrProvider, .qwen3ASR17BMLX4Bit)
 
         preferences.cycleASRProvider()
 

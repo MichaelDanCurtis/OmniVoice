@@ -62,6 +62,15 @@ class ModelManager:
         whisper_mlx_dir = Path(
             os.environ.get("OMNIVOICE_WHISPER_MLX_MODEL_DIR", root / "whisper-large-v3-turbo-mlx-6bit")
         ).expanduser()
+        qwen3_asr_mlx_dir = Path(
+            os.environ.get("OMNIVOICE_QWEN3_ASR_MLX_MODEL_DIR", root / "qwen3-asr-1.7b-mlx-4bit")
+        ).expanduser()
+        cleanup_qwen3_1_7b_dir = Path(
+            os.environ.get("OMNIVOICE_CLEANUP_QWEN3_1_7B_DIR", root / "qwen3-1.7b-mlx-4bit")
+        ).expanduser()
+        cleanup_qwen3_4b_dir = Path(
+            os.environ.get("OMNIVOICE_CLEANUP_QWEN3_4B_DIR", root / "qwen3-4b-instruct-mlx-4bit")
+        ).expanduser()
         canary_dir = Path(os.environ.get("OMNIVOICE_CANARY_MODEL_DIR", root / "canary-qwen-2.5b")).expanduser()
         translategemma_dir = Path(
             os.environ.get("OMNIVOICE_TRANSLATEGEMMA_MLX_MODEL_DIR", root / "translategemma-mlx")
@@ -118,6 +127,48 @@ class ModelManager:
                 size="664 MB",
                 precision="6-bit",
                 license="mit",
+            ),
+            "qwen3-asr-1.7b-mlx-4bit": ModelSpec(
+                provider_id="qwen3-asr-1.7b-mlx-4bit",
+                label="Qwen3-ASR 1.7B MLX 4-bit",
+                repo_id="mlx-community/Qwen3-ASR-1.7B-4bit",
+                local_dir=qwen3_asr_mlx_dir,
+                required_files=["config.json", "model.safetensors", "tokenizer.json"],
+                allow_patterns=translategemma_allow_patterns(),
+                category="asr",
+                recommendation="Multilingual Accuracy",
+                detail="High-accuracy multilingual & dialect ASR on Apple Silicon via mlx-audio.",
+                size="1.2 GB",
+                precision="4-bit",
+                license="apache-2.0",
+            ),
+            "qwen3-1.7b-mlx-4bit": ModelSpec(
+                provider_id="qwen3-1.7b-mlx-4bit",
+                label="Qwen3 1.7B MLX 4-bit",
+                repo_id="mlx-community/Qwen3-1.7B-4bit",
+                local_dir=cleanup_qwen3_1_7b_dir,
+                required_files=["config.json", "model.safetensors", "tokenizer.json"],
+                allow_patterns=translategemma_allow_patterns(),
+                category="cleanup",
+                recommendation="Fast / Recommended",
+                detail="Ultra-fast on-device Apple Silicon cleanup model for filler removal, tone, and self-corrections.",
+                size="968 MB",
+                precision="4-bit",
+                license="apache-2.0",
+            ),
+            "qwen3-4b-instruct-mlx-4bit": ModelSpec(
+                provider_id="qwen3-4b-instruct-mlx-4bit",
+                label="Qwen3 4B Instruct MLX 4-bit",
+                repo_id="mlx-community/Qwen3-4B-Instruct-2507-4bit",
+                local_dir=cleanup_qwen3_4b_dir,
+                required_files=["config.json", "model.safetensors", "tokenizer.json"],
+                allow_patterns=translategemma_allow_patterns(),
+                category="cleanup",
+                recommendation="Highest Quality",
+                detail="Non-thinking 4B local MLX model for Wispr-grade formatting, lists, and complex self-corrections.",
+                size="2.3 GB",
+                precision="4-bit",
+                license="apache-2.0",
             ),
             "canary-qwen-2.5b": ModelSpec(
                 provider_id="canary-qwen-2.5b",

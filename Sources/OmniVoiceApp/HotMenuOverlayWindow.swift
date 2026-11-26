@@ -3,36 +3,28 @@ import Observation
 import OmniVoiceCore
 import SwiftUI
 
+/// Sleek single-row Dynamic Island-style floating Quick Bar with feathered translucent
+/// backdrop, icon-first actions, sliding selection glow, and expandable inline Translation picker.
 @MainActor
 final class HotMenuOverlayWindow {
-    private static let menuSize = CGSize(width: 380, height: 318)
-    private static let deadZoneRadius = 34.0
-    private static let mouseOverrideDistance = 6.0
-    private static let selectionAnimation = Animation.interpolatingSpring(
-        mass: 0.72,
-        stiffness: 166,
-        damping: 21,
-        initialVelocity: 0
-    )
+    private static let barSize = CGSize(width: 560, height: 100)
 
-    private var window: NSWindow?
+    private var panel: NSPanel?
     private let overlayState = HotMenuOverlayState()
-    private var timer: Timer?
-    private var center: CGPoint = .zero
-    private var theme: OmniVoiceTheme = .defaultTheme
     private var actions: [HotMenuDirection: [HotMenuAction]] = [:]
     private var actionLabels: [HotMenuAction: String] = [:]
     private var selectionState = HotMenuActionRingState()
     private var presentationMode: HotMenuPresentationMode = .momentary
     private var localKeyMonitor: Any?
     private var globalKeyMonitor: Any?
-    private var lastMouseLocation: CGPoint = .zero
-    private var selectionSource: SelectionSource = .mouse
+    private var globalClickMonitor: Any?
     private var onConfirm: (() -> Void)?
     private var onCancel: (() -> Void)?
+    var onSelectTranslationLanguage: ((String?) -> Void)?
+    var onExecuteAction: ((HotMenuAction) -> Void)?
 
     var isPresented: Bool {
-        window?.isVisible == true
+        panel?.isVisible == true
     }
 
     func show(
@@ -41,639 +33,468 @@ final class HotMenuOverlayWindow {
         actions: [HotMenuDirection: [HotMenuAction]],
         actionLabels: [HotMenuAction: String],
         mode: HotMenuPresentationMode,
+        liveTranslationEnabled: Bool = false,
+        activeLanguageCode: String = "es",
+        quickLanguages: [String] = ["es", "fr", "ja", "de", "zh"],
         onConfirm: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
-        self.theme = theme
         self.actions = actions
         self.actionLabels = actionLabels
         self.selectionState = HotMenuActionRingState()
         self.presentationMode = mode
-        self.lastMouseLocation = NSEvent.mouseLocation
-        self.selectionSource = .mouse
         self.onConfirm = onConfirm
         self.onCancel = onCancel
 
-        let screenFrame = NSScreen.main?.visibleFrame ?? .zero
+        let screenFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? .zero
         let origin = CaptionOverlayPlacement.origin(
             forCenter: requestedCenter,
             screenFrame: screenFrame,
-            overlaySize: Self.menuSize
-        )
-        center = CGPoint(
-            x: origin.x + Self.menuSize.width / 2,
-            y: origin.y + Self.menuSize.height / 2
+            overlaySize: Self.barSize
         )
 
-        if window == nil {
-            let created = NSWindow(
-                contentRect: CGRect(origin: origin, size: Self.menuSize),
+        if panel == nil {
+            let created = NSPanel(
+                contentRect: CGRect(origin: origin, size: Self.barSize),
                 styleMask: [.borderless, .nonactivatingPanel],
                 backing: .buffered,
                 defer: false
             )
+            created.isFloatingPanel = true
+            created.becomesKeyOnlyIfNeeded = true
+            created.hidesOnDeactivate = false
             created.isOpaque = false
             created.backgroundColor = .clear
             created.hasShadow = false
             created.level = .floating
-            created.ignoresMouseEvents = true
+            created.ignoresMouseEvents = false
             created.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-            created.contentView = NSHostingView(rootView: HotMenuOverlayView(state: overlayState))
-            window = created
+            created.contentView = NSHostingView(
+                rootView: DynamicQuickBarView(
+                    state: overlayState,
+                    onTapAction: { [weak self] action in
+                        guard let self else { return }
+                        let handler = self.onExecuteAction
+                        self.cancel()
+                        handler?(action)
+                    },
+                    onTapLanguage: { [weak self] code in
+                        guard let self else { return }
+                        let handler = self.onSelectTranslationLanguage
+                        self.cancel()
+                        handler?(code)
+                    }
+                )
+            )
+            panel = created
         }
 
-        overlayState.configure(theme: theme, actions: actions, actionLabels: actionLabels, presentationMode: mode)
-        window?.alphaValue = 1
-        window?.setFrame(CGRect(origin: origin, size: Self.menuSize), display: true)
-        window?.orderFrontRegardless()
-        startTracking()
-        installKeyMonitors()
+        let orderedActions = Self.deduplicatedActions(from: actions)
+        let chips = Self.resolvedLanguageCodes(quickLanguages: quickLanguages, active: activeLanguageCode)
+        overlayState.configure(
+            theme: theme,
+            actions: orderedActions,
+            actionLabels: actionLabels,
+            liveTranslationEnabled: liveTranslationEnabled,
+            activeLanguageCode: activeLanguageCode,
+            quickLanguages: chips,
+            selectedIndex: 0
+        )
+        panel?.alphaValue = 0
+        panel?.setFrame(CGRect(origin: origin, size: Self.barSize), display: true)
+        panel?.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.16
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel?.animator().alphaValue = 1
+        }
+        installMonitors()
     }
 
     func finish() -> HotMenuAction? {
+        let selected = currentSelectedAction()
         tearDownInteraction()
-        window?.orderOut(nil)
-        return selectionState.selectedAction(in: actions)
+        panel?.orderOut(nil)
+        return selected
     }
 
     func cancel() {
         tearDownInteraction()
         selectionState = HotMenuActionRingState()
-        window?.orderOut(nil)
+        panel?.orderOut(nil)
     }
 
     func select(_ direction: HotMenuDirection, cycleIfSameDirection: Bool = true) {
-        selectionSource = .keyboard
-        selectionState.select(direction, cycleIfSameDirection: cycleIfSameDirection, actions: actions)
-        updateOverlaySelection()
-    }
-
-    private func startTracking() {
-        stopTracking()
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 45.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.updateSelection()
-            }
+        let count = overlayState.actions.count
+        guard count > 0 else { return }
+        switch direction {
+        case .left, .up:
+            overlayState.selectedIndex = (overlayState.selectedIndex - 1 + count) % count
+        case .right, .down:
+            overlayState.selectedIndex = (overlayState.selectedIndex + 1) % count
         }
-        updateSelection()
     }
 
-    private func stopTracking() {
-        timer?.invalidate()
-        timer = nil
+    private func currentSelectedAction() -> HotMenuAction? {
+        guard overlayState.actions.indices.contains(overlayState.selectedIndex) else {
+            return selectionState.selectedAction(in: actions)
+        }
+        return overlayState.actions[overlayState.selectedIndex]
     }
 
     private func tearDownInteraction() {
-        stopTracking()
-        removeKeyMonitors()
+        removeMonitors()
         onConfirm = nil
         onCancel = nil
     }
 
-    private func updateSelection() {
-        let mouse = NSEvent.mouseLocation
-        if selectionSource == .keyboard,
-           hypot(mouse.x - lastMouseLocation.x, mouse.y - lastMouseLocation.y) < Self.mouseOverrideDistance {
-            return
-        }
-
-        selectionSource = .mouse
-        lastMouseLocation = mouse
-        let nextDirection = HotMenuSelection.direction(
-            deltaX: Double(mouse.x - center.x),
-            deltaY: Double(mouse.y - center.y),
-            deadZoneRadius: Self.deadZoneRadius
-        )
-
-        guard nextDirection != selectionState.selectedDirection else {
-            return
-        }
-
-        selectionState.select(nextDirection, cycleIfSameDirection: false, actions: actions)
-        updateOverlaySelection()
-    }
-
-    private func updateOverlaySelection() {
-        withAnimation(Self.selectionAnimation) {
-            overlayState.selectionState = selectionState
-        }
-    }
-
-    private func installKeyMonitors() {
-        removeKeyMonitors()
+    private func installMonitors() {
+        removeMonitors()
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
             guard let self else { return event }
             return self.handleKeyDown(event) ? nil : event
         }
         globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
-            _ = self?.handleKeyDown(event)
+            Task { @MainActor [weak self] in
+                _ = self?.handleKeyDown(event)
+            }
+        }
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, let frame = self.panel?.frame, self.isPresented else { return }
+                let clickLoc = NSEvent.mouseLocation
+                if !frame.contains(clickLoc) {
+                    let cancelHandler = self.onCancel
+                    self.cancel()
+                    cancelHandler?()
+                }
+            }
         }
     }
 
-    private func removeKeyMonitors() {
-        if let localKeyMonitor {
-            NSEvent.removeMonitor(localKeyMonitor)
-        }
-        if let globalKeyMonitor {
-            NSEvent.removeMonitor(globalKeyMonitor)
-        }
+    private func removeMonitors() {
+        if let localKeyMonitor { NSEvent.removeMonitor(localKeyMonitor) }
+        if let globalKeyMonitor { NSEvent.removeMonitor(globalKeyMonitor) }
+        if let globalClickMonitor { NSEvent.removeMonitor(globalClickMonitor) }
         localKeyMonitor = nil
         globalKeyMonitor = nil
+        globalClickMonitor = nil
     }
 
     private func handleKeyDown(_ event: NSEvent) -> Bool {
         switch event.keyCode {
-        case 126:
-            select(.up)
-        case 123:
+        case 123, 126:
             select(.left)
-        case 124:
+        case 124, 125:
             select(.right)
-        case 125:
-            select(.down)
         case 36, 76:
             onConfirm?()
         case 53:
-            onCancel?()
+            let cancelHandler = onCancel
+            cancel()
+            cancelHandler?()
         default:
             return false
         }
-
         return true
     }
 
-    private enum SelectionSource {
-        case mouse
-        case keyboard
+    /// Strips redundant translation-cycle actions since the inline globe pill handles translation directly.
+    private static func deduplicatedActions(from actions: [HotMenuDirection: [HotMenuAction]]) -> [HotMenuAction] {
+        let translationActions: Set<HotMenuAction> = [
+            .toggleTranslation, .translationOff, .translationOn,
+            .cycleTranslationLanguage, .translationQuickTarget1,
+            .translationQuickTarget2, .translationQuickTarget3,
+            .translationQuickTarget4,
+        ]
+        var seen = Set<HotMenuAction>()
+        var result: [HotMenuAction] = []
+        for direction in [HotMenuDirection.left, .up, .right, .down] {
+            for action in actions[direction] ?? [] where !translationActions.contains(action) && action != .none {
+                if seen.insert(action).inserted {
+                    result.append(action)
+                }
+            }
+        }
+        return result
+    }
+
+    private static func resolvedLanguageCodes(quickLanguages: [String], active: String) -> [String] {
+        var codes = quickLanguages
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+        if codes.isEmpty {
+            codes = ["es", "fr", "ja", "de", "zh"]
+        }
+        let cleanActive = active.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !cleanActive.isEmpty && !codes.contains(cleanActive) {
+            codes.insert(cleanActive, at: 0)
+        }
+        return Array(codes.prefix(5))
     }
 }
 
 @MainActor
 @Observable
 private final class HotMenuOverlayState {
-    var actions: [HotMenuDirection: [HotMenuAction]] = [:]
-    var actionLabels: [HotMenuAction: String] = [:]
-    var selectionState = HotMenuActionRingState()
-    var presentationMode: HotMenuPresentationMode = .momentary
     var theme: OmniVoiceTheme = .defaultTheme
+    var actions: [HotMenuAction] = []
+    var actionLabels: [HotMenuAction: String] = [:]
+    var liveTranslationEnabled = false
+    var activeLanguageCode = "es"
+    var quickLanguages: [String] = ["es", "fr", "ja", "de", "zh"]
+    var selectedIndex = 0
+    var showLanguagePicker = false
 
     func configure(
         theme: OmniVoiceTheme,
-        actions: [HotMenuDirection: [HotMenuAction]],
+        actions: [HotMenuAction],
         actionLabels: [HotMenuAction: String],
-        presentationMode: HotMenuPresentationMode
+        liveTranslationEnabled: Bool,
+        activeLanguageCode: String,
+        quickLanguages: [String],
+        selectedIndex: Int
     ) {
         self.theme = theme
         self.actions = actions
         self.actionLabels = actionLabels
-        self.presentationMode = presentationMode
-        selectionState = HotMenuActionRingState()
+        self.liveTranslationEnabled = liveTranslationEnabled
+        self.activeLanguageCode = activeLanguageCode
+        self.quickLanguages = quickLanguages
+        self.selectedIndex = selectedIndex
+        self.showLanguagePicker = false
     }
 }
 
-private struct HotMenuOverlayView: View {
-    var state: HotMenuOverlayState
-
-    @Namespace private var glassNamespace
+private struct DynamicQuickBarView: View {
+    @Bindable var state: HotMenuOverlayState
+    let onTapAction: (HotMenuAction) -> Void
+    let onTapLanguage: (String?) -> Void
+    @State private var hoveredLabel: String?
+    @Namespace private var highlightNamespace
     @Environment(\.colorScheme) private var colorScheme
 
-    private let horizontalRadius: CGFloat = 132
-    private let verticalRadius: CGFloat = 102
-    private var actions: [HotMenuDirection: [HotMenuAction]] { state.actions }
-    private var actionLabels: [HotMenuAction: String] { state.actionLabels }
-    private var selectionState: HotMenuActionRingState { state.selectionState }
-    private var presentationMode: HotMenuPresentationMode { state.presentationMode }
-    private var theme: OmniVoiceTheme { state.theme }
-    private var palette: ResolvedThemePalette { theme.resolvedPalette(for: colorScheme) }
+    private var palette: ResolvedThemePalette { state.theme.resolvedPalette(for: colorScheme) }
     private var accent: Color { Color(themeColor: palette.accentGraphic) }
     private var secondary: Color { Color(themeColor: palette.secondaryAccentGraphic) }
-    private var accentText: Color { Color(themeColor: palette.accentText) }
-    private var tint: Color { Color(themeColor: theme.surfaceTint) }
+
+    private var captionText: String? {
+        if let hoveredLabel { return hoveredLabel }
+        if state.showLanguagePicker {
+            return state.liveTranslationEnabled
+                ? "Translating to \(InlineTranslationParser.languageInfo(forCode: state.activeLanguageCode)?.name ?? state.activeLanguageCode.uppercased())"
+                : "Choose translation language"
+        }
+        guard state.actions.indices.contains(state.selectedIndex) else { return nil }
+        let action = state.actions[state.selectedIndex]
+        return state.actionLabels[action] ?? action.displayName
+    }
 
     var body: some View {
-        Group {
-            if #available(macOS 26.0, *) {
-                GlassEffectContainer(spacing: 22) {
-                    menuContent
+        VStack(spacing: 6) {
+            HStack(spacing: 4) {
+                if !state.showLanguagePicker {
+                    actionIcons
                 }
-            } else {
-                menuContent
+
+                if !state.actions.isEmpty && !state.showLanguagePicker {
+                    Capsule()
+                        .fill(Color.primary.opacity(0.16))
+                        .frame(width: 1, height: 18)
+                        .padding(.horizontal, 4)
+                }
+
+                translationControl
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background {
+                featheredBarBackdrop
+            }
+            .animation(.spring(response: 0.28, dampingFraction: 0.82), value: state.showLanguagePicker)
+
+            if let captionText {
+                Text(captionText)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.primary.opacity(0.86))
+                    .shadow(color: (colorScheme == .dark ? Color.black : Color.white).opacity(0.8), radius: 6, x: 0, y: 1)
+                    .transition(.opacity)
             }
         }
-        .padding(22)
-        .frame(width: 380, height: 318)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
-    private var menuContent: some View {
-        ZStack {
-            Ellipse()
-                .fill(
-                    RadialGradient(
-                        colors: [
-                            accent.opacity(selectionState.selectedDirection == nil ? 0.08 : 0.14),
-                            secondary.opacity(0.045),
-                            .clear,
-                        ],
-                        center: .center,
-                        startRadius: 8,
-                        endRadius: 166
-                    )
-                )
-                .frame(width: 328, height: 250)
-                .blur(radius: 22)
-                .opacity(0.58)
-
-            ForEach(HotMenuDirection.allCases, id: \.self) { direction in
-                let directionActions = selectionState.actionsForDirection(direction, actions: actions)
-                if !directionActions.isEmpty {
-                    HotMenuOptionHint(
-                        direction: direction,
-                        actions: directionActions,
-                        selectedIndex: selectionState.selectedIndex(for: direction, actions: actions),
-                        actionLabels: actionLabels,
-                        isSelected: direction == selectionState.selectedDirection,
-                        accent: accent,
-                        accentText: accentText,
-                        secondary: secondary,
-                        tint: tint,
-                        isMenuActive: selectionState.selectedDirection != nil
-                    )
-                    .offset(offset(for: direction))
-                    .hotMenuGlassID("hot-menu-slot-\(direction.rawValue)", in: glassNamespace)
+    private var actionIcons: some View {
+        let items = Array(state.actions.prefix(5))
+        return HStack(spacing: 3) {
+            ForEach(items.indices, id: \.self) { idx in
+                let action = items[idx]
+                let isSelected = idx == state.selectedIndex
+                let label = state.actionLabels[action] ?? action.displayName
+                Button {
+                    onTapAction(action)
+                } label: {
+                    Image(systemName: action.systemImage)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(isSelected ? accent : .primary.opacity(0.84))
+                        .frame(width: 34, height: 32)
+                        .background {
+                            if isSelected {
+                                Capsule(style: .continuous)
+                                    .fill(accent.opacity(0.22))
+                                    .matchedGeometryEffect(id: "quickbar-selection", in: highlightNamespace)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    if hovering {
+                        withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) {
+                            state.selectedIndex = idx
+                        }
+                        hoveredLabel = label
+                    } else if hoveredLabel == label {
+                        hoveredLabel = nil
+                    }
                 }
             }
-
-            HotMenuFocusBlob(
-                selectedDirection: selectionState.selectedDirection,
-                selectedAction: selectionState.selectedAction(in: actions),
-                selectedActionLabel: selectedActionLabel,
-                selectedIndex: selectedIndex,
-                actionCount: selectedActionCount,
-                centerText: centerText,
-                accent: accent,
-                accentText: accentText,
-                secondary: secondary,
-                tint: tint
-            )
-            .offset(focusOffset)
-            .hotMenuGlassID("hot-menu-focus", in: glassNamespace)
-            .animation(.interpolatingSpring(mass: 0.72, stiffness: 166, damping: 21), value: selectionState.selectedDirection)
-            .animation(.smooth(duration: 0.18), value: selectedIndex)
         }
     }
-
-    private var centerText: String {
-        switch (presentationMode, selectionState.selectedDirection) {
-        case (.latched, nil):
-            "Arrow to choose"
-        case (.latched, _):
-            "Arrow cycles"
-        case (.momentary, nil):
-            "Release to cancel"
-        case (.momentary, _):
-            "Release to run"
-        }
-    }
-
-    private var selectedIndex: Int {
-        guard let direction = selectionState.selectedDirection else {
-            return 0
-        }
-        return selectionState.selectedIndex(for: direction, actions: actions)
-    }
-
-    private var selectedActionCount: Int {
-        guard let direction = selectionState.selectedDirection else {
-            return 0
-        }
-        return selectionState.actionsForDirection(direction, actions: actions).count
-    }
-
-    private var selectedActionLabel: String? {
-        guard let action = selectionState.selectedAction(in: actions) else {
-            return nil
-        }
-        return actionLabels[action] ?? action.displayName
-    }
-
-    private var focusOffset: CGSize {
-        guard let direction = selectionState.selectedDirection else {
-            return .zero
-        }
-
-        let distance: CGFloat = 24
-        switch direction {
-        case .up:
-            return CGSize(width: 0, height: -distance)
-        case .left:
-            return CGSize(width: -distance, height: 0)
-        case .right:
-            return CGSize(width: distance, height: 0)
-        case .down:
-            return CGSize(width: 0, height: distance)
-        }
-    }
-
-    private func offset(for direction: HotMenuDirection) -> CGSize {
-        switch direction {
-        case .up:
-            CGSize(width: 0, height: -verticalRadius)
-        case .left:
-            CGSize(width: -horizontalRadius, height: 0)
-        case .right:
-            CGSize(width: horizontalRadius, height: 0)
-        case .down:
-            CGSize(width: 0, height: verticalRadius)
-        }
-    }
-}
-
-private struct HotMenuFocusBlob: View {
-    let selectedDirection: HotMenuDirection?
-    let selectedAction: HotMenuAction?
-    let selectedActionLabel: String?
-    let selectedIndex: Int
-    let actionCount: Int
-    let centerText: String
-    let accent: Color
-    let accentText: Color
-    let secondary: Color
-    let tint: Color
-
-    var body: some View {
-        let isActive = selectedDirection != nil
-
-        VStack(spacing: 5) {
-            Image(systemName: selectedAction?.systemImage ?? "circle.grid.cross")
-                .font(.system(size: selectedDirection == nil ? 24 : 28, weight: .semibold))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(isActive ? accentText : Color.primary.opacity(0.82))
-
-            Text(selectedActionLabel ?? selectedAction?.displayName ?? centerText)
-                .font(.system(size: selectedDirection == nil ? 11 : 12.5, weight: .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.70)
-                .foregroundStyle(isActive ? Color.primary : Color.primary.opacity(0.82))
-
-            if let selectedDirection {
-                Text(actionDetail(for: selectedDirection))
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(accentText.opacity(0.92))
-            }
-        }
-        .frame(width: 108, height: 108)
-        .hotMenuGlassSurface(
-            accent: accent,
-            secondary: secondary,
-            tint: tint,
-            fillOpacity: selectedDirection == nil ? 0.028 : 0.045,
-            edgeOpacity: selectedDirection == nil ? 0.10 : 0.18,
-            glowOpacity: selectedDirection == nil ? 0.10 : 0.20,
-            shadowOpacity: 0.16,
-            wispOpacity: selectedDirection == nil ? 0.18 : 0.32,
-            wispRadius: selectedDirection == nil ? 14 : 20,
-            wispScale: selectedDirection == nil ? 1.16 : 1.24,
-            outlineOpacity: selectedDirection == nil ? 0 : 0.90,
-            outlineWidth: selectedDirection == nil ? 0 : 2.2,
-            shape: Circle(),
-            interactive: true
-        )
-    }
-
-    private func actionDetail(for direction: HotMenuDirection) -> String {
-        if actionCount > 1 {
-            return "\(direction.displayName) \(selectedIndex + 1)/\(actionCount)"
-        }
-        return direction.displayName
-    }
-}
-
-private struct HotMenuOptionHint: View {
-    let direction: HotMenuDirection
-    let actions: [HotMenuAction]
-    let selectedIndex: Int
-    let actionLabels: [HotMenuAction: String]
-    let isSelected: Bool
-    let accent: Color
-    let accentText: Color
-    let secondary: Color
-    let tint: Color
-    let isMenuActive: Bool
-
-    private var selectedAction: HotMenuAction {
-        guard actions.indices.contains(selectedIndex) else {
-            return .none
-        }
-        return actions[selectedIndex]
-    }
-
-    private var selectedActionLabel: String {
-        actionLabels[selectedAction] ?? selectedAction.displayName
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Text(selectedActionLabel)
-                .font(.system(size: isSelected ? 12 : 11, weight: .semibold))
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .minimumScaleFactor(0.68)
-                .foregroundStyle(isSelected ? Color.primary.opacity(0.92) : Color.primary.opacity(0.76))
-        }
-        .padding(.horizontal, 10)
-        .frame(width: 104, height: 56)
-        .hotMenuGlassSurface(
-            accent: accent,
-            secondary: secondary,
-            tint: tint,
-            fillOpacity: isSelected ? 0.036 : 0.016,
-            edgeOpacity: isSelected ? 0.14 : 0.03,
-            glowOpacity: isSelected ? 0.12 : 0.03,
-            shadowOpacity: isSelected ? 0.10 : 0.04,
-            wispOpacity: isSelected ? 0.22 : 0.10,
-            wispRadius: isSelected ? 15 : 11,
-            wispScale: isSelected ? 1.18 : 1.12,
-            outlineOpacity: isSelected ? 0.70 : 0,
-            outlineWidth: isSelected ? 1.4 : 0,
-            shape: RoundedRectangle(cornerRadius: 20, style: .continuous),
-            interactive: true
-        )
-        .opacity(isSelected ? 1 : (isMenuActive ? 0.56 : 0.30))
-        .scaleEffect(isSelected ? 1.02 : 0.92)
-        .animation(.snappy(duration: 0.12), value: isSelected)
-    }
-}
-
-private struct HotMenuGlassSurface<S: Shape>: ViewModifier {
-    let accent: Color
-    let secondary: Color
-    let tint: Color
-    let fillOpacity: Double
-    let edgeOpacity: Double
-    let glowOpacity: Double
-    let shadowOpacity: Double
-    let wispOpacity: Double
-    let wispRadius: CGFloat
-    let wispScale: CGFloat
-    let outlineOpacity: Double
-    let outlineWidth: CGFloat
-    let shape: S
-    let interactive: Bool
 
     @ViewBuilder
-    func body(content: Content) -> some View {
-        if #available(macOS 26.0, *) {
-            content
-                .background {
-                    wispyEdge
+    private var translationControl: some View {
+        if state.showLanguagePicker {
+            HStack(spacing: 3) {
+                languagePill(label: "Off", fullName: "Turn translation off", isActive: !state.liveTranslationEnabled) {
+                    onTapLanguage(nil)
                 }
-                .glassEffect(
-                    .regular
-                        .tint(tint.opacity(fillOpacity))
-                        .interactive(interactive),
-                    in: shape
-                )
-                .overlay {
-                    readableAccentOutline
+                ForEach(state.quickLanguages, id: \.self) { code in
+                    let name = InlineTranslationParser.languageInfo(forCode: code)?.name ?? code.uppercased()
+                    let active = state.liveTranslationEnabled && state.activeLanguageCode.lowercased() == code.lowercased()
+                    languagePill(label: name, fullName: "Translate to \(name)", isActive: active) {
+                        onTapLanguage(code)
+                    }
                 }
-                .shadow(color: accent.opacity(glowOpacity), radius: 18, x: 0, y: 8)
+                Button {
+                    withAnimation(.spring(response: 0.26, dampingFraction: 0.84)) {
+                        state.showLanguagePicker = false
+                    }
+                } label: {
+                    Image(systemName: "chevron.backward")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 26, height: 28)
+                }
+                .buttonStyle(.plain)
+            }
         } else {
-            content
+            Button {
+                withAnimation(.spring(response: 0.26, dampingFraction: 0.84)) {
+                    state.showLanguagePicker = true
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "globe")
+                        .font(.system(size: 13.5, weight: .semibold))
+                    if state.liveTranslationEnabled {
+                        Text(state.activeLanguageCode.uppercased())
+                            .font(.caption.weight(.bold))
+                    }
+                }
+                .foregroundStyle(state.liveTranslationEnabled ? accent : .primary.opacity(0.82))
+                .padding(.horizontal, state.liveTranslationEnabled ? 10 : 8)
+                .frame(height: 32)
                 .background {
-                    wispyEdge
+                    if state.liveTranslationEnabled {
+                        Capsule(style: .continuous)
+                            .fill(accent.opacity(0.20))
+                    }
                 }
-                .background(.ultraThinMaterial, in: shape)
-                .background(tint.opacity(fillOpacity), in: shape)
-                .overlay {
-                    shape.stroke(
-                        LinearGradient(
-                            colors: [
-                                accent.opacity(edgeOpacity),
-                                secondary.opacity(edgeOpacity * 0.55),
-                                Color.white.opacity(edgeOpacity * 0.20)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
-                }
-                .overlay {
-                    readableAccentOutline
-                }
-                .shadow(color: accent.opacity(glowOpacity), radius: 18, x: 0, y: 8)
-                .shadow(color: .black.opacity(shadowOpacity), radius: 18, x: 0, y: 10)
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering in
+                hoveredLabel = hovering
+                    ? (state.liveTranslationEnabled ? "Switch translation language" : "Translate dictation")
+                    : nil
+            }
         }
     }
 
-    private var wispyEdge: some View {
-        shape
-            .fill(
-                LinearGradient(
-                    colors: [
-                        accent.opacity(wispOpacity),
-                        tint.opacity(wispOpacity * 0.55),
-                        secondary.opacity(wispOpacity * 0.30),
-                        .clear
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .scaleEffect(wispScale)
-            .blur(radius: wispRadius)
-            .opacity(wispOpacity > 0 ? 1 : 0)
-    }
-
-    private var readableAccentOutline: some View {
-        ZStack {
-            shape
-                .stroke(accent.opacity(outlineOpacity * 0.34), lineWidth: outlineWidth + 8)
-                .blur(radius: 7)
-
-            shape
-                .stroke(accent.opacity(outlineOpacity), lineWidth: outlineWidth)
-
-            shape
-                .stroke(Color.primary.opacity(outlineOpacity * 0.16), lineWidth: max(0.5, outlineWidth * 0.45))
-                .blendMode(.overlay)
-        }
-        .opacity(outlineOpacity > 0 ? 1 : 0)
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func hotMenuGlassID(_ id: String, in namespace: Namespace.ID) -> some View {
-        if #available(macOS 26.0, *) {
-            self.glassEffectID(id, in: namespace)
-        } else {
-            self
-        }
-    }
-
-    func hotMenuGlassSurface<S: Shape>(
-        accent: Color,
-        secondary: Color,
-        tint: Color,
-        fillOpacity: Double,
-        edgeOpacity: Double,
-        glowOpacity: Double,
-        shadowOpacity: Double,
-        wispOpacity: Double,
-        wispRadius: CGFloat,
-        wispScale: CGFloat,
-        outlineOpacity: Double,
-        outlineWidth: CGFloat,
-        shape: S,
-        interactive: Bool
+    private func languagePill(
+        label: String,
+        fullName: String,
+        isActive: Bool,
+        action: @escaping () -> Void
     ) -> some View {
-        modifier(
-            HotMenuGlassSurface(
-                accent: accent,
-                secondary: secondary,
-                tint: tint,
-                fillOpacity: fillOpacity,
-                edgeOpacity: edgeOpacity,
-                glowOpacity: glowOpacity,
-                shadowOpacity: shadowOpacity,
-                wispOpacity: wispOpacity,
-                wispRadius: wispRadius,
-                wispScale: wispScale,
-                outlineOpacity: outlineOpacity,
-                outlineWidth: outlineWidth,
-                shape: shape,
-                interactive: interactive
-            )
-        )
+        Button(action: action) {
+            Text(label)
+                .font(.caption.weight(isActive ? .semibold : .medium))
+                .foregroundStyle(isActive ? accent : .primary.opacity(0.84))
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .background {
+                    if isActive {
+                        Capsule(style: .continuous)
+                            .fill(accent.opacity(0.20))
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            hoveredLabel = hovering ? fullName : nil
+        }
+    }
+
+    private var featheredBarBackdrop: some View {
+        let base = colorScheme == .dark ? Color.black : Color.white
+        return ZStack {
+            Capsule(style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [accent.opacity(0.18), secondary.opacity(0.14)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .padding(.horizontal, -8)
+                .padding(.vertical, -5)
+                .blur(radius: 16)
+
+            Capsule(style: .continuous)
+                .fill(base.opacity(colorScheme == .dark ? 0.34 : 0.42))
+                .blur(radius: 6)
+
+            Capsule(style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.24), accent.opacity(0.22), Color.white.opacity(0.08)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 0.75
+                )
+        }
+        .allowsHitTesting(false)
     }
 }
 
 private extension HotMenuAction {
     var systemImage: String {
         switch self {
-        case .none, .selectionRewrite:
-            "minus.circle"
-        case .openConversation:
-            "bubble.left.and.text.bubble.right"
-        case .transcriptionMode:
-            "captions.bubble"
-        case .askAI:
-            "sparkle.magnifyingglass"
-        case .dictation:
-            "mic"
-        case .toggleTranslation, .translationOff, .translationOn:
-            "globe"
-        case .cycleTranslationLanguage:
-            "globe.badge.chevron.backward"
-        case .translationQuickTarget1, .translationQuickTarget2, .translationQuickTarget3, .translationQuickTarget4:
-            "globe"
-        case .cycleStyle, .styleNeutral, .styleProfessional, .styleConcise, .styleExpanded, .styleRaw:
-            "paintbrush"
-        case .cycleASRProvider:
-            "waveform.badge.magnifyingglass"
-        case .openDashboard:
-            "gauge.with.dots.needle.33percent"
+        case .none: "circle.dotted"
+        case .openConversation: "person.2.wave.2"
+        case .transcriptionMode: "doc.text.magnifyingglass"
+        case .askAI: "sparkles"
+        case .selectionRewrite: "wand.and.stars"
+        case .dictation: "mic.fill"
+        case .toggleTranslation, .translationOff, .translationOn,
+             .cycleTranslationLanguage, .translationQuickTarget1,
+             .translationQuickTarget2, .translationQuickTarget3,
+             .translationQuickTarget4: "globe"
+        case .cycleStyle, .styleNeutral, .styleProfessional,
+             .styleConcise, .styleExpanded, .styleRaw: "textformat"
+        case .cycleASRProvider: "waveform"
+        case .openDashboard: "slider.horizontal.3"
         }
     }
 }

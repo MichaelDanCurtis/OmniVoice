@@ -31,7 +31,128 @@ public enum OmniVoiceThemeID: String, CaseIterable, Codable, Equatable, Hashable
     case glacierNight
     case terminalAmber
     case highContrast
+    case synthwaveHorizon
+    case bioluminescentReef
+    case tokyoRain
+    case kintsugiGold
+    case blueprintDraft
+    case matchaCeramic
+    case sakuraFrost
+    case lavaObsidian
+    case nordicFjord
+    case bauhausPoster
     case custom
+}
+
+public enum ThemeLook: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
+    case liquidGlass = "liquid_glass"
+    case studioPro = "studio_pro"
+    case cyberTerminal = "cyber_terminal"
+    case editorialPaper = "editorial_paper"
+    case softClay = "soft_clay"
+    case brutalistInk = "brutalist_ink"
+    case crystalPrism = "crystal_prism"
+    case blueprintGrid = "blueprint_grid"
+    case retroSynth = "retro_synth"
+    case zenWashi = "zen_washi"
+
+    public var displayName: String {
+        switch self {
+        case .liquidGlass: "Liquid Glass"
+        case .studioPro: "Studio Pro"
+        case .cyberTerminal: "Cyber Terminal"
+        case .editorialPaper: "Editorial Paper"
+        case .softClay: "Soft Tactile"
+        case .brutalistInk: "Focus Ink"
+        case .crystalPrism: "Crystal Prism"
+        case .blueprintGrid: "Drafting Table"
+        case .retroSynth: "Neon Arcade"
+        case .zenWashi: "Zen Washi"
+        }
+    }
+
+    public var tagline: String {
+        switch self {
+        case .liquidGlass: "Translucent frost, capsule pills, luminous depth"
+        case .studioPro: "Machined hardware panels, hairline bevels, dot grid"
+        case .cyberTerminal: "Sharp 3pt frames, monospaced grid, phosphor edges"
+        case .editorialPaper: "Warm parchment surfaces, serif headers, soft print rules"
+        case .softClay: "Plush rounded cards, rounded typography, cushioned glow"
+        case .brutalistInk: "Stark high-contrast ink borders, offset hard shadows"
+        case .crystalPrism: "Iridescent clear glass, spectral prism rims, floating caustics"
+        case .blueprintGrid: "Architectural cyanotype grid, hairline ticks, CAD monospace"
+        case .retroSynth: "Horizon laser grid, dual-neon chrome rims, glowing bevels"
+        case .zenWashi: "Hand-pressed mulberry fiber, calm organic curves, serif poise"
+        }
+    }
+
+    public var signatureThemeID: OmniVoiceThemeID {
+        switch self {
+        case .liquidGlass: .auroraBlue
+        case .studioPro: .obsidianCyan
+        case .cyberTerminal: .terminalAmber
+        case .editorialPaper: .amberSlate
+        case .softClay: .roseQuartz
+        case .brutalistInk: .highContrast
+        case .crystalPrism: .violetBeam
+        case .blueprintGrid: .blueprintDraft
+        case .retroSynth: .synthwaveHorizon
+        case .zenWashi: .matchaCeramic
+        }
+    }
+
+    public var cardCornerRadius: Double {
+        switch self {
+        case .liquidGlass: 16
+        case .studioPro: 8
+        case .cyberTerminal: 3
+        case .editorialPaper: 10
+        case .softClay: 22
+        case .brutalistInk: 6
+        case .crystalPrism: 18
+        case .blueprintGrid: 4
+        case .retroSynth: 10
+        case .zenWashi: 14
+        }
+    }
+
+    public var pillCornerRadius: Double {
+        switch self {
+        case .liquidGlass: 999
+        case .studioPro: 6
+        case .cyberTerminal: 2
+        case .editorialPaper: 8
+        case .softClay: 999
+        case .brutalistInk: 4
+        case .crystalPrism: 999
+        case .blueprintGrid: 3
+        case .retroSynth: 5
+        case .zenWashi: 12
+        }
+    }
+
+    public var borderWidth: Double {
+        switch self {
+        case .liquidGlass: 0.75
+        case .studioPro: 1.0
+        case .cyberTerminal: 1.25
+        case .editorialPaper: 0.85
+        case .softClay: 0.75
+        case .brutalistInk: 1.75
+        case .crystalPrism: 1.05
+        case .blueprintGrid: 0.9
+        case .retroSynth: 1.3
+        case .zenWashi: 0.75
+        }
+    }
+
+    public var usesGlassMaterial: Bool {
+        self == .liquidGlass || self == .crystalPrism
+    }
+
+    public var uppercaseMicroLabels: Bool {
+        self == .studioPro || self == .cyberTerminal || self == .blueprintGrid || self == .retroSynth
+    }
 }
 
 public enum WaveformMode: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
@@ -88,6 +209,7 @@ public enum WaveformMode: String, CaseIterable, Codable, Equatable, Hashable, Se
 }
 
 public enum CommitAnimationMode: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
+    case magicPoof
     case glyphStream
     case beamSnap
     case cometCollapse
@@ -95,6 +217,8 @@ public enum CommitAnimationMode: String, CaseIterable, Codable, Equatable, Hasha
 
     public var displayName: String {
         switch self {
+        case .magicPoof:
+            "Magic Poof"
         case .glyphStream:
             "Glyph Stream"
         case .beamSnap:
@@ -325,6 +449,7 @@ public struct ResolvedThemePalette: Equatable, Sendable {
 public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
     public let id: OmniVoiceThemeID
     public let name: String
+    public let look: ThemeLook
     public let accentColor: ThemeColor
     public let secondaryAccentColor: ThemeColor
     public let surfaceTint: ThemeColor
@@ -340,6 +465,7 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
     public init(
         id: OmniVoiceThemeID,
         name: String,
+        look: ThemeLook? = nil,
         accentColor: ThemeColor,
         secondaryAccentColor: ThemeColor,
         surfaceTint: ThemeColor,
@@ -354,6 +480,7 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
     ) {
         self.id = id
         self.name = name
+        self.look = look ?? Self.defaultLook(for: id)
         self.accentColor = accentColor
         self.secondaryAccentColor = secondaryAccentColor
         self.surfaceTint = surfaceTint
@@ -367,8 +494,46 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
         self.motionIntensity = motionIntensity
     }
 
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try c.decode(OmniVoiceThemeID.self, forKey: .id)
+        self.init(
+            id: id,
+            name: try c.decode(String.self, forKey: .name),
+            look: try c.decodeIfPresent(ThemeLook.self, forKey: .look),
+            accentColor: try c.decode(ThemeColor.self, forKey: .accentColor),
+            secondaryAccentColor: try c.decode(ThemeColor.self, forKey: .secondaryAccentColor),
+            surfaceTint: try c.decode(ThemeColor.self, forKey: .surfaceTint),
+            glassOpacity: try c.decode(Double.self, forKey: .glassOpacity),
+            captionOpacity: try c.decode(Double.self, forKey: .captionOpacity),
+            glowStrength: try c.decode(Double.self, forKey: .glowStrength),
+            contrastMode: try c.decode(ThemeContrastMode.self, forKey: .contrastMode),
+            waveformMode: try c.decode(WaveformMode.self, forKey: .waveformMode),
+            commitAnimationMode: try c.decode(CommitAnimationMode.self, forKey: .commitAnimationMode),
+            engineFrameSide: try c.decode(EngineFrameSide.self, forKey: .engineFrameSide),
+            motionIntensity: try c.decode(Double.self, forKey: .motionIntensity)
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case look
+        case accentColor
+        case secondaryAccentColor
+        case surfaceTint
+        case glassOpacity
+        case captionOpacity
+        case glowStrength
+        case contrastMode
+        case waveformMode
+        case commitAnimationMode
+        case engineFrameSide
+        case motionIntensity
+    }
+
     public static let builtIn: [OmniVoiceTheme] = [
-        .preset(.auroraBlue, "Aurora Blue", "#38BDF8", "#818CF8", "#06121C", 0.36, 0.14, 0.34, .standard, .bars, .glyphStream, .right, 0.74),
+        .preset(.auroraBlue, "Aurora Blue", "#38BDF8", "#818CF8", "#06121C", 0.36, 0.14, 0.34, .standard, .bars, .magicPoof, .right, 0.74),
         .preset(.obsidianCyan, "Obsidian Cyan", "#22D3EE", "#0EA5E9", "#071115", 0.38, 0.16, 0.32, .standard, .pulseRing, .beamSnap, .right, 0.68),
         .preset(.deepSignal, "Deep Signal", "#60A5FA", "#14B8A6", "#08111F", 0.34, 0.15, 0.30, .standard, .spectrumLine, .glyphStream, .left, 0.66),
         .preset(.arcticGlass, "Arctic Glass", "#7DD3FC", "#C4B5FD", "#EAF6FF", 0.32, 0.18, 0.28, .elevated, .orbMeter, .beamSnap, .right, 0.58),
@@ -397,8 +562,50 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
         .preset(.copperBlue, "Copper Blue", "#F97316", "#0EA5E9", "#21120A", 0.37, 0.16, 0.34, .standard, .orbitDots, .beamSnap, .left, 0.69),
         .preset(.glacierNight, "Glacier Night", "#BAE6FD", "#93C5FD", "#071421", 0.34, 0.14, 0.29, .elevated, .sparkline, .none, .right, 0.48),
         .preset(.terminalAmber, "Terminal Amber", "#FBBF24", "#34D399", "#100F08", 0.36, 0.15, 0.35, .standard, .constellation, .glyphStream, .left, 0.73),
-        .preset(.highContrast, "High Contrast", "#FFFFFF", "#FACC15", "#000000", 0.44, 0.22, 0.42, .highContrast, .bars, .beamSnap, .right, 0.55)
+        .preset(.highContrast, "High Contrast", "#FFFFFF", "#FACC15", "#000000", 0.44, 0.22, 0.42, .highContrast, .bars, .beamSnap, .right, 0.55),
+        // 5 wild art-directed signature themes
+        .preset(.synthwaveHorizon, "Synthwave Sunset", "#FF2E97", "#00F0FF", "#160726", 0.40, 0.17, 0.40, .standard, .ribbonWave, .magicPoof, .right, 0.85),
+        .preset(.bioluminescentReef, "Bioluminescent Reef", "#00F5D4", "#A855F7", "#031624", 0.38, 0.16, 0.38, .standard, .orbitDots, .magicPoof, .right, 0.82),
+        .preset(.tokyoRain, "Tokyo Neon Rain", "#FF006E", "#3A86FF", "#0A0918", 0.38, 0.16, 0.39, .standard, .mirrorBars, .glyphStream, .left, 0.84),
+        .preset(.kintsugiGold, "Kintsugi Gold", "#EAB308", "#F59E0B", "#1A1510", 0.37, 0.16, 0.34, .elevated, .constellation, .magicPoof, .right, 0.72),
+        .preset(.blueprintDraft, "Architect Blueprint", "#38BDF8", "#E0F2FE", "#0A2540", 0.36, 0.15, 0.32, .elevated, .spectrumLine, .beamSnap, .left, 0.68),
+        // 5 curated studio & organic themes
+        .preset(.matchaCeramic, "Matcha Ceramic", "#84CC16", "#BEF264", "#121A0E", 0.35, 0.15, 0.28, .standard, .orbMeter, .magicPoof, .right, 0.64),
+        .preset(.sakuraFrost, "Sakura Frost", "#F9A8D4", "#FDE68A", "#24111C", 0.36, 0.16, 0.34, .standard, .haloStack, .magicPoof, .right, 0.75),
+        .preset(.lavaObsidian, "Volcanic Magma", "#F97316", "#EF4444", "#1C0A06", 0.40, 0.17, 0.38, .standard, .equalizerBlocks, .cometCollapse, .left, 0.80),
+        .preset(.nordicFjord, "Nordic Fjord", "#67E8F9", "#94A3B8", "#0A1922", 0.34, 0.14, 0.29, .elevated, .sparkline, .beamSnap, .right, 0.56),
+        .preset(.bauhausPoster, "Bauhaus Primary", "#EF4444", "#FACC15", "#111111", 0.42, 0.20, 0.36, .highContrast, .bars, .beamSnap, .left, 0.70)
     ]
+
+    public static func defaultLook(for id: OmniVoiceThemeID) -> ThemeLook {
+        switch id {
+        case .auroraBlue, .arcticGlass, .oceanGlass, .indigoMist, .custom:
+            .liquidGlass
+        case .obsidianCyan, .deepSignal, .cobaltPulse, .graphiteIce, .steelWhisper, .monoGlass, .copperBlue,
+             .lavaObsidian:
+            .studioPro
+        case .terminalAmber, .matrixSoft, .neonLime, .acidGlass, .mintCircuit, .jadeSignal, .emeraldVoice, .redline:
+            .cyberTerminal
+        case .amberSlate, .emberWave, .solarTrace:
+            .editorialPaper
+        case .roseQuartz, .ultraviolet, .glacierNight:
+            .softClay
+        case .highContrast, .bauhausPoster:
+            .brutalistInk
+        case .violetBeam, .prismBlue, .prismPink, .bioluminescentReef:
+            .crystalPrism
+        case .blueprintDraft, .nordicFjord:
+            .blueprintGrid
+        case .synthwaveHorizon, .tokyoRain, .magentaGlass:
+            .retroSynth
+        case .matchaCeramic, .sakuraFrost, .kintsugiGold:
+            .zenWashi
+        }
+    }
+
+    public static let signatureLooks: [OmniVoiceTheme] = ThemeLook.allCases.compactMap { look in
+        builtInTheme(id: look.signatureThemeID)?.withLook(look)
+    }
 
     public static let defaultTheme = builtInTheme(id: .auroraBlue)!
 
@@ -410,6 +617,7 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
         OmniVoiceTheme(
             id: .custom,
             name: "Custom",
+            look: .liquidGlass,
             accentColor: accent,
             secondaryAccentColor: accent,
             surfaceTint: ThemeColor(hex: "#06121C"),
@@ -418,9 +626,28 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
             glowStrength: 0.34,
             contrastMode: .standard,
             waveformMode: .bars,
-            commitAnimationMode: .glyphStream,
+            commitAnimationMode: .magicPoof,
             engineFrameSide: .right,
             motionIntensity: 0.70
+        )
+    }
+
+    public func withLook(_ override: ThemeLook?) -> OmniVoiceTheme {
+        OmniVoiceTheme(
+            id: id,
+            name: name,
+            look: override ?? look,
+            accentColor: accentColor,
+            secondaryAccentColor: secondaryAccentColor,
+            surfaceTint: surfaceTint,
+            glassOpacity: glassOpacity,
+            captionOpacity: captionOpacity,
+            glowStrength: glowStrength,
+            contrastMode: contrastMode,
+            waveformMode: waveformMode,
+            commitAnimationMode: commitAnimationMode,
+            engineFrameSide: engineFrameSide,
+            motionIntensity: motionIntensity
         )
     }
 
@@ -432,6 +659,7 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
         OmniVoiceTheme(
             id: id,
             name: name,
+            look: look,
             accentColor: accentColor,
             secondaryAccentColor: secondaryAccentColor,
             surfaceTint: surfaceTint,

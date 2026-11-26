@@ -1410,3 +1410,156 @@ def test_stream_endpoint_bounds_partial_audio_but_finishes_with_full_audio(monke
         assert websocket.receive_json()["type"] == "final"
 
     assert decoded_lengths == [64_000, 128_000]
+
+
+def test_cleanup_endpoint_applies_optional_llm_and_falls_back_cleanly(monkeypatch, tmp_path):
+    store = RuntimeStore(tmp_path)
+    monkeypatch.setattr("omnivoice_engine.main.runtime_store", store, raising=False)
+    captured = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return '"Please send the Figma deck to Sara by 3 PM."'
+
+    monkeypatch.setattr("omnivoice_engine.main.ai_handoff_completion_handler", lambda transport: fake_completion)
+
+    response = client.post(
+        "/cleanup",
+        json={
+            "raw_transcript": "hey so send the fig ma deck to sara by 2pm actually 3pm",
+            "style": "professional",
+            "app_context": "Mail",
+            "dictionary_entries": [{"canonical": "Figma", "aliases": ["fig ma"], "enabled": True}],
+            "llm": {
+                "enabled": True,
+                "provider": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "model": "gpt-4o-mini",
+                "api_key": "sk-test",
+                "transport": "openai_compatible",
+                "timeout_seconds": 4.0,
+            },
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload == {
+        "text": "Please send the Figma deck to Sara by 3 PM.",
+        "cleanup_applied": True,
+        "llm_applied": True,
+    }
+    assert captured["timeout"] == 4.0
+    assert captured["model"] == "gpt-4o-mini"
+
+    # Raw style bypasses LLM even when enabled
+    raw_response = client.post(
+        "/cleanup",
+        json={
+            "raw_transcript": "  keep raw words  ",
+            "style": "raw",
+            "llm": {
+                "enabled": True,
+                "provider": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "model": "gpt-4o-mini",
+            },
+        },
+    )
+    assert raw_response.status_code == 200
+    assert raw_response.json()["text"] == "keep raw words"
+    assert raw_response.json().get("llm_applied", False) is False
+
+    # LLM failure gracefully falls back to deterministic cleanup
+    def failing_completion(**_kwargs):
+        raise RuntimeError("upstream timeout")
+
+    monkeypatch.setattr("omnivoice_engine.main.ai_handoff_completion_handler", lambda transport: failing_completion)
+    fallback_response = client.post(
+        "/cleanup",
+        json={
+            "raw_transcript": "schedule it for Monday, actually Tuesday",
+            "style": "neutral",
+            "llm": {
+                "enabled": True,
+                "provider": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "model": "gpt-4o-mini",
+            },
+        },
+    )
+    assert fallback_response.status_code == 200
+    fallback_payload = fallback_response.json()
+    assert fallback_payload["text"] == "Schedule it for Tuesday."
+    assert fallback_payload["cleanup_applied"] is True
+    assert fallback_payload["llm_applied"] is False
+    assert "upstream timeout" in fallback_payload["llm_fallback_reason"]
+
+
+def test_engine_enforces_token_and_host_origin_guards(monkeypatch, tmp_path):
+    store = RuntimeStore(tmp_path)
+    monkeypatch.setattr("omnivoice_engine.main.runtime_store", store, raising=False)
+    monkeypatch.setenv("OMNIVOICE_ENGINE_TOKEN", "top-secret-token")
+
+    # Health stays reachable for startup probes
+    assert client.get("/health").status_code == 200
+
+    # Protected routes reject missing/invalid token
+    assert client.get("/api/transcripts").status_code == 401
+    assert client.get("/api/transcripts", headers={"X-OmniSpeak-Engine-Token": "wrong"}).status_code == 401
+
+    # Valid header token succeeds
+    ok = client.get("/api/transcripts", headers={"X-OmniSpeak-Engine-Token": "top-secret-token"})
+    assert ok.status_code == 200
+
+    # Dashboard query token sets HttpOnly cookie
+    dash = client.get("/?token=top-secret-token")
+    assert dash.status_code == 200
+    assert "omnispeak_engine_token=top-secret-token" in dash.headers.get("set-cookie", "")
+
+    # Foreign Host or Origin is rejected with 403
+    assert (
+        client.get(
+            "/health",
+            headers={"Host": "evil.example:8765"},
+        ).status_code
+        == 403
+    )
+    assert (
+        client.get(
+            "/api/transcripts",
+            headers={
+                "X-OmniSpeak-Engine-Token": "top-secret-token",
+                "Origin": "https://evil.example",
+            },
+        ).status_code
+        == 403
+    )
+
+
+def test_websocket_enforces_engine_token_and_origin(monkeypatch, tmp_path):
+    import pytest
+    from starlette.websockets import WebSocketDisconnect
+
+    store = RuntimeStore(tmp_path)
+    monkeypatch.setattr("omnivoice_engine.main.runtime_store", store, raising=False)
+    monkeypatch.setenv("OMNIVOICE_ENGINE_TOKEN", "ws-secret")
+
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/stream?provider=fake&sample_rate=16000"):
+            pass
+
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(
+            "/stream?provider=fake&sample_rate=16000",
+            headers={
+                "X-OmniSpeak-Engine-Token": "ws-secret",
+                "Origin": "https://evil.example",
+            },
+        ):
+            pass
+
+    with client.websocket_connect(
+        "/stream?provider=fake&sample_rate=16000",
+        headers={"X-OmniSpeak-Engine-Token": "ws-secret"},
+    ) as websocket:
+        assert websocket.receive_json() == {"type": "ready", "text": ""}

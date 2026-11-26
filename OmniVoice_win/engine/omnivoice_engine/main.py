@@ -16,6 +16,11 @@ from .diarization import DiarizationRegistry
 from .model_manager import ModelManager
 from .providers.registry import ProviderRegistry
 from .runtime_store import RuntimeStore
+from .security import (
+    attach_dashboard_auth_cookie_if_needed,
+    check_http_security,
+    enforce_websocket_security,
+)
 from .schemas import (
     AIHandoffRequest,
     AIHandoffResponse,
@@ -64,7 +69,13 @@ async def record_http_event(request: Request, call_next):
     started = time.monotonic()
     status_code = 500
     try:
+        denied = check_http_security(request)
+        if denied is not None:
+            status_code = denied.status_code
+            return denied
+
         response = await call_next(request)
+        attach_dashboard_auth_cookie_if_needed(request, response)
         status_code = response.status_code
         return response
     except Exception as exc:
@@ -384,6 +395,8 @@ async def transcribe(request: Request, provider: str = Query(default="fake")) ->
 
 @app.websocket("/stream")
 async def stream(websocket: WebSocket, provider: str = "fake", sample_rate: int = 16000) -> None:
+    if not await enforce_websocket_security(websocket):
+        return
     await websocket.accept()
     runtime_store.record_stream_opened(provider=provider, sample_rate=sample_rate)
     runtime_store.record_event(

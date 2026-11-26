@@ -114,8 +114,18 @@ struct ConversationModeView: View {
     private var topToolbar: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Conversation")
-                    .font(.title2.weight(.bold))
+                HStack(spacing: 8) {
+                    Text("Conversation")
+                        .font(.title2.weight(.bold))
+                        .fontDesign(theme.look.headerFontDesign)
+
+                    OmniStatusPill(
+                        title: model.isConversationRecording ? "Recording" : model.engineState.label,
+                        tint: model.isConversationRecording ? .red : (model.engineState == .online ? .green : .orange),
+                        pulsing: model.isConversationRecording || model.engineState == .online,
+                        theme: theme
+                    )
+                }
                 Text(headerDetail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -131,6 +141,8 @@ struct ConversationModeView: View {
             )
 
             historyMenu
+
+            meetingCopilotMenu
 
             HStack(spacing: 8) {
                 Button {
@@ -534,6 +546,105 @@ struct ConversationModeView: View {
             get: { model.preferences.conversationCaptureMode },
             set: { model.setConversationCaptureMode($0) }
         )
+    }
+
+    private var meetingCopilotMenu: some View {
+        Menu {
+            Toggle(
+                "Auto-Detect Calls (Teams, FaceTime, Phone, Zoom)",
+                isOn: Binding(
+                    get: { model.preferences.meetingAutoDetectEnabled },
+                    set: { model.setMeetingAutoDetectEnabled($0) }
+                )
+            )
+            Toggle(
+                "Auto-Start Without Prompt",
+                isOn: Binding(
+                    get: { model.preferences.meetingAutoStartWithoutPrompt },
+                    set: { model.setMeetingAutoStartWithoutPrompt($0) }
+                )
+            )
+            .disabled(!model.preferences.meetingAutoDetectEnabled)
+
+            Toggle(
+                "Auto-Stop & Wrap-Up When Call Ends",
+                isOn: Binding(
+                    get: { model.preferences.meetingAutoStopOnCallEnd },
+                    set: { model.setMeetingAutoStopOnCallEnd($0) }
+                )
+            )
+            .disabled(!model.preferences.meetingAutoDetectEnabled)
+
+            Divider()
+
+            Toggle(
+                "Live Co-Pilot Modals",
+                isOn: Binding(
+                    get: { model.preferences.meetingLiveCopilotEnabled },
+                    set: { model.setMeetingLiveCopilotEnabled($0) }
+                )
+            )
+
+            Toggle(
+                "Stealth Mode (Hide from Screen Share)",
+                isOn: Binding(
+                    get: { model.preferences.meetingStealthModeEnabled },
+                    set: { model.setMeetingStealthModeEnabled($0) }
+                )
+            )
+
+            Picker(
+                "Modal Corner",
+                selection: Binding(
+                    get: { model.preferences.meetingCopilotCorner },
+                    set: { model.setMeetingCopilotCorner($0) }
+                )
+            ) {
+                ForEach(MeetingCopilotCorner.allCases, id: \.self) { corner in
+                    Text(corner.displayName).tag(corner)
+                }
+            }
+
+            Divider()
+
+            if model.calendarAccessGranted {
+                Label("Calendar Context Connected", systemImage: "calendar.badge.checkmark")
+            } else {
+                Button {
+                    Task { await model.connectMeetingCalendar() }
+                } label: {
+                    Label("Connect Calendar (Title & Attendees)", systemImage: "calendar.badge.plus")
+                }
+            }
+
+            if model.isConversationRecording {
+                Divider()
+                Button {
+                    Task { await model.runLiveMeetingInsightPass(force: true) }
+                } label: {
+                    Label("Analyze Transcript Now", systemImage: "sparkles")
+                }
+                Button {
+                    Task { await model.catchUpLastTwoMinutesInMeeting() }
+                } label: {
+                    Label("What Did I Miss? (Last 2 Min)", systemImage: "clock.arrow.circlepath")
+                }
+                Button {
+                    Task { await model.captureScreenAndAnswerInMeeting() }
+                } label: {
+                    Label("Screen-Aware Insight", systemImage: "macwindow.badge.plus")
+                }
+                Button {
+                    Task { await model.bookmarkCurrentMeetingMoment() }
+                } label: {
+                    Label("Bookmark Moment", systemImage: "bookmark.fill")
+                }
+            }
+        } label: {
+            Label("Co-Pilot", systemImage: "sparkles.rectangle.stack")
+        }
+        .menuStyle(.borderedButton)
+        .help("Configure automatic call detection and floating live meeting insight modals")
     }
 
     private var recordingControls: some View {
@@ -1041,10 +1152,11 @@ private struct ConversationEditDraft: Identifiable {
 
     var updateRequest: ConversationDetailUpdateRequest {
         let speakerNames = Dictionary(
-            uniqueKeysWithValues: speakers.compactMap { speaker in
+            speakers.compactMap { speaker -> (String, String)? in
                 let name = speaker.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
                 return name.isEmpty ? nil : (speaker.id, name)
-            }
+            },
+            uniquingKeysWith: { first, _ in first }
         )
         let segmentUpdates = segments.map { segment in
             ConversationSegmentUpdateRequest(id: segment.id, text: segment.text)
@@ -1314,15 +1426,24 @@ private struct ConversationLibraryCard: View {
     }
 }
 
+@MainActor
+private enum ConversationDateFormatters {
+    static let fractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    static let standard = ISO8601DateFormatter()
+}
+
+@MainActor
 private func compactConversationDate(_ value: String) -> String {
-    let fractionalFormatter = ISO8601DateFormatter()
-    fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    if let date = fractionalFormatter.date(from: value) {
+    if let date = ConversationDateFormatters.fractional.date(from: value) {
         return date.formatted(date: .abbreviated, time: .shortened)
     }
 
-    let formatter = ISO8601DateFormatter()
-    if let date = formatter.date(from: value) {
+    if let date = ConversationDateFormatters.standard.date(from: value) {
         return date.formatted(date: .abbreviated, time: .shortened)
     }
 
@@ -1561,6 +1682,7 @@ private struct ConversationSegmentRow: View {
 
                 content()
             }
+            .fontDesign(theme.look.bodyFontDesign)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)
@@ -1825,18 +1947,11 @@ private struct AssistCardView: View {
 
 private struct ConversationWindowBackground: View {
     let theme: OmniVoiceTheme
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        LinearGradient(
-            colors: [
-                Color(nsColor: .windowBackgroundColor),
-                Color(themeColor: theme.surfaceTint).opacity(0.10),
-                Color(themeColor: theme.secondaryAccentColor).opacity(0.045)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
+        OmniVoiceWindowBackground(theme: theme, colorScheme: colorScheme)
+            .ignoresSafeArea()
     }
 }
 

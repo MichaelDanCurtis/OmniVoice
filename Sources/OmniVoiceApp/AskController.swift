@@ -105,32 +105,34 @@ final class AskController {
         lastAnswer = ""
         bubble.show(question: question, agentName: agent.displayName)
 
-        let prompt = AskPromptBuilder.build(history: history, question: question)
-        history.append(AskTurn(role: .user, text: question))
+        let enrichedQuestion = questionWithClipboardContextIfRelevant(question)
+        let prompt = AskPromptBuilder.build(history: history, question: enrichedQuestion)
+        history.append(AskTurn(role: .user, text: enrichedQuestion))
 
         runToken += 1
         let token = runToken
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             do {
-                let output = try await runner.run(agent, prompt: prompt) { [weak self] chunk in
+                let output = try await self.runner.run(agent, prompt: prompt) { [weak self] chunk in
                     Task { @MainActor in
                         guard let self, self.runToken == token else { return }
                         self.bubble.appendAnswer(chunk)
                     }
                 }
-                guard runToken == token else { return }
-                bubble.setStreaming(false)
-                lastAnswer = output.trimmingCharacters(in: .whitespacesAndNewlines)
-                history.append(AskTurn(role: .assistant, text: lastAnswer))
+                guard self.runToken == token else { return }
+                self.bubble.setStreaming(false)
+                self.lastAnswer = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.history.append(AskTurn(role: .assistant, text: self.lastAnswer))
             } catch AgentRunError.notFound {
-                guard runToken == token else { return }
-                bubble.showError("\(agent.displayName) CLI not found. Set its path in Settings → AI.")
+                guard self.runToken == token else { return }
+                self.bubble.showError("\(agent.displayName) CLI not found. Set its path in Settings → AI.")
             } catch AgentRunError.failed(let message) {
-                guard runToken == token else { return }
-                bubble.showError("Couldn't reach \(agent.displayName). Run `\(agent.binaryName)` once in a terminal to sign in.\n\(message)")
+                guard self.runToken == token else { return }
+                self.bubble.showError("Couldn't reach \(agent.displayName). Run `\(agent.binaryName)` once in a terminal to sign in.\n\(message)")
             } catch {
-                guard runToken == token else { return }
-                bubble.showError("\(error)")
+                guard self.runToken == token else { return }
+                self.bubble.showError("\(error)")
             }
         }
     }
@@ -145,8 +147,9 @@ final class AskController {
             bubble.showError("Configure \(kind.displayName) in Settings → AI.")
             return
         }
-        let prompt = AskPromptBuilder.build(history: history, question: question)
-        history.append(AskTurn(role: .user, text: question))
+        let enrichedQuestion = questionWithClipboardContextIfRelevant(question)
+        let prompt = AskPromptBuilder.build(history: history, question: enrichedQuestion)
+        history.append(AskTurn(role: .user, text: enrichedQuestion))
         runToken += 1
         let token = runToken
         Task { @MainActor in
@@ -201,5 +204,24 @@ final class AskController {
         bubbleOpen = false
         runToken += 1   // cancel any in-flight run
         bubble.hide()
+    }
+
+    private func questionWithClipboardContextIfRelevant(_ question: String) -> String {
+        guard preferences.clipboardAskContextEnabled else { return question }
+        let lower = question.lowercased()
+        let contextCues = [
+            "this", "clipboard", "copied", "paste", "error", "crash", "stack trace",
+            "log", "code", "above", "summarize", "explain", "fix", "review", "translate",
+        ]
+        guard contextCues.contains(where: { lower.contains($0) }) else {
+            return question
+        }
+        guard let clipboard = NSPasteboard.general.string(forType: .string)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !clipboard.isEmpty else {
+            return question
+        }
+        let clipped = clipboard.count > 4_000 ? String(clipboard.prefix(4_000)) + "\n…[truncated]" : clipboard
+        return "\(question)\n\nClipboard context:\n\(clipped)"
     }
 }

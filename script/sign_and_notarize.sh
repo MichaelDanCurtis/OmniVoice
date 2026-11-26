@@ -5,9 +5,10 @@
 # outside the Mac App Store.
 #
 # OmniSpeak cannot ship on the Mac App Store: its core (Accessibility text
-# insertion into other apps, global push-to-talk hotkeys, a spawned bundled
-# Python engine) is incompatible with the App Sandbox. Developer ID +
-# notarization is the correct distribution path.
+# insertion into other apps, global push-to-talk hotkeys, and spawned local
+# engine binaries such as omnivoice-engine or optional bundled Python) is
+# incompatible with the App Sandbox. Developer ID + notarization is the
+# correct distribution path.
 #
 # One-time prerequisites (only the account holder can do these):
 #
@@ -86,7 +87,7 @@ while IFS= read -r lib; do
   codesign --force --options runtime --timestamp --sign "$IDENTITY" "$lib"
 done < <(find "$APP/Contents" -type f \( -name "*.dylib" -o -name "*.so" \) ! -path "*/Sparkle.framework/*" | sort -r)
 
-log "Signing nested executables (e.g. bundled python3.12) with entitlements..."
+log "Signing nested executables (e.g. omnivoice-engine, llama-server, bundled python) with entitlements..."
 while IFS= read -r exe; do
   case "$exe" in "$APP/Contents/MacOS/"*) continue ;; esac   # main exe signed via bundle
   case "$exe" in *"/Sparkle.framework/"*) continue ;; esac   # handled in step 1

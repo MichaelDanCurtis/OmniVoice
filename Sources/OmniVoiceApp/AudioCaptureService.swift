@@ -32,6 +32,7 @@ final class AudioCaptureService: @unchecked Sendable {
 
     var onLevel: ((Float) -> Void)?
     var onPCMChunk: ((Data) -> Void)?
+    var onPCM16Chunk: ((Data) -> Void)?
 
     func inputSampleRate() -> Double {
         engine.inputNode.outputFormat(forBus: 0).sampleRate
@@ -61,15 +62,24 @@ final class AudioCaptureService: @unchecked Sendable {
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             guard let self else { return }
             let level = Self.level(buffer: buffer)
-            let chunk = Self.float32MonoData(buffer: buffer)
+            let needsChunk = self.onPCMChunk != nil
+            let needsPCM16Chunk = self.onPCM16Chunk != nil
+            let chunk = needsChunk ? Self.float32MonoData(buffer: buffer) : nil
             var pcm16: [Int16] = []
             Self.appendMonoPCM16Samples(from: buffer, to: &pcm16)
+            let capturedPCM16 = pcm16
+            let pcm16Chunk: Data? = needsPCM16Chunk
+                ? capturedPCM16.withUnsafeBufferPointer { Data(buffer: $0) }
+                : nil
 
             queue.async {
-                self.samples.append(contentsOf: pcm16)
+                self.samples.append(contentsOf: capturedPCM16)
                 self.onLevel?(level)
                 if let chunk {
                     self.onPCMChunk?(chunk)
+                }
+                if let pcm16Chunk {
+                    self.onPCM16Chunk?(pcm16Chunk)
                 }
             }
         }
@@ -79,12 +89,70 @@ final class AudioCaptureService: @unchecked Sendable {
         return format.sampleRate
     }
 
+    func snapshotWAVData() -> (wavData: Data, sampleCount: Int) {
+        let (captured, rate) = queue.sync { (samples, captureSampleRate) }
+        guard !captured.isEmpty else {
+            return (Data(), 0)
+        }
+        return (PCM16WAVEncoder.encode(samples: captured, sampleRate: Int(rate.rounded())), captured.count)
+    }
+
+    /// Zero-disk in-memory 16 kHz mono Float32 snapshot for fast CoreML ANE live partials.
+    func snapshotFloat16kHz() -> (samples: [Float], rawSampleCount: Int) {
+        let (captured, rate) = queue.sync { (samples, captureSampleRate) }
+        guard !captured.isEmpty else {
+            return ([], 0)
+        }
+        return (Self.resamplePCM16To16kHzFloat(captured, sourceSampleRate: rate), captured.count)
+    }
+
+    func stop() {
+        engine.stop()
+        engine.inputNode.removeTap(onBus: 0)
+        queue.sync {
+            samples.removeAll(keepingCapacity: false)
+        }
+    }
+
     func stopWAVData() throws -> Data {
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
 
-        let (captured, rate) = queue.sync { (samples, captureSampleRate) }
+        let (captured, rate) = queue.sync { () -> ([Int16], Double) in
+            let copy = samples
+            let currentRate = captureSampleRate
+            samples.removeAll(keepingCapacity: false)
+            return (copy, currentRate)
+        }
         return PCM16WAVEncoder.encode(samples: captured, sampleRate: Int(rate.rounded()))
+    }
+
+    static func resamplePCM16To16kHzFloat(_ pcm16: [Int16], sourceSampleRate: Double) -> [Float] {
+        guard !pcm16.isEmpty else { return [] }
+        let scale: Float = 1.0 / 32768.0
+        let rate = sourceSampleRate > 0 ? sourceSampleRate : 16_000.0
+        if abs(rate - 16_000.0) < 1.0 {
+            var out = [Float](repeating: 0, count: pcm16.count)
+            for i in 0..<pcm16.count {
+                out[i] = Float(pcm16[i]) * scale
+            }
+            return out
+        }
+
+        let ratio = rate / 16_000.0
+        let outputCount = max(1, Int((Double(pcm16.count) / ratio).rounded(.down)))
+        var out = [Float](repeating: 0, count: outputCount)
+        let lastIndex = pcm16.count - 1
+        for i in 0..<outputCount {
+            let srcPos = Double(i) * ratio
+            let idx0 = min(Int(srcPos), lastIndex)
+            let idx1 = min(idx0 + 1, lastIndex)
+            let frac = Float(srcPos - Double(idx0))
+            let s0 = Float(pcm16[idx0]) * scale
+            let s1 = Float(pcm16[idx1]) * scale
+            out[i] = s0 + (s1 - s0) * frac
+        }
+        return out
     }
 
     private static func float32MonoData(buffer: AVAudioPCMBuffer) -> Data? {

@@ -24,22 +24,26 @@ struct WhisperBlobSurface: ViewModifier {
         if #available(macOS 26.0, *) {
             content
                 .glassEffect(
-                    .regular
+                    (materialOpacity <= 0.28 ? Glass.clear : Glass.regular)
                         .tint(tint.opacity(fillOpacity))
                         .interactive(interactive),
                     in: shape
                 )
                 .background {
-                    glassCore
+                    if materialOpacity > 0.05 {
+                        glassCore
+                    }
                 }
                 .overlay {
                     glassRim
                 }
                 .overlay {
-                    ghostEdge
-                        .padding(-edgeBleed)
+                    if edgeBleed > 0 && edgeOpacity > 0 {
+                        ghostEdge
+                            .padding(-edgeBleed)
+                    }
                 }
-                .shadow(color: accent.opacity(glowOpacity), radius: 16, x: 0, y: 8)
+                .shadow(color: accent.opacity(glowOpacity), radius: 14, x: 0, y: 6)
                 .whisperMotion(accent: accent, strong: interactive, isHovering: isHovering, reduceMotion: reduceMotion)
                 .onHover { isHovering = $0 }
         } else {

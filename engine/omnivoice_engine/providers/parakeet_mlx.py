@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import io
+import math
 import os
 import platform
-import tempfile
-import wave
 from pathlib import Path
 
 from omnivoice_engine.paths import default_model_root
@@ -58,10 +58,12 @@ class ParakeetMLXProvider(ASRProvider):
         if not audio_bytes:
             return ""
 
-        with tempfile.NamedTemporaryFile(suffix=".wav") as wav_file:
-            wav_file.write(audio_bytes)
-            wav_file.flush()
-            return self._transcribe_file(wav_file.name)
+        import soundfile as sf
+
+        # Parakeet's file API shells out to ffmpeg, which is not installed on
+        # a fresh Mac. Decode WAV bytes directly in memory with no temp file.
+        samples, sample_rate = sf.read(io.BytesIO(audio_bytes), dtype="float32", always_2d=True)
+        return self._transcribe_samples_aligned(samples.mean(axis=1), int(sample_rate)).text
 
     def transcribe_pcm_float32(self, pcm_bytes: bytes, sample_rate: int) -> str:
         return self.transcribe_aligned_pcm_float32(pcm_bytes, sample_rate).text
@@ -70,18 +72,42 @@ class ParakeetMLXProvider(ASRProvider):
         info = self.info()
         if not info.available:
             raise RuntimeError(info.reason)
-        if not pcm_bytes:
+        usable_bytes = (len(pcm_bytes) // 4) * 4
+        if usable_bytes == 0:
             return ASRTranscript(text="")
 
-        with tempfile.NamedTemporaryFile(suffix=".wav") as wav_file:
-            self._write_pcm_float32_wav(wav_file.name, pcm_bytes, sample_rate)
-            return self._transcribe_file_aligned(wav_file.name)
+        import numpy as np
+
+        samples = np.frombuffer(pcm_bytes[:usable_bytes], dtype=np.float32)
+        if samples.size == 0:
+            return ASRTranscript(text="")
+        clipped = np.clip(samples, -1.0, 1.0)
+        return self._transcribe_samples_aligned(clipped, sample_rate)
 
     def _transcribe_file(self, audio_path: str) -> str:
         return self._transcribe_file_aligned(audio_path).text
 
     def _transcribe_file_aligned(self, audio_path: str) -> ASRTranscript:
-        result = self._get_model().transcribe(audio_path)
+        import soundfile as sf
+
+        samples, sample_rate = sf.read(audio_path, dtype="float32", always_2d=True)
+        return self._transcribe_samples_aligned(samples.mean(axis=1), int(sample_rate))
+
+    def _transcribe_samples_aligned(self, samples, sample_rate: int) -> ASRTranscript:
+        import mlx.core as mx
+        import numpy as np
+        from parakeet_mlx.audio import get_logmel
+        from scipy.signal import resample_poly
+
+        model = self._get_model()
+        config = model.preprocessor_config
+        if sample_rate != config.sample_rate:
+            divisor = math.gcd(sample_rate, config.sample_rate)
+            samples = resample_poly(samples, config.sample_rate // divisor, sample_rate // divisor)
+        if samples.size < config.hop_length:
+            return ASRTranscript(text="")
+        audio = mx.array(np.asarray(samples, dtype=np.float32))
+        result = model.generate(get_logmel(audio, config))[0]
         text = getattr(result, "text", str(result)).strip()
         raw_sentences = getattr(result, "sentences", None) or []
 
@@ -111,26 +137,6 @@ class ParakeetMLXProvider(ASRProvider):
 
     def _is_apple_silicon_macos(self) -> bool:
         return platform.system() == "Darwin" and platform.machine() in {"arm64", "aarch64"}
-
-    def _write_pcm_float32_wav(self, path: str, pcm_bytes: bytes, sample_rate: int) -> None:
-        import numpy as np
-
-        samples = np.frombuffer(pcm_bytes, dtype=np.float32)
-        if samples.size == 0:
-            with wave.open(path, "wb") as wav:
-                wav.setnchannels(1)
-                wav.setsampwidth(2)
-                wav.setframerate(sample_rate)
-                wav.writeframes(b"")
-            return
-
-        clipped = np.clip(samples, -1.0, 1.0)
-        int16_samples = (clipped * 32767.0).astype(np.int16)
-        with wave.open(path, "wb") as wav:
-            wav.setnchannels(1)
-            wav.setsampwidth(2)
-            wav.setframerate(sample_rate)
-            wav.writeframes(int16_samples.tobytes())
 
     def _aligned_token(self, raw_token: object) -> ASRToken:
         start = self._seconds_to_ms(getattr(raw_token, "start", None))

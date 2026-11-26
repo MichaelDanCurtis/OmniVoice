@@ -1,6 +1,21 @@
 import AppKit
+import Observation
 import OmniVoiceCore
 import SwiftUI
+
+@MainActor
+@Observable
+final class CaptionOverlayState {
+    var text = ""
+    var styleName = ""
+    var translationStatus: String?
+    var level: Float = 0
+    var theme: OmniVoiceTheme = .defaultTheme
+    var appearanceMode: AppAppearanceMode = .system
+    var glassOpacity: Double = 0.05
+    var phase: CaptionOverlayPhase = .live
+    var appearanceToken = 0
+}
 
 @MainActor
 final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
@@ -21,8 +36,11 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
         let anchorFrame: CGRect?
     }
 
-    private var window: NSWindow?
+    private var window: NSPanel?
+    private var hostingView: DraggableCaptionHostingView?
+    private let state = CaptionOverlayState()
     private var presentation: Presentation?
+    private var commitHideTask: Task<Void, Never>?
 
     func show(
         text: String,
@@ -31,8 +49,13 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
         level: Float = 0,
         theme: OmniVoiceTheme,
         appearanceMode: AppAppearanceMode,
+        glassOpacity: Double = 0.05,
         anchorFrame: CGRect? = nil
     ) {
+        commitHideTask?.cancel()
+        commitHideTask = nil
+
+        let wasLiveAndVisible = window?.isVisible == true && state.phase == .live
         let previousAnchorFrame = presentation?.anchorFrame
         presentation = Presentation(
             text: text,
@@ -43,17 +66,30 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
             appearanceMode: appearanceMode,
             anchorFrame: anchorFrame
         )
-        let content = DraggableCaptionHostingView(
-            rootView: CaptionOverlayView(
-                text: text,
-                styleName: styleName,
-                translationStatus: translationStatus,
-                level: level,
-                theme: theme,
-                appearanceMode: appearanceMode
-            )
-        )
-        let targetSize = content.fittingSize
+
+        state.text = text
+        state.styleName = styleName
+        state.translationStatus = translationStatus
+        state.level = level
+        state.theme = theme
+        state.appearanceMode = appearanceMode
+        state.glassOpacity = glassOpacity
+        state.phase = .live
+        if !wasLiveAndVisible {
+            state.appearanceToken &+= 1
+        }
+
+        let hosting: DraggableCaptionHostingView
+        if let existing = hostingView {
+            hosting = existing
+        } else {
+            let created = DraggableCaptionHostingView(rootView: CaptionOverlayLiveHost(state: state))
+            hostingView = created
+            hosting = created
+        }
+
+        hosting.layoutSubtreeIfNeeded()
+        let targetSize = hosting.fittingSize
         let screenFrame = NSScreen.main?.visibleFrame ?? .zero
         let currentCenter = previousAnchorFrame == nil ? window?.frame.center ?? savedCenter : savedCenter
         let origin: CGPoint
@@ -73,12 +109,15 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
         }
 
         if window == nil {
-            let created = NSWindow(
+            let created = NSPanel(
                 contentRect: CGRect(origin: origin, size: targetSize),
                 styleMask: [.borderless, .nonactivatingPanel],
                 backing: .buffered,
                 defer: false
             )
+            created.isFloatingPanel = true
+            created.becomesKeyOnlyIfNeeded = true
+            created.hidesOnDeactivate = false
             created.isOpaque = false
             created.backgroundColor = .clear
             created.hasShadow = false
@@ -87,17 +126,24 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
             created.isMovableByWindowBackground = true
             created.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             created.delegate = self
+            created.contentView = hosting
             window = created
         }
 
         // Pin the floating panel's appearance so the glass material AND the SwiftUI
         // colorScheme environment match the resolved mode. Without this the borderless
-        // panel's colorScheme resolved to dark under a light system → white caption text
+        // panel's colorScheme resolved to dark under a light system -> white caption text
         // on the light background.
         window?.appearance = Self.resolvedAppearance(for: appearanceMode)
         window?.alphaValue = 1
-        window?.contentView = content
-        window?.setFrame(CGRect(origin: origin, size: targetSize), display: true)
+        let targetFrame = CGRect(origin: origin, size: targetSize)
+        if let currentFrame = window?.frame,
+           abs(currentFrame.origin.x - targetFrame.origin.x) > 0.5
+            || abs(currentFrame.origin.y - targetFrame.origin.y) > 0.5
+            || abs(currentFrame.width - targetFrame.width) > 0.5
+            || abs(currentFrame.height - targetFrame.height) > 0.5 {
+            window?.setFrame(targetFrame, display: true)
+        }
         window?.orderFrontRegardless()
     }
 
@@ -115,7 +161,14 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
         saveCenter(movedWindow.frame.center)
     }
 
+    func updateGlassOpacity(_ opacity: Double) {
+        state.glassOpacity = opacity
+    }
+
     func hide() {
+        commitHideTask?.cancel()
+        commitHideTask = nil
+        state.phase = .live
         window?.orderOut(nil)
     }
 
@@ -154,25 +207,37 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
             return
         }
 
+        commitHideTask?.cancel()
+        commitHideTask = nil
+
         let originalFrame = window.frame
+        state.phase = .committing(mode)
+        window.orderFrontRegardless()
+
+        if mode == .magicPoof {
+            // Keep the full spacious panel frame so stardust particles and mist rings
+            // can burst outward cleanly without clipping against the window bounds.
+            let poofDuration = duration(for: mode) + 0.06
+            commitHideTask = Task { @MainActor [weak self, weak window] in
+                try? await Task.sleep(for: .seconds(poofDuration))
+                guard !Task.isCancelled, let self, let window else { return }
+                window.orderOut(nil)
+                window.alphaValue = 1
+                self.state.phase = .live
+                if self.presentation?.anchorFrame == nil {
+                    self.saveCenter(originalFrame.center)
+                }
+                self.presentation = nil
+                self.commitHideTask = nil
+            }
+            return
+        }
+
         let targetFrame = commitTargetFrame(
             from: originalFrame,
             anchorFrame: presentation.anchorFrame,
             mode: mode
         )
-        let content = DraggableCaptionHostingView(
-            rootView: CaptionOverlayView(
-                text: presentation.text,
-                styleName: presentation.styleName,
-                translationStatus: presentation.translationStatus,
-                level: presentation.level,
-                theme: presentation.theme,
-                appearanceMode: presentation.appearanceMode,
-                phase: .committing(mode)
-            )
-        )
-        window.contentView = content
-        window.orderFrontRegardless()
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration(for: mode)
@@ -181,14 +246,16 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
             window.animator().setFrame(targetFrame, display: true)
         } completionHandler: { [weak self, weak window] in
             Task { @MainActor in
-                guard let window else { return }
+                guard let self, let window else { return }
+                guard self.state.phase == .committing(mode) else { return }
                 window.orderOut(nil)
                 window.alphaValue = 1
                 window.setFrame(originalFrame, display: false)
-                if self?.presentation?.anchorFrame == nil {
-                    self?.saveCenter(originalFrame.center)
+                self.state.phase = .live
+                if self.presentation?.anchorFrame == nil {
+                    self.saveCenter(originalFrame.center)
                 }
-                self?.presentation = nil
+                self.presentation = nil
             }
         }
     }
@@ -231,6 +298,9 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
         let yOffset: CGFloat
 
         switch mode {
+        case .magicPoof:
+            size = frame.size
+            yOffset = 0
         case .glyphStream:
             size = CGSize(width: max(120, frame.width * 0.36), height: max(22, frame.height * 0.34))
             yOffset = 18
@@ -255,6 +325,8 @@ final class CaptionOverlayWindow: NSObject, NSWindowDelegate {
 
     private func duration(for mode: CommitAnimationMode) -> TimeInterval {
         switch mode {
+        case .magicPoof:
+            0.58
         case .glyphStream:
             0.52
         case .beamSnap:
@@ -273,7 +345,7 @@ private extension CGRect {
     }
 }
 
-private final class DraggableCaptionHostingView: NSHostingView<CaptionOverlayView> {
+private final class DraggableCaptionHostingView: NSHostingView<CaptionOverlayLiveHost> {
     override func mouseDown(with event: NSEvent) {
         window?.performDrag(with: event)
     }

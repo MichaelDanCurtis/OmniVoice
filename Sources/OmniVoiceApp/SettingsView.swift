@@ -3,7 +3,7 @@ import SwiftUI
 import OmniVoiceCore
 
 struct SettingsView: View {
-    static let preferredWidth: CGFloat = 620
+    static let preferredWidth: CGFloat = 740
 
     @Bindable var model: AppModel
     let showTestCaption: () -> Void
@@ -33,9 +33,17 @@ struct SettingsView: View {
             settingsTabStrip
             Divider()
             selectedTabContent
+            if !model.accessibilityTrusted {
+                Divider()
+                AccessibilityDragBar(
+                    theme: model.activeTheme,
+                    openSettings: requestAccessibilityPermission,
+                    resetPermission: resetAccessibilityPermission
+                )
+            }
         }
         .frame(width: Self.preferredWidth)
-        .frame(minHeight: 620)
+        .frame(minHeight: 660)
         .sheet(item: $selectedCapability) { capability in
             CapabilityDetailSheet(capability: capability, theme: model.activeTheme)
         }
@@ -133,31 +141,31 @@ struct SettingsView: View {
     private var selectedTabContent: some View {
         switch selectedTab {
         case .overview:
-            tabPage {
+            cardScrollPage {
+                statusSection
                 firstRunSetupSection
                 accountSection
-                statusSection
                 startupPreflightSection
                 storageSection
                 testSection
             }
         case .dictation:
-            tabPage {
+            cardScrollPage {
                 dictationSection
                 dictionarySection
             }
         case .appearance:
-            tabPage {
-                appearanceSection
+            cardScrollPage {
+                ThemeStudioView(model: model)
                 recordingCueSection
                 hotkeySection
                 mouseControlsSection
-                waveformSection
-                engineFrameSection
             }
         case .models:
-            tabPage {
+            cardScrollPage {
+                serviceModeSection
                 modelSection
+                cleanupModelsSection
                 diarizationModelSection
                 customModelSection
             }
@@ -176,6 +184,17 @@ struct SettingsView: View {
         }
     }
 
+    private func cardScrollPage<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                content()
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+        }
+        .scrollIndicators(.automatic)
+    }
+
     private func tabPage<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         Form {
             content()
@@ -186,16 +205,32 @@ struct SettingsView: View {
         .padding(.bottom, 12)
     }
 
+    private func overviewCard<Content: View>(
+        _ title: String,
+        systemImage: String,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        OmniGlassCard(theme: model.activeTheme, cornerRadius: 14, strong: false, padding: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(title, systemImage: systemImage)
+                    .font(.subheadline.weight(.semibold))
+                content()
+            }
+        }
+    }
+
     private var accountSection: some View {
-        AccountSettingsSection(model: model, entitlement: model.entitlement)
+        overviewCard("Account", systemImage: "person.crop.circle") {
+            AccountSettingsSection(model: model, entitlement: model.entitlement)
+        }
     }
 
     @ViewBuilder
     private var firstRunSetupSection: some View {
         if !model.preferences.firstRunSetupCompleted {
-            Section("First Run Setup") {
+            overviewCard("First Run Setup", systemImage: "sparkles") {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("OmniSpeak needs permissions and the local MLX speech model before dictation feels instant.")
+                    Text("OmniSpeak needs permissions and a CoreML Neural Engine or local MLX speech model before dictation feels instant.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -265,92 +300,36 @@ struct SettingsView: View {
                         }
                     }
                 }
-                .padding(.vertical, 4)
+                .controlSize(.small)
+                .buttonStyle(.bordered)
+                .padding(.vertical, 2)
             }
         }
     }
 
     @ViewBuilder
     private var statusSection: some View {
-        Section("Status") {
-            LabeledContent("Engine", value: model.engineState.label)
-            LabeledContent("Endpoint", value: model.engineState.detail)
-            LabeledContent("Selected Model", value: selectedProviderStatus)
-            LabeledContent("Microphone", value: model.microphoneAuthorized ? "Allowed" : "Required")
-            LabeledContent("Accessibility", value: model.accessibilityTrusted ? "Allowed" : "Required")
-            LabeledContent("Streaming", value: model.streamingDiagnostics.state.displayName)
-            LabeledContent("Stream Chunks", value: streamChunkText)
-            LabeledContent("Stream Audio", value: byteCount(model.streamingDiagnostics.bytesSent))
-
-            if let lastError = model.streamingDiagnostics.lastError {
-                LabeledContent("Stream Error", value: lastError)
-            }
-
+        SettingsOverviewView(
+            model: model,
+            selectedProviderStatus: selectedProviderStatus,
+            streamChunkText: streamChunkText,
+            streamBytesText: byteCount(model.streamingDiagnostics.bytesSent),
+            showTestCaption: showTestCaption,
+            requestAccessibilityPermission: requestAccessibilityPermission,
+            resetAccessibilityPermission: resetAccessibilityPermission,
+            refreshPermissions: refreshPermissions,
+            showConversationHistory: showConversationHistory,
+            openConversationMode: openConversationMode,
+            openEditor: openEditor,
+            openAskAI: openAskAI
+        ) {
             selectedProviderRecoveryCard
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Button("Refresh") {
-                        refreshPermissions()
-                        Task {
-                            await model.refreshEngineStatus()
-                        }
-                    }
-
-                    Button("Open Dashboard") {
-                        NSWorkspace.shared.open(URL(string: "http://127.0.0.1:8765/")!)
-                    }
-
-                    Button("Open History") {
-                        showConversationHistory()
-                        Task {
-                            await model.refreshTranscripts()
-                        }
-                    }
-
-                    Button("Restart Engine") {
-                        Task {
-                            await model.restartEngine()
-                        }
-                    }
-                }
-
-                HStack {
-                    Button {
-                        openConversationMode()
-                    } label: {
-                        Label("Conversation Mode", systemImage: "bubble.left.and.text.bubble.right")
-                    }
-
-                    Button {
-                        openEditor()
-                    } label: {
-                        Label("Editor & Notes", systemImage: "doc.richtext")
-                    }
-
-                    Button {
-                        openAskAI()
-                    } label: {
-                        Label("Ask AI", systemImage: "sparkles")
-                    }
-                }
-            }
-
-            if !model.accessibilityTrusted {
-                Button("Open Accessibility Settings") {
-                    requestAccessibilityPermission()
-                }
-
-                Button("Reset Accessibility") {
-                    resetAccessibilityPermission()
-                }
-            }
         }
     }
 
     @ViewBuilder
     private var startupPreflightSection: some View {
-        Section("Startup Preflight") {
+        overviewCard("Startup Preflight", systemImage: "checklist") {
             if model.startupChecks.isEmpty {
                 Text("No startup check has run yet.")
                     .foregroundStyle(.secondary)
@@ -420,12 +399,14 @@ struct SettingsView: View {
                     }
                 }
             }
+            .controlSize(.small)
+            .buttonStyle(.bordered)
         }
     }
 
     @ViewBuilder
     private var storageSection: some View {
-        Section("Storage") {
+        overviewCard("Storage", systemImage: "externaldrive") {
             Toggle("Archive Conversations", isOn: automaticallyArchiveConversationsBinding)
 
             LabeledContent("Folder", value: model.conversationArchiveRootURL.path)
@@ -466,6 +447,9 @@ struct SettingsView: View {
                 .disabled(model.askAIThreads.isEmpty)
                 .help("Remove Ask AI chat threads without deleting editor documents or notes.")
             }
+
+            .controlSize(.small)
+            .buttonStyle(.bordered)
 
             Text("Conversation transcripts are mirrored here as Markdown and JSON. OmniSpeak keeps its internal engine database in Application Support.")
                 .font(.caption)
@@ -540,38 +524,146 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var dictationSection: some View {
-        Section("Dictation") {
-            Picker("ASR Provider", selection: providerBinding) {
-                ForEach(providerOrder, id: \.self) { provider in
-                    Text(model.label(for: provider)).tag(provider)
+        overviewCard("Speech & Cleanup", systemImage: "mic.fill") {
+            VStack(alignment: .leading, spacing: 11) {
+                HStack {
+                    Text("ASR Provider")
+                        .font(.callout)
+                    Spacer()
+                    Picker("ASR Provider", selection: providerBinding) {
+                        ForEach(providerOrder, id: \.self) { provider in
+                            Text(model.label(for: provider)).tag(provider)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 280)
                 }
-            }
 
-            Picker("Microphone", selection: microphoneBinding) {
-                Text("System Default").tag(String?.none)
-                ForEach(model.microphoneDevices) { device in
-                    Text(device.displayName).tag(Optional(device.id))
+                HStack(spacing: 8) {
+                    Text("Microphone")
+                        .font(.callout)
+                    Spacer()
+                    Picker("Microphone", selection: microphoneBinding) {
+                        Text("System Default").tag(String?.none)
+                        ForEach(model.microphoneDevices) { device in
+                            Text(device.displayName).tag(Optional(device.id))
+                        }
+                        if let selected = model.preferences.microphoneID,
+                           !model.microphoneDevices.contains(where: { $0.id == selected }) {
+                            Text("Missing: \(selected)").tag(Optional(selected))
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 230)
+
+                    Button {
+                        model.refreshMicrophones()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                    .help("Refresh available microphones")
                 }
-                if let selected = model.preferences.microphoneID,
-                   !model.microphoneDevices.contains(where: { $0.id == selected }) {
-                    Text("Missing: \(selected)").tag(Optional(selected))
+
+                Divider().opacity(0.35)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Cleanup Style")
+                        .font(.callout)
+                    Picker("Cleanup Style", selection: styleBinding) {
+                        ForEach(StyleProfile.allCases, id: \.self) { style in
+                            Text(style.displayName).tag(style)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
                 }
-            }
 
-            Button("Refresh Microphones") {
-                model.refreshMicrophones()
-            }
+                Divider().opacity(0.35)
 
-            Picker("Cleanup Style", selection: styleBinding) {
-                ForEach(StyleProfile.allCases, id: \.self) { style in
-                    Text(style.displayName).tag(style)
+                Toggle("Smart AI cleanup (LLM)", isOn: llmCleanupEnabledBinding)
+                if model.preferences.llmCleanupEnabled {
+                    Picker("Cleanup Backend", selection: llmCleanupBackendBinding) {
+                        ForEach(CleanupLLMBackend.allCases, id: \.self) { backend in
+                            Text(backend.displayName).tag(backend)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if model.preferences.llmCleanupBackend == .localMLX {
+                        Picker("Local Cleanup Model", selection: llmCleanupLocalModelBinding) {
+                            ForEach(CleanupModelRecommendation.allCases) { option in
+                                Text("\(option.displayName) (\(option.badge))").tag(option.providerID)
+                            }
+                        }
+
+                        let selectedCleanupModel = CleanupModelRecommendation(providerID: model.preferences.llmCleanupLocalModelID)
+                        let cleanupStatus = model.modelStatus(forProviderID: selectedCleanupModel.providerID)
+                        HStack {
+                            if cleanupStatus?.installed == true {
+                                Label("Installed locally", systemImage: "checkmark.circle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.green)
+                                Spacer()
+                                Button("Delete Model", role: .destructive) {
+                                    Task {
+                                        await model.deleteModel(providerID: selectedCleanupModel.providerID)
+                                    }
+                                }
+                                .controlSize(.small)
+                                .buttonStyle(.bordered)
+                            } else {
+                                Button("Download \(selectedCleanupModel.displayName)") {
+                                    Task {
+                                        await model.downloadSelectedCleanupModel()
+                                    }
+                                }
+                                .controlSize(.small)
+                                .buttonStyle(.borderedProminent)
+                                Spacer()
+                                if let size = cleanupStatus?.size {
+                                    Text(size)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+
+                        Text(selectedCleanupModel.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker("Cleanup LLM Provider", selection: llmCleanupProviderBinding) {
+                            Text("Default (\(model.preferences.textLLMDefaultProvider.displayName))")
+                                .tag(Optional<TextLLMProviderKind>.none)
+                            ForEach(TextLLMProviderKind.allCases, id: \.self) { provider in
+                                Text(provider.displayName).tag(Optional(provider))
+                            }
+                        }
+                        if model.preferences.resolvedLLMCleanupConfig() == nil {
+                            Text("Configure the selected Text LLM provider (local Ollama/llama-server or cloud API) in AI Providers. Falls back to instant rule-based cleanup when unavailable.")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        } else {
+                            Text("Uses the selected LLM to polish grammar, self-corrections, tone, and formatting for the active app. Automatically falls back to instant rule-based cleanup on timeout or error.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    Text("Optional: enable a local GGUF/Ollama or API LLM cleanup pass for Wispr-style semantic formatting and natural self-corrections.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-            }
 
-            Toggle("Live type draft into cursor", isOn: liveDraftInsertionEnabledBinding)
-            Text("Streams draft text into plain native text fields while listening. Rich composers still commit the cleaned text on release.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Divider().opacity(0.35)
+
+                Toggle("Live type draft into cursor", isOn: liveDraftInsertionEnabledBinding)
+                Text("Streams draft text into plain native text fields while listening. Rich composers still commit the cleaned text on release.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -593,15 +685,19 @@ struct SettingsView: View {
     }
 
     private func speechModelCard(_ recommendation: SpeechModelRecommendation) -> some View {
-        let status = model.modelStatus(forProviderID: recommendation.providerID)
-        let providerInfo = model.providerInfo(for: recommendation.providerKind)
+        let isNativeCoreML = recommendation == .parakeetCoreMLANE
+        let status = isNativeCoreML ? nil : model.modelStatus(forProviderID: recommendation.providerID)
+        let providerInfo = isNativeCoreML ? nil : model.providerInfo(for: recommendation.providerKind)
         let isSelected = model.preferences.asrProvider == recommendation.providerKind
         let isRunning = isModelActionRunning(providerID: recommendation.providerID)
-        let cardState = speechModelCardState(
-            status: status,
-            providerInfo: providerInfo,
-            isSelected: isSelected
-        )
+        let coreMLCached = isNativeCoreML && CoreMLParakeetTranscriber().isModelCached
+        let cardState: (label: String, color: Color) = isNativeCoreML
+            ? (isSelected ? ("Selected (ANE)", .green) : (coreMLCached ? ("Ready (ANE)", .green) : ("Auto-downloads", .secondary)))
+            : speechModelCardState(
+                status: status,
+                providerInfo: providerInfo,
+                isSelected: isSelected
+            )
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 3) {
@@ -653,32 +749,62 @@ struct SettingsView: View {
                     .textSelection(.enabled)
             }
 
+            if isRunning {
+                HStack(spacing: 8) {
+                    if let progress = model.localDownloadProgress[recommendation.providerID], progress > 0.03, progress < 1.0 {
+                        ProgressView(value: progress)
+                            .progressViewStyle(.linear)
+                    } else {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Text(model.localDownloadMessages[recommendation.providerID] ?? "Downloading...")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            } else if let localMsg = model.localDownloadMessages[recommendation.providerID], !localMsg.isEmpty {
+                Text(localMsg)
+                    .font(.caption2)
+                    .foregroundStyle(localMsg.lowercased().contains("failed") ? .orange : .secondary)
+                    .textSelection(.enabled)
+            }
+
             HStack {
                 Button(isSelected ? "Selected" : "Use") {
                     model.setASRProvider(recommendation.providerKind)
                 }
                 .disabled(isSelected)
 
-                Button("Check") {
-                    Task {
-                        await model.checkModelUpdate(providerID: recommendation.providerID)
+                if isNativeCoreML {
+                    Button(isRunning ? "Preparing..." : (coreMLCached ? "Re-verify ANE Model" : "Prepare ANE Model")) {
+                        Task {
+                            await model.downloadModel(providerID: recommendation.providerID)
+                        }
                     }
-                }
-                .disabled(isRunning)
+                    .disabled(isRunning)
+                } else {
+                    Button("Check") {
+                        Task {
+                            await model.checkModelUpdate(providerID: recommendation.providerID)
+                        }
+                    }
+                    .disabled(isRunning)
 
-                Button(modelButtonTitle(status: status)) {
-                    Task {
-                        await model.downloadModel(providerID: recommendation.providerID)
+                    Button(isRunning ? "Downloading..." : modelButtonTitle(status: status)) {
+                        Task {
+                            await model.downloadModel(providerID: recommendation.providerID)
+                        }
                     }
-                }
-                .disabled(isRunning)
+                    .disabled(isRunning)
 
-                Button("Delete") {
-                    Task {
-                        await model.deleteModel(providerID: recommendation.providerID)
+                    Button("Delete") {
+                        Task {
+                            await model.deleteModel(providerID: recommendation.providerID)
+                        }
                     }
+                    .disabled(isRunning || status?.installed != true)
                 }
-                .disabled(isRunning || status?.installed != true)
             }
             .font(.caption)
         }
@@ -721,7 +847,8 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var hotkeySection: some View {
-        Section("Hotkeys") {
+        overviewCard("Hotkeys", systemImage: "keyboard") {
+            VStack(alignment: .leading, spacing: 10) {
             HotkeyRecorderView(
                 title: "Dictation Hotkey",
                 binding: model.preferences.dictationHotkey,
@@ -799,35 +926,40 @@ struct SettingsView: View {
                 .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
+            }
+            .controlSize(.small)
+            .buttonStyle(.bordered)
         }
     }
 
     @ViewBuilder
     private var mouseControlsSection: some View {
-        Section("Mouse Controls") {
-            Toggle("Mouse push-to-talk", isOn: mousePushToTalkEnabledBinding)
-                .help("Hold a configured extra mouse button to dictate without using the keyboard.")
+        overviewCard("Mouse Controls", systemImage: "computermouse") {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("Mouse push-to-talk", isOn: mousePushToTalkEnabledBinding)
+                    .help("Hold a configured extra mouse button to dictate without using the keyboard.")
 
-            MouseButtonRecorderView(
-                title: "Push-to-talk Button",
-                binding: model.preferences.mousePushToTalkButton,
-                theme: model.activeTheme,
-                onChange: model.setMousePushToTalkButton
-            )
+                MouseButtonRecorderView(
+                    title: "Push-to-talk Button",
+                    binding: model.preferences.mousePushToTalkButton,
+                    theme: model.activeTheme,
+                    onChange: model.setMousePushToTalkButton
+                )
 
-            Toggle("Transcript cache picker", isOn: transcriptCacheMouseEnabledBinding)
-                .help("Open a floating picker for recent dictations, then scroll and click to insert one.")
+                Toggle("Transcript cache picker", isOn: transcriptCacheMouseEnabledBinding)
+                    .help("Open a floating picker for recent dictations, then scroll and click to insert one.")
 
-            MouseButtonRecorderView(
-                title: "Cache Picker Button",
-                binding: model.preferences.transcriptCacheMouseButton,
-                theme: model.activeTheme,
-                onChange: model.setTranscriptCacheMouseButton
-            )
+                MouseButtonRecorderView(
+                    title: "Cache Picker Button",
+                    binding: model.preferences.transcriptCacheMouseButton,
+                    theme: model.activeTheme,
+                    onChange: model.setTranscriptCacheMouseButton
+                )
 
-            Text("Mouse shortcuts only accept extra buttons so normal left, right, and middle clicks stay untouched.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Text("Mouse shortcuts only accept extra buttons so normal left, right, and middle clicks stay untouched.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -861,258 +993,473 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private var appearanceSection: some View {
-        Section("Theme") {
-            Picker("Mode", selection: appearanceModeBinding) {
-                ForEach(AppAppearanceMode.allCases, id: \.self) { mode in
-                    Text(mode.displayName).tag(mode)
-                }
-            }
-
-            Picker("Theme", selection: themeIDBinding) {
-                ForEach(OmniVoiceTheme.builtIn, id: \.id) { theme in
-                    Text(theme.name).tag(theme.id)
-                }
-                Text("Custom").tag(OmniVoiceThemeID.custom)
-            }
-
-            ColorPicker(
-                "Custom Accent",
-                selection: Binding(
-                    get: { Color(themeColor: model.preferences.customAccentColor) },
-                    set: { model.setCustomAccentColor(ThemeColor(color: $0)) }
-                )
-            )
-
-            ThemePreview(theme: model.activeTheme)
-        }
-    }
-
-    @ViewBuilder
     private var recordingCueSection: some View {
-        Section("Recording Cues") {
-            Toggle("Sound cues", isOn: recordingSoundCuesEnabledBinding)
-                .help("Play a short sound when recording starts and stops.")
+        overviewCard("Recording Cues", systemImage: "speaker.wave.2") {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("Sound cues", isOn: recordingSoundCuesEnabledBinding)
+                    .help("Play a short sound when recording starts and stops.")
 
-            Picker("Timing", selection: recordingCueTimingBinding) {
-                ForEach(RecordingCueTiming.allCases, id: \.self) { timing in
-                    Text(timing.displayName).tag(timing)
+                Picker("Timing", selection: recordingCueTimingBinding) {
+                    ForEach(RecordingCueTiming.allCases, id: \.self) { timing in
+                        Text(timing.displayName).tag(timing)
+                    }
                 }
-            }
-            .pickerStyle(.segmented)
-            .help("Choose whether recording cues play at start, stop, or both.")
+                .pickerStyle(.segmented)
+                .help("Choose whether recording cues play at start, stop, or both.")
                 .disabled(!model.preferences.recordingSoundCuesEnabled)
 
-            Picker("Cue set", selection: recordingCueSetBinding) {
-                ForEach(RecordingCueSet.allCases, id: \.self) { cueSet in
-                    Text(cueSet.displayName).tag(cueSet)
+                Picker("Cue set", selection: recordingCueSetBinding) {
+                    ForEach(RecordingCueSet.allCases, id: \.self) { cueSet in
+                        Text(cueSet.displayName).tag(cueSet)
+                    }
                 }
-            }
-            .disabled(!model.preferences.recordingSoundCuesEnabled)
+                .disabled(!model.preferences.recordingSoundCuesEnabled)
 
-            LabeledContent("Volume") {
-                HStack(spacing: 10) {
-                    Slider(value: recordingCueVolumeBinding, in: 0...1)
-                        .frame(maxWidth: 220)
-                    Text("\(Int((model.preferences.recordingCueVolume * 100).rounded()))%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(width: 42, alignment: .trailing)
+                LabeledContent("Volume") {
+                    HStack(spacing: 10) {
+                        Slider(value: recordingCueVolumeBinding, in: 0...1)
+                            .frame(maxWidth: 220)
+                        Text("\(Int((model.preferences.recordingCueVolume * 100).rounded()))%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 42, alignment: .trailing)
+                    }
                 }
-            }
-            .disabled(!model.preferences.recordingSoundCuesEnabled)
-
-            HStack {
-                Button {
-                    model.previewRecordingCue(.start)
-                } label: {
-                    Label("Preview Start", systemImage: "record.circle")
-                }
-
-                Button {
-                    model.previewRecordingCue(.stop)
-                } label: {
-                    Label("Preview Stop", systemImage: "stop.circle")
-                }
-            }
-            .disabled(!model.preferences.recordingSoundCuesEnabled)
-        }
-    }
-
-    @ViewBuilder
-    private var waveformSection: some View {
-        Section("Waveform") {
-            Picker("Waveform", selection: waveformModeBinding) {
-                ForEach(WaveformMode.allCases, id: \.self) { mode in
-                    Text(mode.displayName).tag(mode)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var engineFrameSection: some View {
-        Section("Engine Panel") {
-            Picker("Side", selection: engineFrameSideBinding) {
-                ForEach(EngineFrameSide.allCases, id: \.self) { side in
-                    Text(side.displayName).tag(side)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var modelSection: some View {
-        Section("Speech Model") {
-            Picker("ASR Provider", selection: providerBinding) {
-                ForEach(providerOrder, id: \.self) { provider in
-                    Text(model.label(for: provider)).tag(provider)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(SpeechModelRecommendation.allCases) { recommendation in
-                    speechModelCard(recommendation)
-                }
-            }
-
-            if let info = model.providerInfo(for: model.preferences.asrProvider) {
-                LabeledContent("Runtime", value: info.available ? "Available" : (info.reason ?? "Unavailable"))
-            }
-
-            if let modelStatus = selectedModelStatus {
-                LabeledContent("Hugging Face", value: modelStatus.repoID)
-                LabeledContent("Local Path", value: modelStatus.localPath)
-                LabeledContent("Installed", value: modelStatus.installed ? "Yes" : "No")
-                LabeledContent("Revision", value: modelStatus.installedRevision?.prefix(12).description ?? "Not installed")
-                LabeledContent("Update", value: modelUpdateText(forProviderID: model.preferences.asrProvider.rawValue))
+                .disabled(!model.preferences.recordingSoundCuesEnabled)
 
                 HStack {
-                    Button("Check Update") {
-                        Task {
-                            await model.checkSelectedModelUpdate()
-                        }
+                    Button {
+                        model.previewRecordingCue(.start)
+                    } label: {
+                        Label("Preview Start", systemImage: "record.circle")
                     }
-                    .disabled(isModelActionRunning)
 
-                    Button(modelDownloadButtonTitle) {
-                        Task {
-                            await model.downloadSelectedModel()
-                        }
+                    Button {
+                        model.previewRecordingCue(.stop)
+                    } label: {
+                        Label("Preview Stop", systemImage: "stop.circle")
                     }
-                    .disabled(isModelActionRunning)
+
+                    Button {
+                        model.previewRecordingCue(.empty)
+                    } label: {
+                        Label("Preview Empty", systemImage: "waveform.slash")
+                    }
+                }
+                .controlSize(.small)
+                .buttonStyle(.bordered)
+                .disabled(!model.preferences.recordingSoundCuesEnabled)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var serviceModeSection: some View {
+        let cfg = model.preferences.serviceMode
+        let hasKey = !model.effectiveDeepgramAPIKey.isEmpty
+        let registry = AgentRegistry(custom: model.preferences.customAgents)
+        let discoveredIDs = Set(model.discoveredAgents.map(\.id))
+
+        OmniGlassCard(theme: model.activeTheme, cornerRadius: 14, strong: cfg.enabled, padding: 14) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 8) {
+                            Label("Service Mode (Cloud / Outbound)", systemImage: "cloud.bolt.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .fontDesign(model.activeTheme.look.headerFontDesign)
+
+                            OmniStatusPill(
+                                title: cfg.enabled ? (hasKey ? "Active" : "API Key Needed") : "Local",
+                                tint: cfg.enabled ? (hasKey ? .cyan : .orange) : .secondary,
+                                systemImage: cfg.enabled ? "antenna.radiowaves.left.and.right" : "desktopcomputer",
+                                theme: model.activeTheme
+                            )
+                        }
+
+                        Text("Stream voice through Deepgram and route LLM cleanup, translation, Voice Edit, and Command Mode through your existing AI subscriptions.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Toggle("", isOn: Binding(
+                        get: { model.preferences.serviceMode.enabled },
+                        set: { model.setServiceModeEnabled($0) }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
                 }
 
-                if let message = selectedModelMessage {
-                    Text(message)
+                Divider().opacity(0.35)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Text("Deepgram API Key")
+                            .font(.callout)
+                            .frame(width: 136, alignment: .leading)
+
+                        SecureField("dg_... (stored in macOS Keychain)", text: Binding(
+                            get: { model.deepgramAPIKey },
+                            set: { model.setDeepgramAPIKey($0) }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+
+                        Button {
+                            Task { await model.testDeepgramConnection() }
+                        } label: {
+                            Text(model.isTestingDeepgramConnection ? "Testing…" : "Test Key")
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                        .disabled(model.isTestingDeepgramConnection || !hasKey)
+                    }
+
+                    if let status = model.deepgramConnectionStatus, !status.isEmpty {
+                        Text(status)
+                            .font(.caption2)
+                            .foregroundStyle(status.lowercased().hasPrefix("connected") ? .green : .orange)
+                    } else if model.deepgramAPIKey.isEmpty, hasKey {
+                        Text("Using DEEPGRAM_API_KEY from your shell environment.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Deepgram Model")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Picker("Deepgram Model", selection: Binding(
+                            get: { model.preferences.serviceMode.deepgramModel },
+                            set: { model.setServiceModeDeepgramModel($0) }
+                        )) {
+                            ForEach(DeepgramModel.allCases) { option in
+                                Text("\(option.displayName) — \(option.badge)").tag(option)
+                            }
+                        }
+                        .labelsHidden()
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Voice Language")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Picker("Voice Language", selection: Binding(
+                            get: { model.preferences.serviceMode.deepgramLanguage },
+                            set: { model.setServiceModeDeepgramLanguage($0) }
+                        )) {
+                            ForEach(ServiceModeConfiguration.languageOptions, id: \.code) { item in
+                                Text(item.label).tag(item.code)
+                            }
+                        }
+                        .labelsHidden()
+                    }
+                }
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Subscription LLM")
+                            .font(.callout)
+                        Text("Use your existing Claude, Codex, Gemini, or Copilot subscription — no extra API key required.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Picker("Subscription LLM", selection: Binding<String>(
+                        get: { model.preferences.serviceMode.llmRoute.pickerID },
+                        set: { model.setServiceModeLLMRoute(ServiceModeLLMRoute(pickerID: $0)) }
+                    )) {
+                        Text("Auto (Best Available Subscription)").tag(ServiceModeLLMRoute.auto.pickerID)
+                        Section("Installed Subscription CLIs") {
+                            ForEach(registry.all, id: \.id) { agent in
+                                let badge = discoveredIDs.contains(agent.id) ? " ✓" : ""
+                                Text("\(agent.displayName) CLI\(badge)")
+                                    .tag(ServiceModeLLMRoute.subscriptionAgent(agentID: agent.id).pickerID)
+                            }
+                        }
+                        Section("Configured AI Providers (OAuth / API)") {
+                            ForEach(TextLLMProviderKind.allCases, id: \.self) { provider in
+                                let cfgProvider = model.preferences.textLLMConfiguration(for: provider)
+                                let badge = cfgProvider.isConfigured ? " ✓" : ""
+                                Text("\(cfgProvider.displayName)\(badge)")
+                                    .tag(ServiceModeLLMRoute.configuredTextLLM(provider: provider).pickerID)
+                            }
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 260)
+                }
+
+                HStack(spacing: 16) {
+                    Toggle("Smart Format & Punctuation", isOn: Binding(
+                        get: { model.preferences.serviceMode.deepgramSmartFormat },
+                        set: { model.setServiceModeDeepgramSmartFormat($0) }
+                    ))
+                    .font(.caption)
+
+                    Toggle("Unload local MLX RAM while active", isOn: Binding(
+                        get: { model.preferences.serviceMode.unloadLocalModelsWhenEnabled },
+                        set: { model.setServiceModeUnloadLocalModels($0) }
+                    ))
+                    .font(.caption)
+                }
+            }
+        }
+    }
+
+    private var modelSection: some View {
+        overviewCard("Speech Recognition Models", systemImage: "waveform") {
+            VStack(alignment: .leading, spacing: 12) {
+                Picker("Active ASR Provider", selection: providerBinding) {
+                    ForEach(providerOrder, id: \.self) { provider in
+                        Text(model.label(for: provider)).tag(provider)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(SpeechModelRecommendation.allCases) { recommendation in
+                        speechModelCard(recommendation)
+                    }
+                }
+
+                if let info = model.providerInfo(for: model.preferences.asrProvider) {
+                    LabeledContent("Runtime", value: info.available ? "Available" : (info.reason ?? "Unavailable"))
+                }
+
+                if let modelStatus = selectedModelStatus {
+                    Divider().opacity(0.35)
+                    LabeledContent("Hugging Face", value: modelStatus.repoID)
+                    LabeledContent("Local Path", value: modelStatus.localPath)
+                    LabeledContent("Installed", value: modelStatus.installed ? "Yes" : "No")
+                    LabeledContent("Revision", value: modelStatus.installedRevision?.prefix(12).description ?? "Not installed")
+                    LabeledContent("Update", value: modelUpdateText(forProviderID: model.preferences.asrProvider.rawValue))
+
+                    HStack {
+                        Button("Check Update") {
+                            Task {
+                                await model.checkSelectedModelUpdate()
+                            }
+                        }
+                        .disabled(isModelActionRunning)
+
+                        Button(modelDownloadButtonTitle) {
+                            Task {
+                                await model.downloadSelectedModel()
+                            }
+                        }
+                        .disabled(isModelActionRunning)
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+
+                    if let message = selectedModelMessage {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+
+                    if model.selectedProviderIssue != nil {
+                        providerRecoveryActions
+                    }
+                } else {
+                    Text("In-process CoreML ANE and built-in Apple Speech models do not require a separate Python runtime download.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
                 }
+            }
+        }
+    }
 
-                if model.selectedProviderIssue != nil {
-                    providerRecoveryActions
+    @ViewBuilder
+    private var cleanupModelsSection: some View {
+        overviewCard("Smart AI Cleanup Models (Apple Silicon MLX)", systemImage: "sparkles") {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(CleanupModelRecommendation.allCases) { option in
+                    let status = model.modelStatus(forProviderID: option.providerID)
+                    let isInstalled = model.installedMLXModelIDs.contains(option.providerID) || status?.installed == true
+                    let isSelected = model.preferences.llmCleanupLocalModelID == option.providerID
+                    let isRunning = isModelActionRunning(providerID: option.providerID)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(status?.label ?? option.displayName)
+                                        .font(.callout.weight(.semibold))
+                                    OmniStatusPill(
+                                        title: isInstalled ? "Installed" : (status?.size ?? option.badge),
+                                        tint: isInstalled ? .green : Color(themeColor: model.activeTheme.accentColor),
+                                        theme: model.activeTheme
+                                    )
+                                }
+                                Text(option.detail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+
+                        if isRunning {
+                            HStack(spacing: 8) {
+                                if let progress = model.localDownloadProgress[option.providerID], progress > 0.03, progress < 1.0 {
+                                    ProgressView(value: progress)
+                                        .progressViewStyle(.linear)
+                                } else {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                                Text(model.localDownloadMessages[option.providerID] ?? "Downloading...")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                        } else if let msg = model.localDownloadMessages[option.providerID] ?? status?.downloadMessage, !msg.isEmpty {
+                            Text(msg)
+                                .font(.caption2)
+                                .foregroundStyle(msg.lowercased().contains("failed") ? .orange : .secondary)
+                                .textSelection(.enabled)
+                        }
+
+                        HStack(spacing: 8) {
+                            Button(isSelected ? "Selected" : "Use Preset") {
+                                model.setLLMCleanupLocalModelID(option.providerID)
+                            }
+                            .disabled(isSelected)
+
+                            Button("Check Update") {
+                                Task { await model.checkModelUpdate(providerID: option.providerID) }
+                            }
+                            .disabled(isRunning)
+
+                            Button(isRunning ? "Downloading..." : (isInstalled ? "Redownload" : "Download")) {
+                                Task { await model.downloadModel(providerID: option.providerID) }
+                            }
+                            .disabled(isRunning)
+
+                            if isInstalled {
+                                Button("Delete", role: .destructive) {
+                                    Task { await model.deleteModel(providerID: option.providerID) }
+                                }
+                                .disabled(isRunning)
+                            }
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                    }
+                    .padding(10)
+                    .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
                 }
-            } else {
-                Text("No downloadable model is required for this provider.")
-                    .foregroundStyle(.secondary)
             }
         }
     }
 
     @ViewBuilder
     private var diarizationModelSection: some View {
-        Section("Conversation Diarization") {
-            Toggle("Speaker Diarization", isOn: conversationDiarizationEnabledBinding)
+        overviewCard("Conversation Diarization", systemImage: "person.2.wave.2") {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("Speaker Diarization", isOn: conversationDiarizationEnabledBinding)
 
-            Picker("Precision", selection: conversationDiarizationPrecisionBinding) {
-                ForEach(DiarizationPrecision.allCases, id: \.self) { precision in
-                    Text("\(precision.displayName) - \(precision.detail)").tag(precision)
-                }
-            }
-            .disabled(!model.conversationDiarizationEnabled)
-
-            LabeledContent("Session Provider", value: conversationDiarizationRuntimeText)
-
-            if let info = selectedDiarizationProviderInfo {
-                LabeledContent("Runtime", value: info.available ? "Available" : (info.reason ?? "Unavailable"))
-            }
-
-            if let modelStatus = selectedDiarizationModelStatus {
-                LabeledContent("Hugging Face", value: modelStatus.repoID)
-                LabeledContent("Local Path", value: modelStatus.localPath)
-                LabeledContent("Installed", value: modelStatus.installed ? "Yes" : "No")
-                LabeledContent("Revision", value: modelStatus.installedRevision?.prefix(12).description ?? "Not installed")
-                LabeledContent("Update", value: modelUpdateText(forProviderID: model.conversationDiarizationPrecision.providerID))
-
-                HStack {
-                    Button("Check Update") {
-                        Task {
-                            await model.checkSelectedDiarizationModelUpdate()
-                        }
+                Picker("Precision", selection: conversationDiarizationPrecisionBinding) {
+                    ForEach(DiarizationPrecision.allCases, id: \.self) { precision in
+                        Text("\(precision.displayName) - \(precision.detail)").tag(precision)
                     }
-                    .disabled(isDiarizationModelActionRunning)
+                }
+                .disabled(!model.conversationDiarizationEnabled)
 
-                    Button(diarizationModelDownloadButtonTitle) {
-                        Task {
-                            model.setConversationDiarizationEnabled(true)
-                            await model.downloadSelectedDiarizationModel()
+                LabeledContent("Session Provider", value: conversationDiarizationRuntimeText)
+
+                if let info = selectedDiarizationProviderInfo {
+                    LabeledContent("Runtime", value: info.available ? "Available" : (info.reason ?? "Unavailable"))
+                }
+
+                if let modelStatus = selectedDiarizationModelStatus {
+                    LabeledContent("Hugging Face", value: modelStatus.repoID)
+                    LabeledContent("Local Path", value: modelStatus.localPath)
+                    LabeledContent("Installed", value: modelStatus.installed ? "Yes" : "No")
+                    LabeledContent("Revision", value: modelStatus.installedRevision?.prefix(12).description ?? "Not installed")
+                    LabeledContent("Update", value: modelUpdateText(forProviderID: model.conversationDiarizationPrecision.providerID))
+
+                    HStack {
+                        Button("Check Update") {
+                            Task {
+                                await model.checkSelectedDiarizationModelUpdate()
+                            }
                         }
+                        .disabled(isDiarizationModelActionRunning)
+
+                        Button(diarizationModelDownloadButtonTitle) {
+                            Task {
+                                model.setConversationDiarizationEnabled(true)
+                                await model.downloadSelectedDiarizationModel()
+                            }
+                        }
+                        .disabled(isDiarizationModelActionRunning)
                     }
-                    .disabled(isDiarizationModelActionRunning)
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+
+                    if let message = selectedDiarizationModelMessage {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                 }
 
-                if let message = selectedDiarizationModelMessage {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                if let issue = model.selectedDiarizationProviderIssue {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(issue.title)
+                            .font(.callout.weight(.semibold))
+                        Text(issue.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                    .padding(10)
+                    .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
                 }
-            }
-
-            if let issue = model.selectedDiarizationProviderIssue {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(issue.title)
-                        .font(.callout.weight(.semibold))
-                    Text(issue.detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-                .padding(10)
-                .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
             }
         }
     }
 
     @ViewBuilder
     private var customModelSection: some View {
-        Section("External Local Models") {
-            TextField("Custom Speech Model", text: customSpeechModelPathBinding)
-                .textFieldStyle(.roundedBorder)
-            HStack {
-                Button("Choose Speech Model") {
-                    chooseDirectory(title: "Choose Speech Model Folder", onSelect: model.setCustomSpeechModelPath)
+        overviewCard("External Local Models", systemImage: "folder") {
+            VStack(alignment: .leading, spacing: 10) {
+                TextField("Custom Speech Model", text: customSpeechModelPathBinding)
+                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    Button("Choose Speech Model") {
+                        chooseDirectory(title: "Choose Speech Model Folder", onSelect: model.setCustomSpeechModelPath)
+                    }
+                    Button("Clear Speech Model") {
+                        model.setCustomSpeechModelPath("")
+                    }
                 }
-                Button("Clear Speech Model") {
-                    model.setCustomSpeechModelPath("")
-                }
-            }
+                .controlSize(.small)
+                .buttonStyle(.bordered)
 
-            TextField("Custom Translation Model Folder", text: customTranslationModelPathBinding)
-                .textFieldStyle(.roundedBorder)
-            HStack {
-                Button("Choose Local Translation Folder") {
-                    chooseDirectory(title: "Choose Translation Model Folder", onSelect: model.setCustomTranslationModelPath)
+                TextField("Custom Translation Model Folder", text: customTranslationModelPathBinding)
+                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    Button("Choose Local Translation Folder") {
+                        chooseDirectory(title: "Choose Translation Model Folder", onSelect: model.setCustomTranslationModelPath)
+                    }
+                    Button("Clear Translation Model") {
+                        model.setCustomTranslationModelPath("")
+                    }
                 }
-                Button("Clear Translation Model") {
-                    model.setCustomTranslationModelPath("")
-                }
-            }
+                .controlSize(.small)
+                .buttonStyle(.bordered)
 
-            Text("Custom model paths override managed downloads when you want OmniSpeak to use a manually installed model folder.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Text("Custom model paths override managed downloads when you want OmniSpeak to use a manually installed model folder.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -1121,111 +1468,32 @@ struct SettingsView: View {
         Section("Live Translation") {
             Toggle("Translate dictated speech", isOn: liveTranslationEnabledBinding)
 
-            Picker("Provider", selection: translationProviderBinding) {
-                ForEach(TranslationProviderKind.allCases) { provider in
-                    Text(provider.displayName).tag(provider)
-                }
-            }
+            Text("Zero-config local translation runs automatically via Apple Silicon MLX Qwen3 (no Hugging Face token needed) or your configured AI provider. You can also say \u{201C}in Spanish, …\u{201D} or \u{201C}translate to Japanese, …\u{201D} inline anytime.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
-            if let info = selectedTranslationProviderInfo {
-                LabeledContent("Runtime", value: info.available ? "Available" : (info.reason ?? "Unavailable"))
-            }
+            // Quick 1-click language chip bar matching the floating Crystal Quick Bar
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Quick Target Language")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
 
-            Picker("Model", selection: translationModelProviderIDBinding) {
-                ForEach(TranslationModelRecommendation.allCases) { recommendation in
-                    Text(model.modelStatus(forProviderID: recommendation.providerID)?.label ?? recommendation.displayName)
-                        .tag(recommendation.providerID)
-                }
-            }
-
-            if let translationModelStatus = selectedTranslationModelStatus {
-                LabeledContent("Repository", value: translationModelStatus.repoID)
-                if let recommendation = translationModelStatus.recommendation {
-                    LabeledContent("Best For", value: recommendation)
-                }
-                if let size = translationModelStatus.size {
-                    LabeledContent("Download", value: size)
-                }
-                if let precision = translationModelStatus.precision {
-                    LabeledContent("Precision", value: precision)
-                }
-                LabeledContent("Installed", value: translationModelStatus.installed ? "Yes" : "No")
-                LabeledContent("Local Path", value: translationModelStatus.localPath)
-                LabeledContent("Update", value: modelUpdateText(forProviderID: model.selectedTranslationModelProviderID()))
-
-                if let message = selectedTranslationModelMessage {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-
-                HStack {
-                    Button("Open Agreement") {
-                        model.openSelectedTranslationModelAgreement()
-                    }
-                    Button("HF Tokens") {
-                        model.openHuggingFaceTokenSettings()
-                    }
-                    Button("Check Update") {
-                        Task {
-                            await model.checkSelectedTranslationModelUpdate()
+                HStack(spacing: 6) {
+                    ForEach(["es", "fr", "ja", "de", "zh", "it", "pt", "ko"], id: \.self) { code in
+                        let info = InlineTranslationParser.languageInfo(forCode: code)
+                        let selected = model.preferences.liveTranslationEnabled
+                            && model.preferences.translationTargetLanguage.lowercased() == code
+                        Button {
+                            model.selectQuickTranslationLanguage(selected ? nil : code)
+                        } label: {
+                            Text(info.map { "\($0.flag) \($0.code.uppercased())" } ?? code.uppercased())
+                                .font(.caption.weight(selected ? .bold : .medium))
                         }
-                    }
-                    Button(translationModelDownloadButtonTitle) {
-                        Task {
-                            await model.downloadSelectedTranslationModel()
-                        }
-                    }
-                    .disabled(isTranslationModelActionRunning)
-                }
-
-                Text("TranslateGemma MLX uses the Gemma license on Hugging Face. Before the first download, sign in, accept the model agreement, then paste a Hugging Face token here or authenticate with huggingface-cli login / HF_TOKEN.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-
-            SecureField("Hugging Face Token", text: $model.huggingFaceTokenDraft)
-                .textFieldStyle(.roundedBorder)
-            HStack {
-                Button("Load Saved Token") {
-                    model.loadHuggingFaceTokenFromKeychain()
-                }
-                Button("Save Token") {
-                    model.saveHuggingFaceTokenToKeychain()
-                }
-                Button("Validate Access") {
-                    Task {
-                        await model.validateHuggingFaceAccess()
+                        .buttonStyle(.bordered)
+                        .tint(selected ? Color(themeColor: model.activeTheme.accentColor) : .secondary)
+                        .controlSize(.small)
                     }
                 }
-                Button("Clear") {
-                    model.clearHuggingFaceToken()
-                }
-            }
-
-            if let status = model.huggingFaceAuthStatus {
-                LabeledContent("Hugging Face", value: statusSummary(status))
-                Text(status.message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-
-            Picker("Spoken Language", selection: translationSourceLanguageBinding) {
-                ForEach(model.translationSourceLanguageOptions) { language in
-                    Text(model.translationLanguageLabel(for: language.code, in: model.translationSourceLanguageOptions))
-                        .tag(language.code)
-                }
-            }
-            .disabled(model.translationCapabilities?.sourceLanguageLocked ?? true)
-
-            if let reason = model.translationCapabilities?.sourceLanguageReason {
-                Text(reason)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
             }
 
             Picker("Translate To", selection: translationTargetLanguageBinding) {
@@ -1236,7 +1504,7 @@ struct SettingsView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Hot Menu Languages")
+                Text("Quick Bar Languages")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
 
@@ -1248,7 +1516,7 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                                 .frame(width: 16, alignment: .leading)
 
-                            Picker("Hot Language \(slot + 1)", selection: translationQuickTargetLanguageBinding(slot: slot)) {
+                            Picker("Quick Language \(slot + 1)", selection: translationQuickTargetLanguageBinding(slot: slot)) {
                                 Text("Not used").tag("")
                                 ForEach(model.translationTargetLanguageOptions) { language in
                                     Text(model.translationLanguageLabel(for: language.code, in: model.translationTargetLanguageOptions))
@@ -1261,7 +1529,7 @@ struct SettingsView: View {
                     }
                 }
 
-                Text("Assign Translation Language in the hot menu, then tap that orb or arrow repeatedly to cycle targets.")
+                Text("Open the Crystal Quick Bar with your Hot Menu shortcut to switch languages in one click.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1269,49 +1537,100 @@ struct SettingsView: View {
             .padding(.vertical, 10)
             .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
 
-            if let capabilities = model.translationCapabilities {
-                LabeledContent("Language Source", value: capabilities.capabilitySource)
-                if let message = capabilities.message {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
+            DisclosureGroup("TranslateGemma & Hugging Face (Advanced)") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Picker("Provider", selection: translationProviderBinding) {
+                        ForEach(TranslationProviderKind.allCases) { provider in
+                            Text(provider.displayName).tag(provider)
+                        }
+                    }
 
-            DisclosureGroup("Advanced local override") {
-                LabeledContent("Override Folder", value: model.preferences.customTranslationModelPath.isEmpty ? "Using managed download" : model.preferences.customTranslationModelPath)
-                HStack {
-                    Button("Choose Local Folder") {
-                        chooseDirectory(title: "Choose Translation Model Folder", onSelect: model.setCustomTranslationModelPath)
+                    if let info = selectedTranslationProviderInfo {
+                        LabeledContent("Runtime", value: info.available ? "Available" : (info.reason ?? "Unavailable"))
                     }
-                    Button("Clear Override") {
-                        model.setCustomTranslationModelPath("")
+
+                    Picker("Model", selection: translationModelProviderIDBinding) {
+                        ForEach(TranslationModelRecommendation.allCases) { recommendation in
+                            Text(model.modelStatus(forProviderID: recommendation.providerID)?.label ?? recommendation.displayName)
+                                .tag(recommendation.providerID)
+                        }
+                    }
+
+                    if let translationModelStatus = selectedTranslationModelStatus {
+                        LabeledContent("Repository", value: translationModelStatus.repoID)
+                        LabeledContent("Installed", value: translationModelStatus.installed ? "Yes" : "No")
+                        LabeledContent("Update", value: modelUpdateText(forProviderID: model.selectedTranslationModelProviderID()))
+
+                        if let message = selectedTranslationModelMessage {
+                            Text(message)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+
+                        HStack {
+                            Button("Open Agreement") {
+                                model.openSelectedTranslationModelAgreement()
+                            }
+                            Button("HF Tokens") {
+                                model.openHuggingFaceTokenSettings()
+                            }
+                            Button("Check Update") {
+                                Task { await model.checkSelectedTranslationModelUpdate() }
+                            }
+                            Button(translationModelDownloadButtonTitle) {
+                                Task { await model.downloadSelectedTranslationModel() }
+                            }
+                            .disabled(isTranslationModelActionRunning)
+                        }
+                    }
+
+                    SecureField("Hugging Face Token", text: $model.huggingFaceTokenDraft)
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Button("Load Saved Token") { model.loadHuggingFaceTokenFromKeychain() }
+                        Button("Save Token") { model.saveHuggingFaceTokenToKeychain() }
+                        Button("Validate Access") { Task { await model.validateHuggingFaceAccess() } }
+                        Button("Clear") { model.clearHuggingFaceToken() }
+                    }
+
+                    if let status = model.huggingFaceAuthStatus {
+                        LabeledContent("Hugging Face", value: statusSummary(status))
+                        Text(status.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Picker("Spoken Language", selection: translationSourceLanguageBinding) {
+                        ForEach(model.translationSourceLanguageOptions) { language in
+                            Text(model.translationLanguageLabel(for: language.code, in: model.translationSourceLanguageOptions))
+                                .tag(language.code)
+                        }
+                    }
+                    .disabled(model.translationCapabilities?.sourceLanguageLocked ?? true)
+
+                    LabeledContent("Override Folder", value: model.preferences.customTranslationModelPath.isEmpty ? "Using managed download" : model.preferences.customTranslationModelPath)
+                    HStack {
+                        Button("Choose Local Folder") {
+                            chooseDirectory(title: "Choose Translation Model Folder", onSelect: model.setCustomTranslationModelPath)
+                        }
+                        Button("Clear Override") {
+                            model.setCustomTranslationModelPath("")
+                        }
                     }
                 }
-                Text("Use this only for a manually installed MLX model. Managed downloads use the selected recommendation above.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
+                .padding(.top, 6)
             }
 
             HStack {
                 Button("Test Translation") {
-                    Task {
-                        await model.runTranslationTest()
-                    }
+                    Task { await model.runTranslationTest() }
                 }
-
                 Button("Validate Languages") {
-                    Task {
-                        await model.runTranslationLanguageValidation()
-                    }
+                    Task { await model.runTranslationLanguageValidation() }
                 }
-
                 Button("Refresh Providers") {
-                    Task {
-                        await model.refreshProviderAndModelStatus()
-                    }
+                    Task { await model.refreshProviderAndModelStatus() }
                 }
             }
 
@@ -1319,10 +1638,6 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
-
-            Text("Spoken languages follow the selected speech model. Target languages come from the selected translation model's engine capability metadata.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -1402,9 +1717,85 @@ struct SettingsView: View {
         }
 
         Section("Agent configurations") {
-            Text("Say \u{201C}ask <name> …\u{201D} to send a question to a local agent CLI; the answer pops up in a bubble you can insert at the cursor. Built in: Claude, Gemini. Add your own below (e.g. GLM, Kimi).")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(alignment: .center, spacing: 8) {
+                Text("Detected automatically on launch from your system PATH and added to Voice Patterns so you can say \u{201C}ask <agent> …\u{201D} or select one below.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 8)
+
+                Button {
+                    Task { await model.discoverSystemAgents() }
+                } label: {
+                    if model.isScanningAgents {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Label("Rescan", systemImage: "arrow.clockwise")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(model.isScanningAgents)
+            }
+
+            if model.isScanningAgents && model.discoveredAgents.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Scanning system for installed AI agents…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if model.discoveredAgents.isEmpty {
+                Text("No local AI agent CLIs detected on PATH yet. Install a CLI like Claude, Gemini, Codex, or Antigravity and click Rescan.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(model.discoveredAgents) { agent in
+                    let isDefaultAsk = model.defaultAskTarget == AskTarget(kind: .agent, id: agent.id)
+                    let displayPath = agent.resolvedPath.replacingOccurrences(
+                        of: NSHomeDirectory(),
+                        with: "~"
+                    )
+                    HStack(alignment: .center, spacing: 10) {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 7, height: 7)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(agent.displayName)
+                                    .font(.body.weight(.medium))
+                                Text("ask \(agent.primaryKeyword)")
+                                    .font(.caption2.monospaced())
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.accentColor.opacity(0.14), in: Capsule())
+                            }
+                            Text(displayPath)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+
+                        Spacer()
+
+                        if isDefaultAsk {
+                            Label("Default", systemImage: "checkmark.circle.fill")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.green)
+                        } else {
+                            Button("Use for \u{201C}ask ai\u{201D}") {
+                                model.selectAgentForDefaultAsk(agent)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                    }
+                }
+            }
 
             ForEach(model.preferences.customAgents) { agent in
                 HStack(alignment: .top) {
@@ -1448,6 +1839,59 @@ struct SettingsView: View {
             }
         }
 
+        Section("Command Mode (Built-in Native Computer-Use)") {
+            Text("Say \u{201C}go into command mode\u{201D} to open the floating Command Mode window and control macOS natively in-process using Accessibility + CGEvent (no external MCP server needed). Say \u{201C}exit command mode\u{201D} to return to normal dictation.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Picker("Window Corner", selection: Binding(
+                get: { model.preferences.commandModeCorner },
+                set: { model.setCommandModeCorner($0) }
+            )) {
+                ForEach(CommandModeCorner.allCases, id: \.self) { corner in
+                    Text(corner.displayName).tag(corner)
+                }
+            }
+        }
+
+        Section("Smart Dictation & Voice Snippets") {
+            Toggle("Highlight & Transform (Voice Edit Mode)", isOn: Binding(
+                get: { model.preferences.voiceEditSelectionEnabled },
+                set: { model.setVoiceEditSelectionEnabled($0) }
+            ))
+            Toggle("Auto-Tone & Code-Aware Formatting Per App", isOn: Binding(
+                get: { model.preferences.autoTonePerAppEnabled },
+                set: { model.setAutoTonePerAppEnabled($0) }
+            ))
+            Toggle("Clipboard-Aware Ask AI Context", isOn: Binding(
+                get: { model.preferences.clipboardAskContextEnabled },
+                set: { model.setClipboardAskContextEnabled($0) }
+            ))
+
+            ForEach(model.preferences.voiceSnippets) { snippet in
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("“\(snippet.trigger)”")
+                            .font(.callout.weight(.medium))
+                        Text(snippet.expansion)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    Spacer()
+                    Button("Remove") { model.removeVoiceSnippet(id: snippet.id) }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                }
+            }
+
+            DisclosureGroup("Add voice snippet (supports {{date}}, {{time}}, {{clipboard}})") {
+                AddVoiceSnippetForm { trigger, expansion in
+                    model.addVoiceSnippet(trigger: trigger, expansion: expansion)
+                }
+            }
+        }
+
         Section("Integration Files") {
             HStack {
                 Button("Open Raycast Folder") {
@@ -1463,22 +1907,46 @@ struct SettingsView: View {
 
     private var providerOptions: [ProviderOption] {
         var options: [ProviderOption] = []
+        var seenTargets = Set<AskTarget>()
+
         for provider in visibleTextLLMProviders {
             let config = model.preferences.textLLMConfiguration(for: provider)
             let suffix = config.authMode == .oauth ? "OAuth" : "API"
-            options.append(ProviderOption(
-                label: "\(config.displayName) · \(suffix)",
-                target: AskTarget(kind: .textLLM, id: provider.rawValue)))
+            let target = AskTarget(kind: .textLLM, id: provider.rawValue)
+            if seenTargets.insert(target).inserted {
+                options.append(ProviderOption(
+                    label: "\(config.displayName) · \(suffix)",
+                    target: target))
+            }
         }
-        for agent in AgentRegistry.defaultBuiltIns {
-            options.append(ProviderOption(
-                label: "\(agent.displayName) · agent",
-                target: AskTarget(kind: .agent, id: agent.id)))
+        // Detected local system agents come first and are ready to select immediately.
+        for agent in model.discoveredAgents {
+            let target = AskTarget(kind: .agent, id: agent.id)
+            if seenTargets.insert(target).inserted {
+                options.append(ProviderOption(
+                    label: "\(agent.displayName) · agent",
+                    target: target))
+            }
+        }
+        // Preserve any already-bound built-in agent so its Picker tag always resolves.
+        let boundAgentIDs = Set(model.preferences.askKeywordBindings.compactMap {
+            $0.target.kind == .agent ? $0.target.id : nil
+        })
+        for agent in AgentRegistry.defaultBuiltIns where boundAgentIDs.contains(agent.id) {
+            let target = AskTarget(kind: .agent, id: agent.id)
+            if seenTargets.insert(target).inserted {
+                options.append(ProviderOption(
+                    label: "\(agent.displayName) · agent",
+                    target: target))
+            }
         }
         for agent in model.preferences.customAgents {
-            options.append(ProviderOption(
-                label: "\(agent.displayName) · agent",
-                target: AskTarget(kind: .agent, id: agent.id)))
+            let target = AskTarget(kind: .agent, id: agent.id)
+            if seenTargets.insert(target).inserted {
+                options.append(ProviderOption(
+                    label: "\(agent.displayName) · agent",
+                    target: target))
+            }
         }
         return options
     }
@@ -1734,40 +2202,44 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var dictionarySection: some View {
-        Section("Personal Dictionary") {
-            TextEditor(text: dictionaryTermsBinding)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 140)
-            Text("Add names, products, acronyms, and terms OmniSpeak should preserve. Use one term per line.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Toggle("Automatically learn my corrections", isOn: autoLearnBinding)
-
-            let learned = model.preferences.dictionaryEntries.filter { $0.source == .learned }
-            if learned.isEmpty {
-                Text("Learned words appear here after OmniSpeak picks up a correction (say a word, fix it, and it remembers). Undo within 5s, or remove one here anytime. ⌃⌥T teaches one manually.")
+        overviewCard("Personal Dictionary", systemImage: "book.closed") {
+            VStack(alignment: .leading, spacing: 10) {
+                TextEditor(text: dictionaryTermsBinding)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 130)
+                    .padding(6)
+                    .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
+                Text("Add names, products, acronyms, and terms OmniSpeak should preserve. Use one term per line.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            } else {
-                ForEach(learned) { entry in
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.canonical)
-                            if !entry.aliases.isEmpty {
-                                Text("heard as: \(entry.aliases.joined(separator: ", "))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+
+                Toggle("Automatically learn my corrections", isOn: autoLearnBinding)
+
+                let learned = model.preferences.dictionaryEntries.filter { $0.source == .learned }
+                if learned.isEmpty {
+                    Text("Learned words appear here after OmniSpeak picks up a correction (say a word, fix it, and it remembers). Undo within 5s, or remove one here anytime. ⌃⌥T teaches one manually.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(learned) { entry in
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(entry.canonical)
+                                if !entry.aliases.isEmpty {
+                                    Text("heard as: \(entry.aliases.joined(separator: ", "))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
+                            Spacer()
+                            Toggle("", isOn: learnedEnabledBinding(entry)).labelsHidden()
+                            Button(role: .destructive) {
+                                model.removeDictionaryEntry(id: entry.id)
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
                         }
-                        Spacer()
-                        Toggle("", isOn: learnedEnabledBinding(entry)).labelsHidden()
-                        Button(role: .destructive) {
-                            model.removeDictionaryEntry(id: entry.id)
-                        } label: {
-                            Image(systemName: "trash")
-                        }
-                        .buttonStyle(.borderless)
                     }
                 }
             }
@@ -1803,7 +2275,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var testSection: some View {
-        Section("Test") {
+        overviewCard("Test", systemImage: "checkmark.seal") {
             HStack {
                 Button("Run Cleanup Test") {
                     Task {
@@ -1821,8 +2293,11 @@ struct SettingsView: View {
                     showTestCaption()
                 }
             }
+            .controlSize(.small)
+            .buttonStyle(.bordered)
 
             Text(model.lastTestResult)
+                .font(.callout)
                 .textSelection(.enabled)
                 .lineLimit(3)
         }
@@ -1839,6 +2314,34 @@ struct SettingsView: View {
         Binding(
             get: { model.preferences.style },
             set: { model.setStyle($0) }
+        )
+    }
+
+    private var llmCleanupEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { model.preferences.llmCleanupEnabled },
+            set: { model.setLLMCleanupEnabled($0) }
+        )
+    }
+
+    private var llmCleanupBackendBinding: Binding<CleanupLLMBackend> {
+        Binding(
+            get: { model.preferences.llmCleanupBackend },
+            set: { model.setLLMCleanupBackend($0) }
+        )
+    }
+
+    private var llmCleanupLocalModelBinding: Binding<String> {
+        Binding(
+            get: { model.preferences.llmCleanupLocalModelID },
+            set: { model.setLLMCleanupLocalModelID($0) }
+        )
+    }
+
+    private var llmCleanupProviderBinding: Binding<TextLLMProviderKind?> {
+        Binding(
+            get: { model.preferences.llmCleanupProvider },
+            set: { model.setLLMCleanupProvider($0) }
         )
     }
 
@@ -2390,6 +2893,9 @@ struct SettingsView: View {
     }
 
     private func isModelActionRunning(providerID: String) -> Bool {
+        if model.activeLocalDownloads.contains(providerID) {
+            return true
+        }
         guard let download = model.modelDownloadStatus,
               download.providerID == providerID else {
             return false
@@ -2442,7 +2948,7 @@ private struct AccountSettingsSection: View {
     @ObservedObject var entitlement: EntitlementService
 
     var body: some View {
-        Section("Account") {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.accountEmail ?? "Not signed in")
@@ -2467,6 +2973,8 @@ private struct AccountSettingsSection: View {
                     .disabled(model.accountEmail == nil)
             }
         }
+        .controlSize(.small)
+        .buttonStyle(.bordered)
     }
 
     private var statusLabel: String {
@@ -2563,45 +3071,55 @@ private struct SettingsTabLiquidBlob: View {
         let accent = Color(themeColor: theme.accentColor)
         let secondary = Color(themeColor: theme.secondaryAccentColor)
         let tint = Color(themeColor: theme.surfaceTint)
+        let radius = theme.look.cardRadius(forRequested: 12)
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
 
-        ZStack {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .opacity(0.50)
+        if theme.look == .liquidGlass || theme.look == .softClay {
+            ZStack {
+                shape
+                    .fill(.ultraThinMaterial)
+                    .opacity(0.50)
 
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(tint.opacity(0.16))
-                .blur(radius: 4)
+                shape
+                    .fill(tint.opacity(0.16))
+                    .blur(radius: 4)
 
-            Circle()
-                .fill(accent.opacity(0.26))
-                .frame(width: 36, height: 36)
-                .blur(radius: 11)
-                .offset(x: -16, y: -7)
+                Circle()
+                    .fill(accent.opacity(0.26))
+                    .frame(width: 36, height: 36)
+                    .blur(radius: 11)
+                    .offset(x: -16, y: -7)
 
-            Circle()
-                .fill(secondary.opacity(0.20))
-                .frame(width: 31, height: 31)
-                .blur(radius: 10)
-                .offset(x: 16, y: 7)
+                Circle()
+                    .fill(secondary.opacity(0.20))
+                    .frame(width: 31, height: 31)
+                    .blur(radius: 10)
+                    .offset(x: 16, y: 7)
 
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.26),
-                            accent.opacity(0.34),
-                            secondary.opacity(0.22)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 1
-                )
-                .blur(radius: 0.25)
+                shape
+                    .stroke(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.26),
+                                accent.opacity(0.34),
+                                secondary.opacity(0.22)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+                    .blur(radius: 0.25)
+            }
+            .compositingGroup()
+            .shadow(color: accent.opacity(0.16), radius: 9, x: 0, y: 4)
+        } else {
+            shape
+                .fill(accent.opacity(theme.look == .brutalistInk ? 0.14 : 0.12))
+                .overlay {
+                    shape.stroke(accent.opacity(theme.look == .brutalistInk ? 0.90 : 0.55), lineWidth: theme.look.strokeWidth)
+                }
         }
-        .compositingGroup()
-        .shadow(color: accent.opacity(0.16), radius: 9, x: 0, y: 4)
     }
 }
 
@@ -2712,13 +3230,9 @@ private struct HelpHeroCard: View {
                     Circle()
                         .stroke(Color(themeColor: theme.accentColor).opacity(0.14), lineWidth: 1.4)
                         .frame(width: CGFloat(52 + index * 20), height: CGFloat(52 + index * 20))
-                        .scaleEffect(animate && !reduceMotion ? 1.12 : 0.92)
-                        .opacity(animate && !reduceMotion ? 0.18 : 0.58)
-                        .animation(
-                            .easeInOut(duration: 1.8 + Double(index) * 0.2)
-                                .repeatForever(autoreverses: true),
-                            value: animate
-                        )
+                        .scaleEffect(animate && !reduceMotion ? 1.06 : 0.94)
+                        .opacity(animate && !reduceMotion ? 0.34 : 0.54)
+                        .animation(.easeOut(duration: 0.6 + Double(index) * 0.12), value: animate)
                 }
 
                 Image(systemName: "waveform.and.mic")
@@ -2781,11 +3295,7 @@ private struct HelpSignalStrip: View {
                     )
                     .frame(width: 5, height: barHeight(index))
                     .opacity(index % 3 == 0 ? 0.74 : 0.96)
-                    .animation(
-                        .easeInOut(duration: 0.7 + Double(index % 5) * 0.08)
-                            .repeatForever(autoreverses: true),
-                        value: animate
-                    )
+                    .animation(.easeOut(duration: 0.45 + Double(index % 5) * 0.06), value: animate)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -3038,19 +3548,27 @@ private struct CapabilityDemoVisual: View {
             RoundedRectangle(cornerRadius: compact ? 8 : 12, style: .continuous)
                 .fill(Color(themeColor: theme.surfaceTint).opacity(0.12))
 
-            Circle()
-                .fill(Color(themeColor: theme.accentColor).opacity(active ? 0.14 : 0.07))
-                .frame(width: compact ? 80 : 170, height: compact ? 80 : 170)
-                .blur(radius: compact ? 16 : 28)
-                .offset(x: active ? 46 : -26, y: active ? -16 : 14)
-                .animation(.easeInOut(duration: 2.1).repeatForever(autoreverses: true), value: animate)
+            RadialGradient(
+                colors: [
+                    Color(themeColor: theme.accentColor).opacity(active ? 0.18 : 0.09),
+                    .clear
+                ],
+                center: active ? .topTrailing : .bottomLeading,
+                startRadius: 4,
+                endRadius: compact ? 64 : 140
+            )
+            .animation(.easeOut(duration: 0.45), value: active)
 
-            Circle()
-                .fill(Color(themeColor: theme.secondaryAccentColor).opacity(active ? 0.10 : 0.05))
-                .frame(width: compact ? 70 : 140, height: compact ? 70 : 140)
-                .blur(radius: compact ? 18 : 32)
-                .offset(x: active ? -40 : 38, y: active ? 20 : -20)
-                .animation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true), value: animate)
+            RadialGradient(
+                colors: [
+                    Color(themeColor: theme.secondaryAccentColor).opacity(active ? 0.14 : 0.07),
+                    .clear
+                ],
+                center: active ? .bottomLeading : .topTrailing,
+                startRadius: 4,
+                endRadius: compact ? 58 : 120
+            )
+            .animation(.easeOut(duration: 0.55), value: active)
         }
     }
 
@@ -3074,7 +3592,7 @@ private struct CapabilityDemoVisual: View {
                     Capsule()
                         .fill(Color(themeColor: theme.accentColor).opacity(index < (active ? 7 : 4) ? 0.82 : 0.24))
                         .frame(width: compact ? CGFloat(14 + index % 3 * 5) : CGFloat(24 + index % 3 * 8), height: compact ? 5 : 7)
-                        .animation(.easeInOut(duration: 0.9 + Double(index) * 0.05).repeatForever(autoreverses: true), value: animate)
+                        .animation(.easeOut(duration: 0.45 + Double(index) * 0.04), value: animate)
                 }
             }
             demoTextPill(active ? "captioning live..." : "listening...")
@@ -3216,7 +3734,7 @@ private struct CapabilityDemoVisual: View {
                 .font(.system(size: compact ? 17 : 34, weight: .semibold))
                 .themeAccentForeground(theme)
                 .rotationEffect(.degrees(active ? 8 : -8))
-                .animation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true), value: animate)
+                .animation(.easeOut(duration: 0.45), value: animate)
             demoTextPill(active ? "Hola" : "...")
                 .themeAccentForeground(theme)
         }
@@ -3228,8 +3746,8 @@ private struct CapabilityDemoVisual: View {
             demoIcon("text.bubble")
             flowLine
             demoIcon("sparkles")
-                .scaleEffect(active ? 1.08 : 0.94)
-                .animation(.spring(response: 0.50, dampingFraction: 0.68).repeatForever(autoreverses: true), value: animate)
+                .scaleEffect(active ? 1.06 : 0.96)
+                .animation(.spring(response: 0.45, dampingFraction: 0.75), value: animate)
             flowLine
             demoTextPill("answer")
         }
@@ -3258,7 +3776,7 @@ private struct CapabilityDemoVisual: View {
                     .fill(Color(themeColor: theme.accentColor))
                     .frame(width: compact ? 4 : 6, height: compact ? 4 : 6)
                     .offset(x: active ? 4 : -14)
-                    .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: animate)
+                    .animation(.easeOut(duration: 0.45), value: animate)
             }
     }
 
@@ -3834,6 +4352,27 @@ private struct KeywordBindingRow: View {
 
     private func commitKeyword() {
         onChange(AskKeywordBinding(id: binding.id, keyword: keyword, target: binding.target))
+    }
+}
+
+private struct AddVoiceSnippetForm: View {
+    var onAdd: (String, String) -> Void
+    @State private var trigger = ""
+    @State private var expansion = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Spoken trigger (e.g. my calendar link)", text: $trigger)
+            TextField("Expansion (supports {{date}}, {{time}}, {{clipboard}})", text: $expansion)
+            Button("Add snippet") {
+                onAdd(trigger, expansion)
+                trigger = ""
+                expansion = ""
+            }
+            .disabled(trigger.trimmingCharacters(in: .whitespaces).isEmpty || expansion.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+        .textFieldStyle(.roundedBorder)
+        .padding(.vertical, 4)
     }
 }
 

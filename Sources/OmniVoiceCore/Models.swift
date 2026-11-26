@@ -33,7 +33,9 @@ public enum ASRProviderKind: String, CaseIterable, Codable, Equatable, Sendable 
     case fake = "fake"
     case parakeetTDT = "parakeet-tdt"
     case parakeetTDTMLX = "parakeet-tdt-mlx"
+    case parakeetCoreMLANE = "parakeet-tdt-coreml-ane"
     case whisperLargeV3TurboMLX6Bit = "whisper-large-v3-turbo-mlx-6bit"
+    case qwen3ASR17BMLX4Bit = "qwen3-asr-1.7b-mlx-4bit"
     case canaryQwen25B = "canary-qwen-2.5b"
     /// Apple's built-in on-device SpeechAnalyzer/SpeechTranscriber (macOS 26+).
     /// Native Swift — transcription bypasses the Python engine entirely; the OS
@@ -43,16 +45,19 @@ public enum ASRProviderKind: String, CaseIterable, Codable, Equatable, Sendable 
 
     public static let userSelectableCases: [ASRProviderKind] = [
         .parakeetTDTMLX,
+        .parakeetCoreMLANE,
         .whisperLargeV3TurboMLX6Bit,
+        .qwen3ASR17BMLX4Bit,
         .canaryQwen25B,
         .appleSpeech,
     ]
 
     /// Whether transcription for this provider is served by the local Python
-    /// engine. `appleSpeech` runs natively in the app, so the engine must never
-    /// be asked for it — neither for transcription nor in provider-sync checks.
+    /// engine. `appleSpeech` and `parakeetCoreMLANE` run natively in Swift, so
+    /// the engine must never be asked for them — neither for transcription nor
+    /// in provider-sync checks.
     public var isEngineBacked: Bool {
-        self != .appleSpeech
+        self != .appleSpeech && self != .parakeetCoreMLANE
     }
 
     public var normalizedForUserSelection: ASRProviderKind {
@@ -67,8 +72,12 @@ public enum ASRProviderKind: String, CaseIterable, Codable, Equatable, Sendable 
             "Parakeet TDT"
         case .parakeetTDTMLX:
             "Parakeet TDT MLX"
+        case .parakeetCoreMLANE:
+            "Parakeet TDT CoreML (Neural Engine)"
         case .whisperLargeV3TurboMLX6Bit:
             "Whisper Large v3 Turbo MLX 6-bit"
+        case .qwen3ASR17BMLX4Bit:
+            "Qwen3-ASR 1.7B MLX 4-bit"
         case .canaryQwen25B:
             "Canary-Qwen-2.5B"
         case .appleSpeech:
@@ -79,7 +88,9 @@ public enum ASRProviderKind: String, CaseIterable, Codable, Equatable, Sendable 
 
 public enum SpeechModelRecommendation: String, CaseIterable, Codable, Equatable, Identifiable, Sendable {
     case parakeetTDTMLX = "parakeet-tdt-mlx"
+    case parakeetCoreMLANE = "parakeet-tdt-coreml-ane"
     case whisperLargeV3TurboMLX6Bit = "whisper-large-v3-turbo-mlx-6bit"
+    case qwen3ASR17BMLX4Bit = "qwen3-asr-1.7b-mlx-4bit"
     case canaryQwen25B = "canary-qwen-2.5b"
 
     public static let defaultProviderID = Self.parakeetTDTMLX.providerID
@@ -103,8 +114,12 @@ public enum SpeechModelRecommendation: String, CaseIterable, Codable, Equatable,
         switch self {
         case .parakeetTDTMLX:
             "Fast / Default"
+        case .parakeetCoreMLANE:
+            "Neural Engine · Zero Python"
         case .whisperLargeV3TurboMLX6Bit:
             "Multilingual"
+        case .qwen3ASR17BMLX4Bit:
+            "Multilingual Accuracy"
         case .canaryQwen25B:
             "English Accuracy"
         }
@@ -114,10 +129,69 @@ public enum SpeechModelRecommendation: String, CaseIterable, Codable, Equatable,
         switch self {
         case .parakeetTDTMLX:
             "Best daily driver for low-latency English dictation on Apple Silicon."
+        case .parakeetCoreMLANE:
+            "Native CoreML Parakeet TDT v3 on the Apple Neural Engine (~66 MB active RAM, zero Python engine required)."
         case .whisperLargeV3TurboMLX6Bit:
-            "Local MLX Whisper path for multilingual speech input and Chinese/Japanese/Korean captions."
+            "Local MLX Whisper path for 99-language dictation on Apple Silicon."
+        case .qwen3ASR17BMLX4Bit:
+            "Top-tier multilingual and dialect accuracy on Apple Silicon via mlx-audio (~1.2 GB 4-bit)."
         case .canaryQwen25B:
             "NVIDIA NeMo-backed English ASR accuracy mode. Heavier than the MLX models and requires the Canary runtime."
+        }
+    }
+}
+
+public enum CleanupLLMBackend: String, CaseIterable, Codable, Equatable, Sendable {
+    case localMLX = "local_mlx"
+    case textLLM = "text_llm"
+
+    public var displayName: String {
+        switch self {
+        case .localMLX:
+            "Built-in Local MLX"
+        case .textLLM:
+            "Configured Text LLM"
+        }
+    }
+}
+
+public enum CleanupModelRecommendation: String, CaseIterable, Codable, Equatable, Identifiable, Sendable {
+    case qwen3_1_7BMLX4Bit = "qwen3-1.7b-mlx-4bit"
+    case qwen3_4BInstructMLX4Bit = "qwen3-4b-instruct-mlx-4bit"
+
+    public static let defaultProviderID = Self.qwen3_1_7BMLX4Bit.providerID
+
+    public init(providerID: String) {
+        self = Self(rawValue: providerID) ?? .qwen3_1_7BMLX4Bit
+    }
+
+    public var id: String { rawValue }
+    public var providerID: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .qwen3_1_7BMLX4Bit:
+            "Qwen3 1.7B MLX 4-bit"
+        case .qwen3_4BInstructMLX4Bit:
+            "Qwen3 4B Instruct MLX 4-bit"
+        }
+    }
+
+    public var badge: String {
+        switch self {
+        case .qwen3_1_7BMLX4Bit:
+            "Fast / Recommended"
+        case .qwen3_4BInstructMLX4Bit:
+            "Highest Quality"
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .qwen3_1_7BMLX4Bit:
+            "Ultra-fast (~968 MB) on-device Apple Silicon cleanup model. No Ollama or API key needed."
+        case .qwen3_4BInstructMLX4Bit:
+            "Non-thinking 4B (~2.3 GB) local MLX model for complex self-corrections, tone, and lists."
         }
     }
 }
@@ -129,6 +203,45 @@ public enum EngineProviderContract {
     public static func missingRequiredASRProviderIDs(in providers: [EngineProviderInfo]) -> [String] {
         let availableIDs = Set(providers.map(\.id))
         return requiredASRProviderIDs.filter { !availableIDs.contains($0) }
+    }
+}
+
+public enum EngineBackendMode: String, CaseIterable, Codable, Equatable, Sendable {
+    case auto = "auto"
+    case rustNative = "rust_native"
+    case pythonLegacy = "python_legacy"
+
+    public var displayName: String {
+        switch self {
+        case .auto:
+            "Auto (Rust for CoreML ANE)"
+        case .rustNative:
+            "Rust Native"
+        case .pythonLegacy:
+            "Python Legacy"
+        }
+    }
+
+    public var shortLabel: String {
+        switch self {
+        case .auto:
+            "Auto"
+        case .rustNative:
+            "Rust"
+        case .pythonLegacy:
+            "Python"
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .auto:
+            "Uses native Rust omnivoice-engine when CoreML ANE or Apple Speech is active, and Python MLX for MLX models."
+        case .rustNative:
+            "Always runs the lightweight Rust omnivoice-engine binary with in-process CoreML ANE or Apple Speech."
+        case .pythonLegacy:
+            "Always runs the legacy Python FastAPI engine for MLX ASR, cleanup, and translation models."
+        }
     }
 }
 
@@ -1447,6 +1560,89 @@ public struct TranscriptUpdate: Codable, Equatable, Sendable {
     }
 }
 
+public enum CleanupLLMTransport: String, Codable, Equatable, Sendable {
+    case openAICompatible = "openai_compatible"
+    case anthropic = "anthropic"
+    case openAICodexOAuth = "openai_codex_oauth"
+    case githubCopilotOAuth = "github_copilot_oauth"
+    case localMLX = "local_mlx"
+
+    public init(_ transport: TextLLMTransport) {
+        switch transport {
+        case .openAICompatible:
+            self = .openAICompatible
+        case .anthropic:
+            self = .anthropic
+        case .openAICodexOAuth:
+            self = .openAICodexOAuth
+        case .githubCopilotOAuth:
+            self = .githubCopilotOAuth
+        }
+    }
+}
+
+public struct CleanupLLMConfig: Codable, Equatable, Sendable {
+    public let enabled: Bool
+    public let provider: String
+    public let baseURL: String
+    public let model: String
+    public let modelPath: String
+    public let apiKey: String
+    public let transport: CleanupLLMTransport
+    public let oauthAccessToken: String
+    public let headers: [String: String]
+    public let timeoutSeconds: Double
+
+    public init(
+        enabled: Bool = true,
+        provider: String,
+        baseURL: String = "",
+        model: String,
+        modelPath: String = "",
+        apiKey: String = "",
+        transport: CleanupLLMTransport = .openAICompatible,
+        oauthAccessToken: String = "",
+        headers: [String: String] = [:],
+        timeoutSeconds: Double = 6.0
+    ) {
+        self.enabled = enabled
+        self.provider = provider
+        self.baseURL = baseURL
+        self.model = model
+        self.modelPath = modelPath
+        self.apiKey = apiKey
+        self.transport = transport
+        self.oauthAccessToken = oauthAccessToken
+        self.headers = headers
+        self.timeoutSeconds = timeoutSeconds
+    }
+
+    public init(
+        enabled: Bool = true,
+        provider: String,
+        baseURL: String = "",
+        model: String,
+        apiKey: String = "",
+        transport: TextLLMTransport,
+        oauthAccessToken: String = "",
+        headers: [String: String] = [:],
+        timeoutSeconds: Double = 6.0
+    ) {
+        self.init(
+            enabled: enabled,
+            provider: provider,
+            baseURL: baseURL,
+            model: model,
+            modelPath: "",
+            apiKey: apiKey,
+            transport: CleanupLLMTransport(transport),
+            oauthAccessToken: oauthAccessToken,
+            headers: headers,
+            timeoutSeconds: timeoutSeconds
+        )
+    }
+}
+
 public struct CleanupRequest: Codable, Equatable, Sendable {
     public struct Entry: Codable, Equatable, Sendable {
         public let canonical: String
@@ -1463,17 +1659,23 @@ public struct CleanupRequest: Codable, Equatable, Sendable {
     public let style: StyleProfile
     public let dictionaryTerms: [String]
     public let dictionaryEntries: [Entry]
+    public let appContext: String
+    public let llm: CleanupLLMConfig?
 
     public init(
         rawTranscript: String,
         style: StyleProfile,
         dictionaryTerms: [String] = [],
-        dictionaryEntries: [Entry] = []
+        dictionaryEntries: [Entry] = [],
+        appContext: String = "",
+        llm: CleanupLLMConfig? = nil
     ) {
         self.rawTranscript = rawTranscript
         self.style = style
         self.dictionaryTerms = dictionaryTerms
         self.dictionaryEntries = dictionaryEntries
+        self.appContext = appContext
+        self.llm = llm
     }
 
     /// Maps personal-dictionary entries to the engine's wire form.
@@ -1485,10 +1687,34 @@ public struct CleanupRequest: Codable, Equatable, Sendable {
 public struct CleanupResult: Codable, Equatable, Sendable {
     public let text: String
     public let cleanupApplied: Bool
+    public let llmApplied: Bool
+    public let llmFallbackReason: String?
 
-    public init(text: String, cleanupApplied: Bool) {
+    public init(
+        text: String,
+        cleanupApplied: Bool,
+        llmApplied: Bool = false,
+        llmFallbackReason: String? = nil
+    ) {
         self.text = text
         self.cleanupApplied = cleanupApplied
+        self.llmApplied = llmApplied
+        self.llmFallbackReason = llmFallbackReason
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case text
+        case cleanupApplied
+        case llmApplied
+        case llmFallbackReason
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        text = try container.decode(String.self, forKey: .text)
+        cleanupApplied = try container.decode(Bool.self, forKey: .cleanupApplied)
+        llmApplied = try container.decodeIfPresent(Bool.self, forKey: .llmApplied) ?? false
+        llmFallbackReason = try container.decodeIfPresent(String.self, forKey: .llmFallbackReason)
     }
 }
 

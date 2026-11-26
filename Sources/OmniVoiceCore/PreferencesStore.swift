@@ -6,7 +6,12 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public static let defaultTranslationQuickTargetLanguages = ["zh", "fr", "en"]
 
     public var asrProvider: ASRProviderKind
+    public var engineBackendMode: EngineBackendMode
     public var style: StyleProfile
+    public var llmCleanupEnabled: Bool
+    public var llmCleanupBackend: CleanupLLMBackend
+    public var llmCleanupLocalModelID: String
+    public var llmCleanupProvider: TextLLMProviderKind?
     public var dictionaryEntries: [DictionaryEntry]
     public var autoLearnCorrectionsEnabled: Bool
 
@@ -30,6 +35,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var hotMenuRightActions: [HotMenuAction]
     public var hotMenuDownActions: [HotMenuAction]
     public var themeID: OmniVoiceThemeID
+    public var themeLookOverride: ThemeLook?
     public var customAccentColor: ThemeColor
     public var appearanceMode: AppAppearanceMode
     public var waveformMode: WaveformMode
@@ -60,6 +66,20 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     /// How conversation mode captures audio: mic only, or mic + a system-audio
     /// tap (two-track "me vs them" diarization by capture topology).
     public var conversationCaptureMode: ConversationCaptureMode
+    public var meetingAutoDetectEnabled: Bool
+    public var meetingAutoStartWithoutPrompt: Bool
+    public var meetingLiveCopilotEnabled: Bool
+    public var meetingCopilotCorner: MeetingCopilotCorner
+    public var meetingStealthModeEnabled: Bool
+    public var meetingAutoStopOnCallEnd: Bool
+    public var commandModeCorner: CommandModeCorner
+    public var commandModeMCPCommand: String
+    public var voiceSnippets: [VoiceSnippet]
+    public var autoTonePerAppEnabled: Bool
+    public var voiceEditSelectionEnabled: Bool
+    public var clipboardAskContextEnabled: Bool
+    public var captionGlassOpacity: Double
+    public var serviceMode: ServiceModeConfiguration
     public var recordingSoundCuesEnabled: Bool
     public var recordingStartCueEnabled: Bool
     public var recordingStopCueEnabled: Bool
@@ -132,6 +152,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
 
     public static let defaults = OmniVoicePreferences(
         asrProvider: .parakeetTDTMLX,
+        engineBackendMode: .auto,
         style: .neutral,
         dictionaryEntries: [],
         microphoneID: nil,
@@ -149,10 +170,11 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         hotMenuRightActions: HotMenuAction.defaultActions(for: .right),
         hotMenuDownActions: HotMenuAction.defaultActions(for: .down),
         themeID: .auroraBlue,
+        themeLookOverride: nil,
         customAccentColor: ThemeColor(hex: "#38BDF8"),
         appearanceMode: .system,
         waveformMode: .bars,
-        commitAnimationMode: .glyphStream,
+        commitAnimationMode: .magicPoof,
         engineFrameSide: .right,
         engineFrameHandlePosition: 0.5,
         customSpeechModelPath: "",
@@ -186,9 +208,14 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
 
     public init(
         asrProvider: ASRProviderKind,
+        engineBackendMode: EngineBackendMode = .auto,
         style: StyleProfile,
         dictionaryEntries: [DictionaryEntry],
         autoLearnCorrectionsEnabled: Bool = true,
+        llmCleanupEnabled: Bool = false,
+        llmCleanupBackend: CleanupLLMBackend = .localMLX,
+        llmCleanupLocalModelID: String = CleanupModelRecommendation.defaultProviderID,
+        llmCleanupProvider: TextLLMProviderKind? = nil,
         microphoneID: String? = nil,
         dictationHotkey: HotkeyBinding = .defaultDictation,
         additionalDictationHotkeys: [HotkeyBinding] = [],
@@ -208,10 +235,11 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         hotMenuRightActions: [HotMenuAction]? = nil,
         hotMenuDownActions: [HotMenuAction]? = nil,
         themeID: OmniVoiceThemeID = .auroraBlue,
+        themeLookOverride: ThemeLook? = nil,
         customAccentColor: ThemeColor = ThemeColor(hex: "#38BDF8"),
         appearanceMode: AppAppearanceMode = .system,
         waveformMode: WaveformMode = .bars,
-        commitAnimationMode: CommitAnimationMode = .glyphStream,
+        commitAnimationMode: CommitAnimationMode = .magicPoof,
         engineFrameSide: EngineFrameSide = .right,
         engineFrameHandlePosition: Double = 0.5,
         customSpeechModelPath: String = "",
@@ -236,6 +264,20 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         conversationArchiveFolderPath: String = ConversationArchive.defaultRootURL().path,
         automaticallyArchiveConversations: Bool = true,
         conversationCaptureMode: ConversationCaptureMode = .microphoneOnly,
+        meetingAutoDetectEnabled: Bool = true,
+        meetingAutoStartWithoutPrompt: Bool = false,
+        meetingLiveCopilotEnabled: Bool = true,
+        meetingCopilotCorner: MeetingCopilotCorner = .topRight,
+        meetingStealthModeEnabled: Bool = true,
+        meetingAutoStopOnCallEnd: Bool = true,
+        commandModeCorner: CommandModeCorner = .bottomLeft,
+        commandModeMCPCommand: String = "cua-driver",
+        voiceSnippets: [VoiceSnippet] = VoiceSnippet.defaultSnippets,
+        autoTonePerAppEnabled: Bool = true,
+        voiceEditSelectionEnabled: Bool = true,
+        clipboardAskContextEnabled: Bool = true,
+        captionGlassOpacity: Double = 0.05,
+        serviceMode: ServiceModeConfiguration = .defaults,
         recordingSoundCuesEnabled: Bool = true,
         recordingStartCueEnabled: Bool = true,
         recordingStopCueEnabled: Bool = true,
@@ -245,7 +287,15 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         entitlementSnapshotData: Data? = nil
     ) {
         self.asrProvider = asrProvider.normalizedForUserSelection
+        self.engineBackendMode = engineBackendMode
         self.style = style
+        self.llmCleanupEnabled = llmCleanupEnabled
+        self.llmCleanupBackend = llmCleanupBackend
+        let trimmedCleanupModel = llmCleanupLocalModelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.llmCleanupLocalModelID = trimmedCleanupModel.isEmpty
+            ? CleanupModelRecommendation.defaultProviderID
+            : trimmedCleanupModel
+        self.llmCleanupProvider = llmCleanupProvider
         self.dictionaryEntries = dictionaryEntries
         self.autoLearnCorrectionsEnabled = autoLearnCorrectionsEnabled
         self.microphoneId = microphoneID
@@ -282,6 +332,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             direction: .down
         )
         self.themeID = themeID
+        self.themeLookOverride = themeLookOverride
         self.customAccentColor = customAccentColor
         self.appearanceMode = appearanceMode
         self.waveformMode = waveformMode
@@ -317,6 +368,20 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         self.conversationArchiveFolderPath = conversationArchiveFolderPath
         self.automaticallyArchiveConversations = automaticallyArchiveConversations
         self.conversationCaptureMode = conversationCaptureMode
+        self.meetingAutoDetectEnabled = meetingAutoDetectEnabled
+        self.meetingAutoStartWithoutPrompt = meetingAutoStartWithoutPrompt
+        self.meetingLiveCopilotEnabled = meetingLiveCopilotEnabled
+        self.meetingCopilotCorner = meetingCopilotCorner
+        self.meetingStealthModeEnabled = meetingStealthModeEnabled
+        self.meetingAutoStopOnCallEnd = meetingAutoStopOnCallEnd
+        self.commandModeCorner = commandModeCorner
+        self.commandModeMCPCommand = commandModeMCPCommand
+        self.voiceSnippets = voiceSnippets
+        self.autoTonePerAppEnabled = autoTonePerAppEnabled
+        self.voiceEditSelectionEnabled = voiceEditSelectionEnabled
+        self.clipboardAskContextEnabled = clipboardAskContextEnabled
+        self.captionGlassOpacity = min(max(captionGlassOpacity, 0), 1)
+        self.serviceMode = serviceMode
         self.recordingSoundCuesEnabled = recordingSoundCuesEnabled
         self.recordingStartCueEnabled = recordingStartCueEnabled
         self.recordingStopCueEnabled = recordingStopCueEnabled
@@ -359,9 +424,15 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     ) throws {
         self.init(
             asrProvider: try container.decode(ASRProviderKind.self, forKey: .asrProvider),
+            engineBackendMode: try container.decodeIfPresent(EngineBackendMode.self, forKey: .engineBackendMode) ?? .auto,
             style: try container.decode(StyleProfile.self, forKey: .style),
             dictionaryEntries: dictionaryEntries,
             autoLearnCorrectionsEnabled: try container.decodeIfPresent(Bool.self, forKey: .autoLearnCorrectionsEnabled) ?? true,
+            llmCleanupEnabled: try container.decodeIfPresent(Bool.self, forKey: .llmCleanupEnabled) ?? false,
+            llmCleanupBackend: try container.decodeIfPresent(CleanupLLMBackend.self, forKey: .llmCleanupBackend) ?? .localMLX,
+            llmCleanupLocalModelID: try container.decodeIfPresent(String.self, forKey: .llmCleanupLocalModelID)
+                ?? CleanupModelRecommendation.defaultProviderID,
+            llmCleanupProvider: try container.decodeIfPresent(TextLLMProviderKind.self, forKey: .llmCleanupProvider),
             microphoneID: try container.decodeIfPresent(String.self, forKey: .microphoneId),
             dictationHotkey: try container.decode(HotkeyBinding.self, forKey: .dictationHotkey),
             additionalDictationHotkeys: try container.decodeIfPresent(
@@ -387,10 +458,11 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             hotMenuRightActions: try container.decodeIfPresent([HotMenuAction].self, forKey: .hotMenuRightActions),
             hotMenuDownActions: try container.decodeIfPresent([HotMenuAction].self, forKey: .hotMenuDownActions),
             themeID: try container.decodeIfPresent(OmniVoiceThemeID.self, forKey: .themeID) ?? .auroraBlue,
+            themeLookOverride: try container.decodeIfPresent(ThemeLook.self, forKey: .themeLookOverride),
             customAccentColor: try container.decodeIfPresent(ThemeColor.self, forKey: .customAccentColor) ?? ThemeColor(hex: "#38BDF8"),
             appearanceMode: try container.decodeIfPresent(AppAppearanceMode.self, forKey: .appearanceMode) ?? .system,
             waveformMode: try container.decodeIfPresent(WaveformMode.self, forKey: .waveformMode) ?? .bars,
-            commitAnimationMode: try container.decodeIfPresent(CommitAnimationMode.self, forKey: .commitAnimationMode) ?? .glyphStream,
+            commitAnimationMode: try container.decodeIfPresent(CommitAnimationMode.self, forKey: .commitAnimationMode) ?? .magicPoof,
             engineFrameSide: try container.decodeIfPresent(EngineFrameSide.self, forKey: .engineFrameSide) ?? .right,
             engineFrameHandlePosition: try container.decodeIfPresent(Double.self, forKey: .engineFrameHandlePosition) ?? 0.5,
             customSpeechModelPath: try container.decodeIfPresent(String.self, forKey: .customSpeechModelPath) ?? "",
@@ -432,6 +504,20 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
                 ?? true,
             conversationCaptureMode: try container.decodeIfPresent(ConversationCaptureMode.self, forKey: .conversationCaptureMode)
                 ?? .microphoneOnly,
+            meetingAutoDetectEnabled: try container.decodeIfPresent(Bool.self, forKey: .meetingAutoDetectEnabled) ?? true,
+            meetingAutoStartWithoutPrompt: try container.decodeIfPresent(Bool.self, forKey: .meetingAutoStartWithoutPrompt) ?? false,
+            meetingLiveCopilotEnabled: try container.decodeIfPresent(Bool.self, forKey: .meetingLiveCopilotEnabled) ?? true,
+            meetingCopilotCorner: try container.decodeIfPresent(MeetingCopilotCorner.self, forKey: .meetingCopilotCorner) ?? .topRight,
+            meetingStealthModeEnabled: try container.decodeIfPresent(Bool.self, forKey: .meetingStealthModeEnabled) ?? true,
+            meetingAutoStopOnCallEnd: try container.decodeIfPresent(Bool.self, forKey: .meetingAutoStopOnCallEnd) ?? true,
+            commandModeCorner: try container.decodeIfPresent(CommandModeCorner.self, forKey: .commandModeCorner) ?? .bottomLeft,
+            commandModeMCPCommand: try container.decodeIfPresent(String.self, forKey: .commandModeMCPCommand) ?? "cua-driver",
+            voiceSnippets: try container.decodeIfPresent([VoiceSnippet].self, forKey: .voiceSnippets) ?? VoiceSnippet.defaultSnippets,
+            autoTonePerAppEnabled: try container.decodeIfPresent(Bool.self, forKey: .autoTonePerAppEnabled) ?? true,
+            voiceEditSelectionEnabled: try container.decodeIfPresent(Bool.self, forKey: .voiceEditSelectionEnabled) ?? true,
+            clipboardAskContextEnabled: try container.decodeIfPresent(Bool.self, forKey: .clipboardAskContextEnabled) ?? true,
+            captionGlassOpacity: try container.decodeIfPresent(Double.self, forKey: .captionGlassOpacity) ?? 0.05,
+            serviceMode: try container.decodeIfPresent(ServiceModeConfiguration.self, forKey: .serviceMode) ?? .defaults,
             recordingSoundCuesEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingSoundCuesEnabled) ?? true,
             recordingStartCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStartCueEnabled) ?? true,
             recordingStopCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStopCueEnabled) ?? true,
@@ -449,9 +535,15 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     ) throws {
         self.init(
             asrProvider: try container.decode(ASRProviderKind.self, forKey: .asrProvider),
+            engineBackendMode: try container.decodeIfPresent(EngineBackendMode.self, forKey: .engineBackendMode) ?? .auto,
             style: try container.decode(StyleProfile.self, forKey: .style),
             dictionaryEntries: dictionaryEntries,
             autoLearnCorrectionsEnabled: try container.decodeIfPresent(Bool.self, forKey: .autoLearnCorrectionsEnabled) ?? true,
+            llmCleanupEnabled: try container.decodeIfPresent(Bool.self, forKey: .llmCleanupEnabled) ?? false,
+            llmCleanupBackend: try container.decodeIfPresent(CleanupLLMBackend.self, forKey: .llmCleanupBackend) ?? .localMLX,
+            llmCleanupLocalModelID: try container.decodeIfPresent(String.self, forKey: .llmCleanupLocalModelID)
+                ?? CleanupModelRecommendation.defaultProviderID,
+            llmCleanupProvider: try container.decodeIfPresent(TextLLMProviderKind.self, forKey: .llmCleanupProvider),
             microphoneID: try container.decodeIfPresent(String.self, forKey: .microphoneId),
             dictationHotkey: try container.decode(HotkeyBinding.self, forKey: .dictationHotkey),
             additionalDictationHotkeys: try container.decodeIfPresent(
@@ -477,10 +569,11 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             hotMenuRightActions: try container.decodeIfPresent([HotMenuAction].self, forKey: .hotMenuRightActions),
             hotMenuDownActions: try container.decodeIfPresent([HotMenuAction].self, forKey: .hotMenuDownActions),
             themeID: try container.decodeIfPresent(OmniVoiceThemeID.self, forKey: .themeID) ?? .auroraBlue,
+            themeLookOverride: try container.decodeIfPresent(ThemeLook.self, forKey: .themeLookOverride),
             customAccentColor: try container.decodeIfPresent(ThemeColor.self, forKey: .customAccentColor) ?? ThemeColor(hex: "#38BDF8"),
             appearanceMode: try container.decodeIfPresent(AppAppearanceMode.self, forKey: .appearanceMode) ?? .system,
             waveformMode: try container.decodeIfPresent(WaveformMode.self, forKey: .waveformMode) ?? .bars,
-            commitAnimationMode: try container.decodeIfPresent(CommitAnimationMode.self, forKey: .commitAnimationMode) ?? .glyphStream,
+            commitAnimationMode: try container.decodeIfPresent(CommitAnimationMode.self, forKey: .commitAnimationMode) ?? .magicPoof,
             engineFrameSide: try container.decodeIfPresent(EngineFrameSide.self, forKey: .engineFrameSide) ?? .right,
             engineFrameHandlePosition: try container.decodeIfPresent(Double.self, forKey: .engineFrameHandlePosition) ?? 0.5,
             customSpeechModelPath: try container.decodeIfPresent(String.self, forKey: .customSpeechModelPath) ?? "",
@@ -516,6 +609,20 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
                 ?? true,
             conversationCaptureMode: try container.decodeIfPresent(ConversationCaptureMode.self, forKey: .conversationCaptureMode)
                 ?? .microphoneOnly,
+            meetingAutoDetectEnabled: try container.decodeIfPresent(Bool.self, forKey: .meetingAutoDetectEnabled) ?? true,
+            meetingAutoStartWithoutPrompt: try container.decodeIfPresent(Bool.self, forKey: .meetingAutoStartWithoutPrompt) ?? false,
+            meetingLiveCopilotEnabled: try container.decodeIfPresent(Bool.self, forKey: .meetingLiveCopilotEnabled) ?? true,
+            meetingCopilotCorner: try container.decodeIfPresent(MeetingCopilotCorner.self, forKey: .meetingCopilotCorner) ?? .topRight,
+            meetingStealthModeEnabled: try container.decodeIfPresent(Bool.self, forKey: .meetingStealthModeEnabled) ?? true,
+            meetingAutoStopOnCallEnd: try container.decodeIfPresent(Bool.self, forKey: .meetingAutoStopOnCallEnd) ?? true,
+            commandModeCorner: try container.decodeIfPresent(CommandModeCorner.self, forKey: .commandModeCorner) ?? .bottomLeft,
+            commandModeMCPCommand: try container.decodeIfPresent(String.self, forKey: .commandModeMCPCommand) ?? "cua-driver",
+            voiceSnippets: try container.decodeIfPresent([VoiceSnippet].self, forKey: .voiceSnippets) ?? VoiceSnippet.defaultSnippets,
+            autoTonePerAppEnabled: try container.decodeIfPresent(Bool.self, forKey: .autoTonePerAppEnabled) ?? true,
+            voiceEditSelectionEnabled: try container.decodeIfPresent(Bool.self, forKey: .voiceEditSelectionEnabled) ?? true,
+            clipboardAskContextEnabled: try container.decodeIfPresent(Bool.self, forKey: .clipboardAskContextEnabled) ?? true,
+            captionGlassOpacity: try container.decodeIfPresent(Double.self, forKey: .captionGlassOpacity) ?? 0.05,
+            serviceMode: try container.decodeIfPresent(ServiceModeConfiguration.self, forKey: .serviceMode) ?? .defaults,
             recordingSoundCuesEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingSoundCuesEnabled) ?? true,
             recordingStartCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStartCueEnabled) ?? true,
             recordingStopCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStopCueEnabled) ?? true,
@@ -526,6 +633,17 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         )
     }
 
+    public func prefersRustEngine(rustBinaryAvailable: Bool) -> Bool {
+        switch engineBackendMode {
+        case .rustNative:
+            return true
+        case .pythonLegacy:
+            return false
+        case .auto:
+            return rustBinaryAvailable && !asrProvider.isEngineBacked
+        }
+    }
+
     public mutating func cycleStyle() {
         style = style.next()
     }
@@ -533,8 +651,12 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public mutating func cycleASRProvider() {
         switch asrProvider {
         case .parakeetTDTMLX:
+            asrProvider = .parakeetCoreMLANE
+        case .parakeetCoreMLANE:
             asrProvider = .whisperLargeV3TurboMLX6Bit
         case .whisperLargeV3TurboMLX6Bit:
+            asrProvider = .qwen3ASR17BMLX4Bit
+        case .qwen3ASR17BMLX4Bit:
             asrProvider = .canaryQwen25B
         case .canaryQwen25B:
             asrProvider = .appleSpeech
@@ -676,6 +798,36 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         textLLMProviders.configuration(for: provider)
     }
 
+    public func resolvedLLMCleanupConfig(timeoutSeconds: Double = 6.0) -> CleanupLLMConfig? {
+        guard llmCleanupEnabled else { return nil }
+        switch llmCleanupBackend {
+        case .localMLX:
+            let modelID = llmCleanupLocalModelID.trimmingCharacters(in: .whitespacesAndNewlines)
+            return CleanupLLMConfig(
+                enabled: true,
+                provider: "local_mlx",
+                model: modelID.isEmpty ? CleanupModelRecommendation.defaultProviderID : modelID,
+                transport: .localMLX,
+                timeoutSeconds: timeoutSeconds
+            )
+        case .textLLM:
+            let provider = llmCleanupProvider ?? textLLMDefaultProvider
+            let config = textLLMConfiguration(for: provider)
+            guard config.isConfigured else { return nil }
+            return CleanupLLMConfig(
+                enabled: true,
+                provider: provider.rawValue,
+                baseURL: config.resolvedBaseURL,
+                model: config.trimmedModel,
+                apiKey: config.trimmedAPIKey,
+                transport: config.transport,
+                oauthAccessToken: config.trimmedOAuthAccessToken,
+                headers: config.resolvedHeaders,
+                timeoutSeconds: timeoutSeconds
+            )
+        }
+    }
+
     public func textLLMConfiguration(for target: AIHandoffTarget) -> TextLLMProviderConfiguration {
         if target == .custom {
             return textLLMConfiguration(for: textLLMDefaultProvider)
@@ -727,6 +879,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             return recordingStartCueEnabled
         case .stop:
             return recordingStopCueEnabled
+        case .empty:
+            return true
         }
     }
 
@@ -762,7 +916,12 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case asrProvider = "asr_provider"
+        case engineBackendMode = "engine_backend_mode"
         case style = "style"
+        case llmCleanupEnabled = "llm_cleanup_enabled"
+        case llmCleanupBackend = "llm_cleanup_backend"
+        case llmCleanupLocalModelID = "llm_cleanup_local_model_id"
+        case llmCleanupProvider = "llm_cleanup_provider"
         case dictionaryEntries = "dictionary_entries"
         case autoLearnCorrectionsEnabled = "auto_learn_corrections_enabled"
         case microphoneId = "microphone_id"
@@ -780,6 +939,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case hotMenuRightActions = "hot_menu_right_actions"
         case hotMenuDownActions = "hot_menu_down_actions"
         case themeID = "theme_id"
+        case themeLookOverride = "theme_look_override"
         case customAccentColor = "custom_accent_color"
         case appearanceMode = "appearance_mode"
         case waveformMode = "waveform_mode"
@@ -808,6 +968,20 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case conversationArchiveFolderPath = "conversation_archive_folder_path"
         case automaticallyArchiveConversations = "automatically_archive_conversations"
         case conversationCaptureMode = "conversation_capture_mode"
+        case meetingAutoDetectEnabled = "meeting_auto_detect_enabled"
+        case meetingAutoStartWithoutPrompt = "meeting_auto_start_without_prompt"
+        case meetingLiveCopilotEnabled = "meeting_live_copilot_enabled"
+        case meetingCopilotCorner = "meeting_copilot_corner"
+        case meetingStealthModeEnabled = "meeting_stealth_mode_enabled"
+        case meetingAutoStopOnCallEnd = "meeting_auto_stop_on_call_end"
+        case commandModeCorner = "command_mode_corner"
+        case commandModeMCPCommand = "command_mode_mcp_command"
+        case voiceSnippets = "voice_snippets"
+        case autoTonePerAppEnabled = "auto_tone_per_app_enabled"
+        case voiceEditSelectionEnabled = "voice_edit_selection_enabled"
+        case clipboardAskContextEnabled = "clipboard_ask_context_enabled"
+        case captionGlassOpacity = "caption_glass_opacity"
+        case serviceMode = "service_mode"
         case recordingSoundCuesEnabled = "recording_sound_cues_enabled"
         case recordingStartCueEnabled = "recording_start_cue_enabled"
         case recordingStopCueEnabled = "recording_stop_cue_enabled"
@@ -819,7 +993,12 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
 
     private enum ConvertedCodingKeys: String, CodingKey {
         case asrProvider
+        case engineBackendMode
         case style
+        case llmCleanupEnabled
+        case llmCleanupBackend
+        case llmCleanupLocalModelID
+        case llmCleanupProvider
         case dictionaryTerms
         case dictionaryEntries
         case autoLearnCorrectionsEnabled
@@ -838,6 +1017,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case hotMenuRightActions
         case hotMenuDownActions
         case themeID = "themeId"
+        case themeLookOverride
         case customAccentColor
         case appearanceMode
         case waveformMode
@@ -866,6 +1046,20 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case conversationArchiveFolderPath
         case automaticallyArchiveConversations
         case conversationCaptureMode
+        case meetingAutoDetectEnabled
+        case meetingAutoStartWithoutPrompt
+        case meetingLiveCopilotEnabled
+        case meetingCopilotCorner
+        case meetingStealthModeEnabled
+        case meetingAutoStopOnCallEnd
+        case commandModeCorner
+        case commandModeMCPCommand
+        case voiceSnippets
+        case autoTonePerAppEnabled
+        case voiceEditSelectionEnabled
+        case clipboardAskContextEnabled
+        case captionGlassOpacity
+        case serviceMode
         case recordingSoundCuesEnabled
         case recordingStartCueEnabled
         case recordingStopCueEnabled
