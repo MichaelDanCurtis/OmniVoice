@@ -25,8 +25,15 @@ final class ConversationRecorderService {
         }
     }
 
+    struct DeepgramStreamConfig {
+        let config: ServiceModeConfiguration
+        let apiKey: String
+        let diarize: Bool
+    }
+
     private let audioCapture: any ConversationAudioCapturing
     private let streamingClient: EngineStreamingClient
+    private var deepgramSession: DeepgramStreamingSession?
     private var startedAt = Date()
     /// Fixed lane identity for two-track capture. When set, every segment is
     /// stamped with this speaker and model diarization is skipped — the lane's
@@ -67,6 +74,7 @@ final class ConversationRecorderService {
         microphoneID: String?,
         liveDiarizationEnabled: Bool,
         speakerOverride: TwoTrackSpeaker? = nil,
+        deepgram: DeepgramStreamConfig? = nil,
         referenceDate: Date = Date(),
         onBeforeAudioStart: (() -> TimeInterval)? = nil,
         onSegment: @escaping (ConversationSegmentCreateRequest) async -> Void,
@@ -83,8 +91,8 @@ final class ConversationRecorderService {
         transcriptAccumulator = ConversationTranscriptAccumulator()
         audioBuffer.reset()
         segmentTiming = ConversationSegmentTiming()
-        // A lane with a fixed speaker never consults model diarization.
-        self.liveDiarizationEnabled = liveDiarizationEnabled && speakerOverride == nil
+        // A lane with a fixed speaker or Deepgram cloud diarization never consults local model diarization.
+        self.liveDiarizationEnabled = liveDiarizationEnabled && speakerOverride == nil && deepgram == nil
         self.speakerOverride = speakerOverride
         lastLiveDiarizationRequestMs = nil
         lastLiveSegmentRequest = nil
@@ -95,6 +103,43 @@ final class ConversationRecorderService {
         isRecording = true
         isStopping = false
         pendingUpdates.start(generation: generation)
+
+        if let deepgram {
+            do {
+                let sampleRate = Int(audioCapture.inputSampleRate(deviceUID: microphoneID).rounded())
+                activeSampleRate = sampleRate
+                let dg = DeepgramStreamingSession()
+                dg.onDiarizedSegments = { [weak self, pendingUpdates] segments in
+                    guard let self else { return }
+                    guard let token = pendingUpdates.begin(generation: generation) else { return }
+                    Task { @MainActor in
+                        defer { pendingUpdates.end(token) }
+                        await self.handleDeepgramSegments(segments, sessionID: sessionID, generation: generation)
+                    }
+                }
+                try dg.start(
+                    config: deepgram.config,
+                    sampleRate: sampleRate,
+                    apiKey: deepgram.apiKey,
+                    diarize: deepgram.diarize && speakerOverride == nil
+                )
+                deepgramSession = dg
+                audioCapture.onPCMChunk = { [weak dg] float32Data in
+                    let pcm16 = DeepgramStreamingSession.float32PCMToInt16PCM(float32Data)
+                    dg?.sendPCM16(pcm16)
+                }
+                let cueDuration = onBeforeAudioStart?() ?? 0
+                if cueDuration > 0 {
+                    let delay = min(cueDuration + 0.03, 0.30)
+                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                }
+                _ = try audioCapture.start(deviceUID: microphoneID)
+                return
+            } catch {
+                cancel()
+                throw error
+            }
+        }
 
         streamingClient.setOnUpdate { [weak self, pendingUpdates] update in
             guard let self else { return }
@@ -153,6 +198,19 @@ final class ConversationRecorderService {
             stopError = error
         }
 
+        if let dg = deepgramSession {
+            deepgramSession = nil
+            _ = await dg.finish()
+            if let generation {
+                await waitForPendingUpdates(generation: generation)
+            }
+            clearRecordingState()
+            if let stopError {
+                throw stopError
+            }
+            return
+        }
+
         streamingClient.finish()
         await waitForStreamFinalization()
         if let generation {
@@ -167,10 +225,51 @@ final class ConversationRecorderService {
     }
 
     func cancel() {
+        deepgramSession?.cancel()
+        deepgramSession = nil
         streamingClient.cancel()
         audioCapture.onPCMChunk = nil
         _ = try? audioCapture.stopWAVData()
         clearRecordingState()
+    }
+
+    private func handleDeepgramSegments(
+        _ segments: [DeepgramAPIHelper.DiarizedSegment],
+        sessionID: String,
+        generation: UUID
+    ) async {
+        guard activeSessionID == sessionID, activeGeneration == generation else { return }
+        for seg in segments {
+            let cleanText = TextInsertionEdit.sanitizedInsertionText(seg.text)
+            guard !cleanText.isEmpty else { continue }
+            let speakerID = speakerOverride?.speakerID ?? seg.speakerID
+            let speakerName = speakerOverride?.displayName ?? seg.speakerDisplayName
+            let request = ConversationSegmentCreateRequest(
+                speakerID: speakerID,
+                speakerDisplayName: speakerName,
+                audioStartMs: nil,
+                startMs: seg.startMs,
+                endMs: max(seg.startMs, seg.endMs),
+                text: cleanText,
+                state: seg.isFinal ? .settled : .live,
+                confidence: nil,
+                audioPCMFloat32: nil,
+                audioSampleRate: activeSampleRate
+            )
+            if seg.isFinal {
+                settledSegmentEmitted = true
+            } else {
+                lastLiveSegmentRequest = request
+            }
+            if let onSegment {
+                await onSegment(request)
+            }
+            if seg.isFinal,
+               let card = ConversationAssistCardDetector.card(for: cleanText),
+               let onAssistCard {
+                await onAssistCard(card)
+            }
+        }
     }
 
     private func clearRecordingState() {

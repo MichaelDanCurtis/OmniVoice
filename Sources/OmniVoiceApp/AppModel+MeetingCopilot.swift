@@ -478,14 +478,15 @@ extension AppModel {
         }
     }
 
-    /// Runs a meeting Co-Pilot prompt through Service Mode (if active) or the configured
-    /// cloud/OAuth Text LLM, falling back cleanly to a discovered local AI agent CLI.
+    /// Runs a meeting Co-Pilot prompt through Service Mode override (if active) or the
+    /// unified AI Configuration route (API/OAuth provider, installed AI Agent, or Local MLX).
     func synthesizeMeetingAIResponse(
         systemPrompt: String,
         userPrompt: String,
         attachments: [AIChatAttachment] = []
     ) async -> String? {
         if preferences.serviceMode.enabled,
+           preferences.serviceMode.llmRoute != .auto,
            let routed = await runServiceModeLLM(
                systemPrompt: systemPrompt,
                userPrompt: userPrompt,
@@ -494,29 +495,15 @@ extension AppModel {
             return routed
         }
 
-        if let configuration = configuredConversationTextLLMConfiguration() {
-            do {
-                let result = try await engineClient.aiChat(
-                    AIChatRequest(
-                        provider: configuration.provider.rawValue,
-                        baseURL: configuration.resolvedBaseURL,
-                        model: configuration.trimmedModel,
-                        apiKey: configuration.trimmedAPIKey,
-                        transport: configuration.transport,
-                        oauthAccessToken: configuration.trimmedOAuthAccessToken,
-                        headers: configuration.resolvedHeaders,
-                        messages: [
-                            AIChatMessage(role: .system, content: systemPrompt),
-                            AIChatMessage(role: .user, content: userPrompt),
-                        ],
-                        attachments: attachments,
-                        webSearchEnabled: conversationAIWebSearchEnabled
-                    )
-                )
-                return result.text
-            } catch {
-                // Fall through to local agent fallback if available.
-            }
+        if let unified = await runUnifiedAIPrompt(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt,
+            attachments: attachments,
+            webSearchEnabled: conversationAIWebSearchEnabled,
+            routeOverride: effectiveConversationAIRoute,
+            sanitize: false
+        ) {
+            return unified
         }
 
         if attachments.isEmpty, let localAgent = discoveredAgents.first?.descriptor {

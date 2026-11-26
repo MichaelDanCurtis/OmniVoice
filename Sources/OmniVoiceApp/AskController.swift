@@ -54,24 +54,56 @@ final class AskController {
         let keywords = bindings.map(\.keyword)
         switch AskAICommandParser.parse(transcript, knownKeywords: keywords, bubbleOpen: bubbleOpen) {
         case .ask(let keyword, let question):
-            guard let target = AskKeywordResolver.resolve(keyword, in: bindings) else { return false }
             if let isEntitledToAskAI, !isEntitledToAskAI() {
                 onAskAIPaywall?()
                 return true // consumed: don't type the "ask …" transcript
             }
+            if keyword.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ai" {
+                switch preferences.defaultAIRoute {
+                case .localMLX:
+                    history = []
+                    activeTarget = nil
+                    capturedTarget = captureTarget
+                    askLocalMLX(question: question)
+                    return true
+                case .agent(let agentID):
+                    let target = AskTarget(kind: .agent, id: agentID)
+                    history = []
+                    activeTarget = target
+                    capturedTarget = captureTarget
+                    ask(target: target, question: question)
+                    return true
+                case .textLLM(let provider):
+                    let target = AskTarget(kind: .textLLM, id: provider.rawValue)
+                    history = []
+                    activeTarget = target
+                    capturedTarget = captureTarget
+                    ask(target: target, question: question)
+                    return true
+                case .auto:
+                    break
+                }
+            }
+            guard let target = AskKeywordResolver.resolve(keyword, in: bindings) else { return false }
             history = []
             activeTarget = target
             capturedTarget = captureTarget
             ask(target: target, question: question)
             return true
         case .followUp(let question):
-            guard let target = activeTarget else { return false }
             if let isEntitledToAskAI, !isEntitledToAskAI() {
                 onAskAIPaywall?()
                 return true
             }
-            ask(target: target, question: question)
-            return true
+            if let target = activeTarget {
+                ask(target: target, question: question)
+                return true
+            }
+            if preferences.defaultAIRoute == .localMLX {
+                askLocalMLX(question: question)
+                return true
+            }
+            return false
         case .action(.insert): insertAnswer(); return true
         case .action(.copy): copyAnswer(); return true
         case .action(.dismiss): dismiss(); return true
@@ -113,12 +145,28 @@ final class AskController {
         let token = runToken
         Task { @MainActor [weak self] in
             guard let self else { return }
+            let onChunk: @Sendable (String) -> Void = { [weak self] chunk in
+                Task { @MainActor in
+                    guard let self, self.runToken == token else { return }
+                    self.bubble.appendAnswer(chunk)
+                }
+            }
             do {
-                let output = try await self.runner.run(agent, prompt: prompt) { [weak self] chunk in
-                    Task { @MainActor in
-                        guard let self, self.runToken == token else { return }
-                        self.bubble.appendAnswer(chunk)
+                let output: String
+                if agent.supportsACP {
+                    do {
+                        output = try await ACPAgentPool.shared.promptWaitingForWarmup(
+                            agent,
+                            prompt: prompt,
+                            purpose: .interactive,
+                            onChunk: onChunk
+                        )
+                    } catch {
+                        guard self.runToken == token else { return }
+                        output = try await self.runner.run(agent, prompt: prompt, onChunk: onChunk)
                     }
+                } else {
+                    output = try await self.runner.run(agent, prompt: prompt, onChunk: onChunk)
                 }
                 guard self.runToken == token else { return }
                 self.bubble.setStreaming(false)
@@ -173,6 +221,40 @@ final class AskController {
             } catch {
                 guard runToken == token else { return }
                 bubble.showError("\(kind.displayName) failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func askLocalMLX(question: String) {
+        let modelName = CleanupModelRecommendation(providerID: preferences.llmCleanupLocalModelID).displayName
+        bubbleOpen = true
+        lastAnswer = ""
+        bubble.show(question: question, agentName: "Local MLX (\(modelName))")
+
+        let enrichedQuestion = questionWithClipboardContextIfRelevant(question)
+        let prompt = AskPromptBuilder.build(history: history, question: enrichedQuestion)
+        history.append(AskTurn(role: .user, text: enrichedQuestion))
+        runToken += 1
+        let token = runToken
+        let providerID = preferences.llmCleanupLocalModelID
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let output = try await MLXLocalCleanupService.shared.generateRaw(
+                    instructions: "You are a concise, helpful macOS assistant. Answer directly without preamble.",
+                    prompt: prompt,
+                    maxTokens: 768,
+                    providerID: providerID
+                )
+                guard self.runToken == token else { return }
+                let text = TextInsertionEdit.sanitizedInsertionText(output)
+                self.bubble.setStreaming(false)
+                self.bubble.appendAnswer(text)
+                self.lastAnswer = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.history.append(AskTurn(role: .assistant, text: self.lastAnswer))
+            } catch {
+                guard self.runToken == token else { return }
+                self.bubble.showError("Local MLX failed: \(error.localizedDescription)")
             }
         }
     }

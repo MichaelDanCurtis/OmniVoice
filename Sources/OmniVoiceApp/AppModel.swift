@@ -167,6 +167,8 @@ final class AppModel {
     var isConversationRecording: Bool
     var isConversationFinalizing: Bool
     var isGeneratingConversationInsights: Bool
+    var conversationAIRouteOverride: UnifiedAIRoute? = nil
+    var acpWorkerStates: [String: ACPWorkerState] = [:]
     var conversationAIProviderOverride: TextLLMProviderKind?
     var conversationAIModelOverride: String?
     var conversationAIWebSearchEnabled: Bool
@@ -208,6 +210,7 @@ final class AppModel {
     @ObservationIgnored var onHotkeysChanged: ((OmniVoicePreferences) -> Void)?
     @ObservationIgnored var onMouseShortcutsChanged: ((OmniVoicePreferences) -> Void)?
     @ObservationIgnored var onThemeChanged: ((OmniVoiceTheme, AppAppearanceMode) -> Void)?
+    @ObservationIgnored var onCaptionGlassOpacityChanged: ((Double) -> Void)?
     @ObservationIgnored var onCustomAgentsChanged: (([AgentConfiguration]) -> Void)?
     @ObservationIgnored var onMeetingCopilotModal: ((MeetingCopilotModalItem) -> Void)?
     @ObservationIgnored var onMeetingCopilotSessionChanged: ((String?, String?, Bool) -> Void)?
@@ -498,7 +501,9 @@ final class AppModel {
             )
             if let response = await runServiceModeLLM(
                 systemPrompt: instructions,
-                userPrompt: "Transcript:\n\(rawTranscript)"
+                userPrompt: "Transcript:\n\(rawTranscript)",
+                isCleanup: true,
+                agentTimeoutSeconds: 5.0
             ) {
                 let sanitized = MLXLocalCleanupService.sanitizeOutput(response)
                 if !sanitized.isEmpty {
@@ -510,71 +515,93 @@ final class AppModel {
                     )
                 }
             }
-        }
-
-        if preferences.llmCleanupEnabled,
-           preferences.llmCleanupBackend == .agent,
-           style != .raw {
-            let instructions = MLXLocalCleanupService.systemPrompt(
-                style: style,
-                dictionaryTerms: preferences.dictionaryTerms,
-                appContext: appContext
-            )
-            let registry = AgentRegistry(custom: preferences.customAgents)
-            if let descriptor = registry.all.first(where: { $0.id == preferences.llmCleanupAgentID })
-                ?? discoveredAgents.first?.descriptor {
-                let prompt = "\(instructions)\n\nTranscript:\n\(rawTranscript)"
-                if let output = try? await meetingAgentRunner.run(descriptor, prompt: prompt, onChunk: { _ in }) {
-                    let sanitized = MLXLocalCleanupService.sanitizeOutput(output)
-                    if !sanitized.isEmpty {
-                        return CleanupResult(
-                            text: sanitized,
-                            cleanupApplied: true,
-                            llmApplied: true,
-                            llmFallbackReason: nil
-                        )
-                    }
-                }
-            }
-        }
-
-        if preferences.llmCleanupEnabled,
-           preferences.llmCleanupBackend == .localMLX,
-           style != .raw {
-            do {
-                let cleaned = try await MLXLocalCleanupService.shared.cleanup(
+            // Service Mode LLM already attempted (and timed out or returned nil);
+            // fall straight back to instant rule-based cleanup rather than running a
+            // second slow LLM pass.
+            return try await engineClient.cleanup(
+                CleanupRequest(
                     rawTranscript: rawTranscript,
                     style: style,
                     dictionaryTerms: preferences.dictionaryTerms,
+                    dictionaryEntries: CleanupRequest.entries(from: preferences.dictionaryEntries),
                     appContext: appContext,
-                    providerID: preferences.llmCleanupLocalModelID
+                    llm: nil
                 )
-                return CleanupResult(
-                    text: cleaned,
-                    cleanupApplied: true,
-                    llmApplied: true,
-                    llmFallbackReason: nil
-                )
-            } catch {
-                let fallback = try await engineClient.cleanup(
-                    CleanupRequest(
+            )
+        }
+
+        if preferences.llmCleanupEnabled, style != .raw {
+            switch preferences.llmCleanupBackend {
+            case .aiConfiguration:
+                if let result = try await runDictationCleanup(
+                    via: resolvedUnifiedAIRoute(),
+                    rawTranscript: rawTranscript,
+                    style: style,
+                    appContext: appContext
+                ) {
+                    return result
+                }
+
+            case .agent:
+                if let result = try await runDictationCleanup(
+                    via: .agent(agentID: preferences.llmCleanupAgentID),
+                    rawTranscript: rawTranscript,
+                    style: style,
+                    appContext: appContext
+                ) {
+                    return result
+                }
+
+            case .localMLX:
+                do {
+                    let cleaned = try await MLXLocalCleanupService.shared.cleanup(
                         rawTranscript: rawTranscript,
                         style: style,
                         dictionaryTerms: preferences.dictionaryTerms,
-                        dictionaryEntries: CleanupRequest.entries(from: preferences.dictionaryEntries),
                         appContext: appContext,
-                        llm: preferences.resolvedLLMCleanupConfig()
+                        providerID: preferences.llmCleanupLocalModelID
                     )
-                )
-                if fallback.llmApplied {
-                    return fallback
+                    return CleanupResult(
+                        text: cleaned,
+                        cleanupApplied: true,
+                        llmApplied: true,
+                        llmFallbackReason: nil
+                    )
+                } catch {
+                    let fallback = try await engineClient.cleanup(
+                        CleanupRequest(
+                            rawTranscript: rawTranscript,
+                            style: style,
+                            dictionaryTerms: preferences.dictionaryTerms,
+                            dictionaryEntries: CleanupRequest.entries(from: preferences.dictionaryEntries),
+                            appContext: appContext,
+                            llm: preferences.resolvedLLMCleanupConfig()
+                        )
+                    )
+                    if fallback.llmApplied {
+                        return fallback
+                    }
+                    return CleanupResult(
+                        text: fallback.text,
+                        cleanupApplied: fallback.cleanupApplied,
+                        llmApplied: false,
+                        llmFallbackReason: "MLX-Swift: \(error.localizedDescription)"
+                    )
                 }
-                return CleanupResult(
-                    text: fallback.text,
-                    cleanupApplied: fallback.cleanupApplied,
-                    llmApplied: false,
-                    llmFallbackReason: "MLX-Swift: \(error.localizedDescription)"
-                )
+
+            case .textLLM:
+                if preferences.resolvedLLMCleanupConfig() == nil {
+                    let unified = resolvedUnifiedAIRoute()
+                    if case .agent = unified,
+                       let result = try await runDictationCleanup(
+                           via: unified,
+                           rawTranscript: rawTranscript,
+                           style: style,
+                           appContext: appContext
+                       ) {
+                        return result
+                    }
+                }
             }
         }
 
@@ -696,27 +723,24 @@ final class AppModel {
         if document.sourceSubjectID != nil {
             prepareAskAIForSelectedEditorDocument()
         }
-        guard let configuration = configuredTextLLMConfiguration(for: selectedAskAIThread) else {
-            statusText = "Configure an AI provider first"
+        let route = effectiveAskAIRoute(for: selectedAskAIThread)
+        guard isUnifiedAIRouteReady(route) else {
+            statusText = "Configure an AI provider or agent in Settings → AI first"
             return
         }
 
         statusText = "Editing with AI"
         do {
-            let result = try await engineClient.aiHandoff(
-                AIHandoffRequest(
-                    prompt: "\(instruction)\n\nReturn the full revised Markdown document.",
-                    provider: configuration.provider.rawValue,
-                    baseURL: configuration.resolvedBaseURL,
-                    model: configuration.trimmedModel,
-                    apiKey: configuration.trimmedAPIKey,
-                    transport: configuration.transport,
-                    oauthAccessToken: configuration.trimmedOAuthAccessToken,
-                    headers: configuration.resolvedHeaders,
-                    context: document.aiContext
-                )
+            let prompt = "\(instruction)\n\nReturn the full revised Markdown document."
+            let revised = try await runUnifiedAI(
+                messages: [
+                    AIChatMessage(role: .system, content: "You are a precise Markdown editor. Return only the full revised Markdown document with no preamble."),
+                    AIChatMessage(role: .user, content: "\(prompt)\n\nDocument:\n\(document.aiContext)"),
+                ],
+                routeOverride: route,
+                modelOverride: selectedAskAIThread?.modelOverride
             )
-            updateSelectedEditorDocument(bodyMarkdown: result.text)
+            updateSelectedEditorDocument(bodyMarkdown: revised)
             statusText = "Document updated"
         } catch {
             statusText = "AI edit failed"
@@ -746,12 +770,9 @@ final class AppModel {
     }
 
     func createAskAIThread(title: String = "Ask AI", subjectID: String? = nil) {
-        let configuration = configuredTextLLMConfiguration()
         let thread = AskAIThread(
             title: title,
-            subjectID: subjectID,
-            providerOverride: configuration?.provider,
-            modelOverride: configuration?.trimmedModel.nilIfEmpty
+            subjectID: subjectID
         )
         askAIThreads.insert(thread, at: 0)
         selectedAskAIThreadID = thread.id
@@ -845,15 +866,101 @@ final class AppModel {
             .uniquePreservingOrder()
     }
 
-    func setSelectedAskAIProvider(_ provider: TextLLMProviderKind) {
-        guard let index = ensureAskAIThreadForCurrentSelection() else { return }
+    func effectiveAskAIRoute(for thread: AskAIThread?) -> UnifiedAIRoute {
+        if let routeOverride = thread?.routeOverride {
+            return routeOverride
+        }
+        if let providerOverride = thread?.providerOverride {
+            return .textLLM(provider: providerOverride)
+        }
+        return preferences.defaultAIRoute
+    }
 
-        let configuredModel = preferences.textLLMConfiguration(for: provider).trimmedModel.nilIfEmpty
-        askAIThreads[index].providerOverride = provider
-        askAIThreads[index].modelOverride = configuredModel
+    var effectiveConversationAIRoute: UnifiedAIRoute {
+        if let routeOverride = conversationAIRouteOverride {
+            return routeOverride
+        }
+        if let providerOverride = conversationAIProviderOverride {
+            return .textLLM(provider: providerOverride)
+        }
+        return preferences.defaultAIRoute
+    }
+
+    var selectedAskAIRoutePickerID: String {
+        if let route = selectedAskAIThread?.routeOverride {
+            return route.pickerID
+        }
+        if let provider = selectedAskAIThread?.providerOverride {
+            return UnifiedAIRoute.textLLM(provider: provider).pickerID
+        }
+        return "default"
+    }
+
+    var selectedConversationAIRoutePickerID: String {
+        if let route = conversationAIRouteOverride {
+            return route.pickerID
+        }
+        if let provider = conversationAIProviderOverride {
+            return UnifiedAIRoute.textLLM(provider: provider).pickerID
+        }
+        return "default"
+    }
+
+    var resolvedSelectedAskAIRoute: UnifiedAIRoute {
+        resolvedUnifiedAIRoute(override: effectiveAskAIRoute(for: selectedAskAIThread))
+    }
+
+    var resolvedSelectedConversationAIRoute: UnifiedAIRoute {
+        resolvedUnifiedAIRoute(override: effectiveConversationAIRoute)
+    }
+
+    func setSelectedAskAIRoutePickerID(_ pickerID: String) {
+        guard let index = ensureAskAIThreadForCurrentSelection() else { return }
+        if pickerID == "default" {
+            askAIThreads[index].routeOverride = nil
+            askAIThreads[index].providerOverride = nil
+            askAIThreads[index].modelOverride = nil
+            askAIThreads[index].updatedAt = OmniWorkspaceClock.now()
+            persistWorkspace()
+            statusText = "Ask AI → AI Configuration (\(resolvedUnifiedAILabel))"
+            return
+        }
+        let route = UnifiedAIRoute(pickerID: pickerID)
+        askAIThreads[index].routeOverride = route
+        if case .textLLM(let provider) = route {
+            askAIThreads[index].providerOverride = provider
+            askAIThreads[index].modelOverride = preferences.textLLMConfiguration(for: provider).trimmedModel.nilIfEmpty
+        } else {
+            askAIThreads[index].providerOverride = nil
+            askAIThreads[index].modelOverride = nil
+        }
         askAIThreads[index].updatedAt = OmniWorkspaceClock.now()
         persistWorkspace()
-        statusText = "Ask AI provider: \(askAIProviderLabel(provider))"
+        statusText = "Ask AI → \(unifiedAIRouteLabel(route))"
+    }
+
+    func setSelectedConversationAIRoutePickerID(_ pickerID: String) {
+        if pickerID == "default" {
+            conversationAIRouteOverride = nil
+            conversationAIProviderOverride = nil
+            conversationAIModelOverride = nil
+            statusText = "Conversation AI → AI Configuration (\(resolvedUnifiedAILabel))"
+            return
+        }
+        let route = UnifiedAIRoute(pickerID: pickerID)
+        conversationAIRouteOverride = route
+        if case .textLLM(let provider) = route {
+            conversationAIProviderOverride = provider
+            conversationAIModelOverride = preferences.textLLMConfiguration(for: provider).trimmedModel.nilIfEmpty
+        } else {
+            conversationAIProviderOverride = nil
+            conversationAIModelOverride = nil
+        }
+        statusText = "Conversation AI → \(unifiedAIRouteLabel(route))"
+    }
+
+    func setSelectedAskAIProvider(_ provider: TextLLMProviderKind) {
+        setSelectedAskAIRoutePickerID(UnifiedAIRoute.textLLM(provider: provider).pickerID)
     }
 
     func setSelectedAskAIModel(_ modelName: String) {
@@ -876,9 +983,7 @@ final class AppModel {
     }
 
     func setSelectedConversationAIProvider(_ provider: TextLLMProviderKind) {
-        conversationAIProviderOverride = provider
-        conversationAIModelOverride = preferences.textLLMConfiguration(for: provider).trimmedModel.nilIfEmpty
-        statusText = "Conversation AI provider: \(askAIProviderLabel(provider))"
+        setSelectedConversationAIRoutePickerID(UnifiedAIRoute.textLLM(provider: provider).pickerID)
     }
 
     func setSelectedConversationAIModel(_ modelName: String) {
@@ -913,8 +1018,9 @@ final class AppModel {
         let prompt = conversationAIPromptDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else { return }
         guard !isConversationAISending else { return }
-        guard let configuration = configuredConversationTextLLMConfiguration() else {
-            statusText = "Configure a conversation AI provider first"
+        let route = effectiveConversationAIRoute
+        guard isUnifiedAIRouteReady(route) else {
+            statusText = "Configure an AI provider or agent in Settings → AI first"
             return
         }
         guard let detail = await conversationDetailForAIChat() else {
@@ -939,21 +1045,14 @@ final class AppModel {
         defer { isConversationAISending = false }
 
         do {
-            let result = try await engineClient.aiChat(
-                AIChatRequest(
-                    provider: configuration.provider.rawValue,
-                    baseURL: configuration.resolvedBaseURL,
-                    model: configuration.trimmedModel,
-                    apiKey: configuration.trimmedAPIKey,
-                    transport: configuration.transport,
-                    oauthAccessToken: configuration.trimmedOAuthAccessToken,
-                    headers: configuration.resolvedHeaders,
-                    messages: ConversationAIChatContext.messages(history: history, question: prompt),
-                    attachments: [ConversationAIChatContext.transcriptAttachment(for: detail)],
-                    webSearchEnabled: conversationAIWebSearchEnabled
-                )
+            let reply = try await runUnifiedAI(
+                messages: ConversationAIChatContext.messages(history: history, question: prompt),
+                attachments: [ConversationAIChatContext.transcriptAttachment(for: detail)],
+                webSearchEnabled: conversationAIWebSearchEnabled,
+                routeOverride: route,
+                modelOverride: conversationAIModelOverride
             )
-            conversationAIMessages.append(AskAIMessage(role: .assistant, text: result.text))
+            conversationAIMessages.append(AskAIMessage(role: .assistant, text: reply))
             statusText = "Conversation AI replied"
         } catch {
             conversationAIMessages.append(AskAIMessage(role: .assistant, text: "AI request failed: \(error.localizedDescription)"))
@@ -1103,11 +1202,12 @@ final class AppModel {
         }
         guard let threadID = selectedAskAIThread?.id,
               let index = askAIThreads.firstIndex(where: { $0.id == threadID }) else {
-            statusText = "Configure an AI provider first"
+            statusText = "Configure an AI provider or agent in Settings → AI first"
             return
         }
-        guard let configuration = configuredTextLLMConfiguration(for: askAIThreads[index]) else {
-            statusText = "Configure an AI provider first"
+        let route = effectiveAskAIRoute(for: askAIThreads[index])
+        guard isUnifiedAIRouteReady(route) else {
+            statusText = "Configure an AI provider or agent in Settings → AI first"
             return
         }
 
@@ -1126,22 +1226,15 @@ final class AppModel {
                 AIChatMessage(role: $0.role, content: $0.text)
             }
             let outboundAttachments = askAIThreads[index].attachments.map(AIChatAttachment.init)
-            let result = try await engineClient.aiChat(
-                AIChatRequest(
-                    provider: configuration.provider.rawValue,
-                    baseURL: configuration.resolvedBaseURL,
-                    model: configuration.trimmedModel,
-                    apiKey: configuration.trimmedAPIKey,
-                    transport: configuration.transport,
-                    oauthAccessToken: configuration.trimmedOAuthAccessToken,
-                    headers: configuration.resolvedHeaders,
-                    messages: outboundMessages,
-                    attachments: outboundAttachments,
-                    webSearchEnabled: askAIThreads[index].webSearchEnabled
-                )
+            let reply = try await runUnifiedAI(
+                messages: outboundMessages,
+                attachments: outboundAttachments,
+                webSearchEnabled: askAIThreads[index].webSearchEnabled,
+                routeOverride: route,
+                modelOverride: askAIThreads[index].modelOverride
             )
             if let updatedIndex = askAIThreads.firstIndex(where: { $0.id == threadID }) {
-                askAIThreads[updatedIndex].messages.append(AskAIMessage(role: .assistant, text: result.text))
+                askAIThreads[updatedIndex].messages.append(AskAIMessage(role: .assistant, text: reply))
                 askAIThreads[updatedIndex].updatedAt = OmniWorkspaceClock.now()
             }
             statusText = "AI replied"
@@ -1170,22 +1263,30 @@ final class AppModel {
     }
 
     var askAIProviderSummary: String {
-        guard let configuration = configuredTextLLMConfiguration(for: selectedAskAIThread) else {
-            return "No AI provider configured"
-        }
-        let model = configuration.trimmedModel.isEmpty ? "No model selected" : configuration.trimmedModel
         let subject = selectedAskAIThread.flatMap { subjectLabel(for: $0) }.map { "\($0) • " } ?? ""
-        let web = selectedAskAIWebSearchEnabled ? " • Web search" : ""
-        return "\(subject)\(configuration.provider.displayName) • \(model)\(web)"
+        let resolved = resolvedSelectedAskAIRoute
+        switch resolved {
+        case .textLLM(let provider):
+            let cfg = preferences.textLLMConfiguration(for: provider)
+            let modelName = selectedAskAIModel.isEmpty ? (cfg.trimmedModel.isEmpty ? "No model selected" : cfg.trimmedModel) : selectedAskAIModel
+            let web = selectedAskAIWebSearchEnabled ? " • Web search" : ""
+            return "\(subject)\(cfg.displayName) • \(modelName)\(web)"
+        case .agent, .localMLX, .auto:
+            return "\(subject)\(concreteAIRouteLabel(resolved))"
+        }
     }
 
     var conversationAIProviderSummary: String {
-        guard let configuration = configuredConversationTextLLMConfiguration() else {
-            return "No conversation AI provider configured"
+        let resolved = resolvedSelectedConversationAIRoute
+        switch resolved {
+        case .textLLM(let provider):
+            let cfg = preferences.textLLMConfiguration(for: provider)
+            let modelName = selectedConversationAIModel.isEmpty ? (cfg.trimmedModel.isEmpty ? "No model selected" : cfg.trimmedModel) : selectedConversationAIModel
+            let web = conversationAIWebSearchEnabled ? " • Web search" : ""
+            return "\(cfg.displayName) • \(modelName)\(web)"
+        case .agent, .localMLX, .auto:
+            return concreteAIRouteLabel(resolved)
         }
-        let model = configuration.trimmedModel.isEmpty ? "No model selected" : configuration.trimmedModel
-        let web = conversationAIWebSearchEnabled ? " • Web search" : ""
-        return "\(configuration.provider.displayName) • \(model)\(web)"
     }
 
     func askAIThreadSubtitle(_ thread: AskAIThread) -> String {
@@ -1257,7 +1358,7 @@ final class AppModel {
         return subject(forID: subjectID)?.title ?? "Subject"
     }
 
-    private func configuredTextLLMConfiguration() -> TextLLMProviderConfiguration? {
+    func configuredTextLLMConfiguration() -> TextLLMProviderConfiguration? {
         let preferred = preferences.textLLMConfiguration(for: preferences.textLLMDefaultProvider)
         if preferred.isConfigured {
             return preferred
@@ -1338,6 +1439,7 @@ final class AppModel {
         preferences.llmCleanupEnabled = enabled
         guard persistPreferences() else { return }
         statusText = enabled ? "Smart AI cleanup enabled" : "Smart AI cleanup disabled"
+        warmUpConfiguredACPAgents()
     }
 
     func setLLMCleanupBackend(_ backend: CleanupLLMBackend) {
@@ -1345,6 +1447,7 @@ final class AppModel {
         preferences.llmCleanupBackend = backend
         guard persistPreferences() else { return }
         statusText = "Cleanup backend: \(backend.displayName)"
+        warmUpConfiguredACPAgents()
     }
 
     func setLLMCleanupLocalModelID(_ modelID: String) {
@@ -1365,6 +1468,7 @@ final class AppModel {
         let registry = AgentRegistry(custom: preferences.customAgents)
         let name = registry.all.first(where: { $0.id == target })?.displayName ?? target
         statusText = "Cleanup agent: \(name)"
+        warmUpConfiguredACPAgents()
     }
 
     func setIdleMLXAutoUnloadMinutes(_ minutes: Int) {
@@ -1413,6 +1517,19 @@ final class AppModel {
         }
 
         statusText = enabled ? "Recording sound cues enabled" : "Recording sound cues disabled"
+    }
+
+    func setMuteBackgroundAudioWhileDictating(_ enabled: Bool) {
+        guard preferences.muteBackgroundAudioWhileDictating != enabled else { return }
+
+        preferences.muteBackgroundAudioWhileDictating = enabled
+        guard persistPreferences() else {
+            return
+        }
+
+        statusText = enabled
+            ? "Background audio will mute while dictating"
+            : "Background audio mute while dictating disabled"
     }
 
     func setRecordingCueTiming(_ timing: RecordingCueTiming) {
@@ -2061,16 +2178,8 @@ final class AppModel {
     }
 
     func setTextLLMDefaultProvider(_ provider: TextLLMProviderKind) {
-        guard preferences.textLLMDefaultProvider != provider else {
-            return
-        }
-
         preferences.setTextLLMDefaultProvider(provider)
-        guard persistPreferences() else {
-            return
-        }
-
-        statusText = "Default AI: \(provider.displayName)"
+        setDefaultAIRoute(.textLLM(provider: provider))
     }
 
     func setTextLLMConfiguration(_ configuration: TextLLMProviderConfiguration) {
@@ -2386,22 +2495,7 @@ final class AppModel {
     }
 
     func selectAgentForDefaultAsk(_ agent: DiscoveredAgent) {
-        let target = AskTarget(kind: .agent, id: agent.id)
-        if let idx = preferences.askKeywordBindings.firstIndex(where: {
-            $0.keyword.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ai"
-        }) {
-            preferences.askKeywordBindings[idx].target = target
-        } else {
-            preferences.askKeywordBindings.insert(
-                AskKeywordBinding(id: "builtin-ai", keyword: "ai", target: target),
-                at: 0
-            )
-        }
-        guard persistPreferences() else {
-            return
-        }
-        onCustomAgentsChanged?(preferences.customAgents)
-        statusText = "Default “ask ai” set to \(agent.displayName)"
+        setDefaultAIRoute(.agent(agentID: agent.id))
     }
 
     func discoverSystemAgents() async {
@@ -2424,6 +2518,7 @@ final class AppModel {
             _ = persistPreferences()
         }
         onCustomAgentsChanged?(preferences.customAgents)
+        warmUpConfiguredACPAgents()
     }
 
     func testTextLLMProvider(_ provider: TextLLMProviderKind) async {
@@ -2771,11 +2866,31 @@ final class AppModel {
         let selectedModel = modelStatus(for: preferences.asrProvider)
         let selectedProvider = providerInfo(for: preferences.asrProvider)
         let selectedDiarizationProvider = diarizationProviderInfo(for: preferences.conversationDiarizationProvider)
+            ?? (preferences.conversationDiarizationProvider.hasPrefix("mlx-sortformer")
+                ? diarizationProviderInfo(for: "sortformer-coreml-ane")
+                : nil)
         let modelState: StartupCheckState
         let modelDetail: String
-        if preferences.asrProvider == .fake {
+        if isServiceModeReady {
+            modelState = .passed
+            modelDetail = "Service Mode active: \(serviceModeStatusSummary)."
+        } else if isServiceModeEnabled {
+            modelState = .warning
+            modelDetail = "Service Mode enabled — add your Deepgram API key in Settings → Models."
+        } else if preferences.asrProvider == .fake {
             modelState = .warning
             modelDetail = "Fake ASR is selected for testing."
+        } else if preferences.asrProvider == .parakeetCoreMLANE {
+            if CoreMLParakeetTranscriber().isModelCached {
+                modelState = .passed
+                modelDetail = "Parakeet TDT v3 (CoreML ANE) is installed on-device."
+            } else {
+                modelState = .passed
+                modelDetail = "Parakeet TDT v3 (CoreML ANE) ready (auto-downloads on first dictation)."
+            }
+        } else if preferences.asrProvider == .appleSpeech {
+            modelState = .passed
+            modelDetail = "Apple Speech (built-in macOS on-device recognizer) is ready."
         } else if let selectedProvider, !selectedProvider.available {
             modelState = .failed
             modelDetail = selectedProvider.reason ?? "\(selectedProvider.label) is unavailable."
@@ -2792,7 +2907,10 @@ final class AppModel {
 
         let diarizationState: StartupCheckState
         let diarizationDetail: String
-        if !conversationDiarizationEnabled {
+        if isServiceModeReady && preferences.serviceMode.deepgramDiarize {
+            diarizationState = .passed
+            diarizationDetail = "Deepgram cloud diarization active (zero local models loaded)."
+        } else if !conversationDiarizationEnabled {
             diarizationState = .passed
             diarizationDetail = "Speaker diarization is off. Conversation transcription still uses Parakeet."
         } else if let selectedDiarizationProvider, selectedDiarizationProvider.available {
@@ -2801,6 +2919,10 @@ final class AppModel {
         } else if let selectedDiarizationProvider {
             diarizationState = .failed
             diarizationDetail = selectedDiarizationProvider.reason ?? "\(selectedDiarizationProvider.label) is unavailable."
+        } else if preferences.conversationDiarizationProvider == "sortformer-coreml-ane"
+            || preferences.conversationDiarizationProvider.hasPrefix("mlx-sortformer") {
+            diarizationState = .passed
+            diarizationDetail = "Sortformer (CoreML ANE) is built-in and ready for meetings."
         } else {
             diarizationState = .warning
             diarizationDetail = "Diarization provider status has not loaded yet."
@@ -2920,7 +3042,15 @@ final class AppModel {
             statusText = "Engine online"
         } catch {
             if startEngineIfOffline {
-                let startResult = await EngineSupervisor.shared.startIfNeeded()
+                let errText = error.localizedDescription.lowercased()
+                let isAuthMismatch = errText.contains("401") || errText.contains("unauthorized")
+                let startResult: EngineStartResult
+                if isAuthMismatch {
+                    statusText = "Re-syncing engine auth token…"
+                    startResult = await EngineSupervisor.shared.restart(forceExternal: true)
+                } else {
+                    startResult = await EngineSupervisor.shared.startIfNeeded()
+                }
                 switch startResult {
                 case .alreadyOnline, .started:
                     await loadEngineStatus(startEngineIfOffline: false)
@@ -3277,8 +3407,9 @@ final class AppModel {
 
     func generateConversationInsights() async {
         guard !isGeneratingConversationInsights else { return }
-        guard let configuration = configuredConversationTextLLMConfiguration() else {
-            statusText = "Configure a conversation AI provider first"
+        let route = effectiveConversationAIRoute
+        guard isUnifiedAIRouteReady(route) else {
+            statusText = "Configure an AI provider or agent in Settings → AI first"
             return
         }
         guard let detail = await conversationDetailForInsightGeneration() else {
@@ -3295,26 +3426,19 @@ final class AppModel {
         defer { isGeneratingConversationInsights = false }
 
         do {
-            let result = try await engineClient.aiChat(
-                AIChatRequest(
-                    provider: configuration.provider.rawValue,
-                    baseURL: configuration.resolvedBaseURL,
-                    model: configuration.trimmedModel,
-                    apiKey: configuration.trimmedAPIKey,
-                    transport: configuration.transport,
-                    oauthAccessToken: configuration.trimmedOAuthAccessToken,
-                    headers: configuration.resolvedHeaders,
-                    messages: [
-                        AIChatMessage(role: .system, content: ConversationInsightSynthesis.systemPrompt),
-                        AIChatMessage(role: .user, content: ConversationInsightSynthesis.userPrompt(for: detail)),
-                    ],
-                    attachments: [],
-                    webSearchEnabled: conversationAIWebSearchEnabled
-                )
+            let reply = try await runUnifiedAI(
+                messages: [
+                    AIChatMessage(role: .system, content: ConversationInsightSynthesis.systemPrompt),
+                    AIChatMessage(role: .user, content: ConversationInsightSynthesis.userPrompt(for: detail)),
+                ],
+                attachments: [],
+                webSearchEnabled: conversationAIWebSearchEnabled,
+                routeOverride: route,
+                modelOverride: conversationAIModelOverride
             )
 
             let requests = nonDuplicateInsightRequests(
-                ConversationInsightSynthesis.cardRequests(from: result.text),
+                ConversationInsightSynthesis.cardRequests(from: reply),
                 existingCards: detail.assistCards
             )
             guard !requests.isEmpty else {
@@ -3389,13 +3513,21 @@ final class AppModel {
             streamingClient: EngineStreamingClient()
         )
         systemConversationRecorder = recorder
+        let deepgramSystemConfig: ConversationRecorderService.DeepgramStreamConfig? = isServiceModeReady
+            ? ConversationRecorderService.DeepgramStreamConfig(
+                config: preferences.serviceMode,
+                apiKey: effectiveDeepgramAPIKey,
+                diarize: preferences.serviceMode.deepgramDiarize
+            )
+            : nil
         do {
             try await recorder.start(
                 sessionID: sessionID,
                 provider: provider,
                 microphoneID: nil,
                 liveDiarizationEnabled: false,
-                speakerOverride: .them,
+                speakerOverride: (deepgramSystemConfig?.diarize == true) ? nil : .them,
+                deepgram: deepgramSystemConfig,
                 referenceDate: referenceDate,
                 onSegment: { [weak self] request in
                     await self?.appendConversationSegment(request)
@@ -3534,6 +3666,13 @@ final class AppModel {
         // One clock origin for both lanes: their segment timestamps interleave
         // chronologically with no cross-track offset arithmetic.
         let referenceDate = Date()
+        let deepgramMicConfig: ConversationRecorderService.DeepgramStreamConfig? = isServiceModeReady
+            ? ConversationRecorderService.DeepgramStreamConfig(
+                config: preferences.serviceMode,
+                apiKey: effectiveDeepgramAPIKey,
+                diarize: !twoTrack && preferences.serviceMode.deepgramDiarize
+            )
+            : nil
         do {
             try await conversationRecorder.start(
                 sessionID: session.id,
@@ -3541,6 +3680,7 @@ final class AppModel {
                 microphoneID: preferences.microphoneID,
                 liveDiarizationEnabled: usesLiveConversationDiarizationStream && !twoTrack,
                 speakerOverride: twoTrack ? .me : nil,
+                deepgram: deepgramMicConfig,
                 referenceDate: referenceDate,
                 onBeforeAudioStart: { [recordingCuePlayer, preferences] in
                     recordingCuePlayer.playStartCue(preferences: preferences)

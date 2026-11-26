@@ -58,6 +58,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var openAICompatibleBaseURL: String
     public var openAICompatibleModel: String
     public var openAICompatibleAPIKey: String
+    public var defaultAIRoute: UnifiedAIRoute
     public var textLLMDefaultProvider: TextLLMProviderKind
     public var textLLMProviders: [TextLLMProviderConfiguration]
     public var customAgents: [AgentConfiguration]
@@ -87,6 +88,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var recordingStopCueEnabled: Bool
     public var recordingCueSet: RecordingCueSet
     public var recordingCueVolume: Double
+    public var muteBackgroundAudioWhileDictating: Bool
     public var firstRunSetupCompleted: Bool
     /// Cached premium-entitlement answer (JSON-encoded ``EntitlementSnapshot``), used by the
     /// offline-grace gate. Not a secret — the auth session token itself lives in the Keychain.
@@ -193,6 +195,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         openAICompatibleBaseURL: "",
         openAICompatibleModel: "",
         openAICompatibleAPIKey: "",
+        defaultAIRoute: .auto,
         textLLMDefaultProvider: .custom,
         textLLMProviders: TextLLMProviderConfiguration.defaults,
         customAgents: [],
@@ -205,6 +208,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         recordingStopCueEnabled: true,
         recordingCueSet: .glassTap,
         recordingCueVolume: 0.28,
+        muteBackgroundAudioWhileDictating: false,
         firstRunSetupCompleted: false
     )
 
@@ -215,7 +219,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         dictionaryEntries: [DictionaryEntry],
         autoLearnCorrectionsEnabled: Bool = true,
         llmCleanupEnabled: Bool = false,
-        llmCleanupBackend: CleanupLLMBackend = .localMLX,
+        llmCleanupBackend: CleanupLLMBackend = .aiConfiguration,
         llmCleanupLocalModelID: String = CleanupModelRecommendation.defaultProviderID,
         llmCleanupAgentID: String = "antigravity",
         llmCleanupProvider: TextLLMProviderKind? = nil,
@@ -260,6 +264,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         openAICompatibleBaseURL: String = "",
         openAICompatibleModel: String = "",
         openAICompatibleAPIKey: String = "",
+        defaultAIRoute: UnifiedAIRoute = .auto,
         textLLMDefaultProvider: TextLLMProviderKind = .custom,
         textLLMProviders: [TextLLMProviderConfiguration]? = nil,
         customAgents: [AgentConfiguration] = [],
@@ -287,6 +292,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         recordingStopCueEnabled: Bool = true,
         recordingCueSet: RecordingCueSet = .glassTap,
         recordingCueVolume: Double = 0.28,
+        muteBackgroundAudioWhileDictating: Bool = false,
         firstRunSetupCompleted: Bool = false,
         entitlementSnapshotData: Data? = nil
     ) {
@@ -363,6 +369,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         self.openAICompatibleBaseURL = openAICompatibleBaseURL
         self.openAICompatibleModel = openAICompatibleModel
         self.openAICompatibleAPIKey = openAICompatibleAPIKey
+        self.defaultAIRoute = defaultAIRoute
         self.textLLMDefaultProvider = textLLMDefaultProvider
         self.textLLMProviders = (textLLMProviders ?? []).normalizedTextLLMConfigurations(
             legacyBaseURL: openAICompatibleBaseURL,
@@ -394,6 +401,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         self.recordingStopCueEnabled = recordingStopCueEnabled
         self.recordingCueSet = recordingCueSet
         self.recordingCueVolume = Self.clampedRecordingCueVolume(recordingCueVolume)
+        self.muteBackgroundAudioWhileDictating = muteBackgroundAudioWhileDictating
         self.firstRunSetupCompleted = firstRunSetupCompleted
         self.entitlementSnapshotData = entitlementSnapshotData
         self.normalizeRecordingCueTiming()
@@ -423,12 +431,25 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         }
     }
 
+    private static func inferredDefaultAIRoute(from bindings: [AskKeywordBinding]) -> UnifiedAIRoute {
+        if let aiBinding = bindings.first(where: {
+            $0.keyword.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ai"
+        }), aiBinding.target.kind == .agent {
+            return .agent(agentID: aiBinding.target.id)
+        }
+        return .auto
+    }
+
     private init(
         snakeCaseContainer container: KeyedDecodingContainer<CodingKeys>,
         acronymContainer: KeyedDecodingContainer<AcronymCodingKeys>,
         legacyHotMenuContainer: KeyedDecodingContainer<LegacyHotMenuCodingKeys>,
         dictionaryEntries: [DictionaryEntry]
     ) throws {
+        let decodedBindings = try container.decodeIfPresent([AskKeywordBinding].self, forKey: .askKeywordBindings)
+            ?? OmniVoicePreferences.defaultAskKeywordBindings
+        let decodedDefaultAIRoute = try container.decodeIfPresent(UnifiedAIRoute.self, forKey: .defaultAIRoute)
+            ?? Self.inferredDefaultAIRoute(from: decodedBindings)
         self.init(
             asrProvider: try container.decode(ASRProviderKind.self, forKey: .asrProvider),
             engineBackendMode: try container.decodeIfPresent(EngineBackendMode.self, forKey: .engineBackendMode) ?? .auto,
@@ -436,7 +457,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             dictionaryEntries: dictionaryEntries,
             autoLearnCorrectionsEnabled: try container.decodeIfPresent(Bool.self, forKey: .autoLearnCorrectionsEnabled) ?? true,
             llmCleanupEnabled: try container.decodeIfPresent(Bool.self, forKey: .llmCleanupEnabled) ?? false,
-            llmCleanupBackend: try container.decodeIfPresent(CleanupLLMBackend.self, forKey: .llmCleanupBackend) ?? .localMLX,
+            llmCleanupBackend: try container.decodeIfPresent(CleanupLLMBackend.self, forKey: .llmCleanupBackend) ?? .aiConfiguration,
             llmCleanupLocalModelID: try container.decodeIfPresent(String.self, forKey: .llmCleanupLocalModelID)
                 ?? CleanupModelRecommendation.defaultProviderID,
             llmCleanupAgentID: try container.decodeIfPresent(String.self, forKey: .llmCleanupAgentID) ?? "antigravity",
@@ -501,11 +522,12 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             openAICompatibleAPIKey: try container.decodeIfPresent(String.self, forKey: .openAICompatibleAPIKey)
                 ?? acronymContainer.decodeIfPresent(String.self, forKey: .openAICompatibleAPIKey)
                 ?? "",
+            defaultAIRoute: decodedDefaultAIRoute,
             textLLMDefaultProvider: try container.decodeIfPresent(TextLLMProviderKind.self, forKey: .textLLMDefaultProvider)
                 ?? .custom,
             textLLMProviders: try container.decodeIfPresent([TextLLMProviderConfiguration].self, forKey: .textLLMProviders),
             customAgents: try container.decodeIfPresent([AgentConfiguration].self, forKey: .customAgents) ?? [],
-            askKeywordBindings: try container.decodeIfPresent([AskKeywordBinding].self, forKey: .askKeywordBindings) ?? OmniVoicePreferences.defaultAskKeywordBindings,
+            askKeywordBindings: decodedBindings,
             liveDraftInsertionEnabled: try container.decodeIfPresent(Bool.self, forKey: .liveDraftInsertionEnabled) ?? false,
             conversationArchiveFolderPath: try container.decodeIfPresent(String.self, forKey: .conversationArchiveFolderPath)
                 ?? ConversationArchive.defaultRootURL().path,
@@ -532,6 +554,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             recordingStopCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStopCueEnabled) ?? true,
             recordingCueSet: try container.decodeIfPresent(RecordingCueSet.self, forKey: .recordingCueSet) ?? .glassTap,
             recordingCueVolume: try container.decodeIfPresent(Double.self, forKey: .recordingCueVolume) ?? 0.28,
+            muteBackgroundAudioWhileDictating: try container.decodeIfPresent(Bool.self, forKey: .muteBackgroundAudioWhileDictating) ?? false,
             firstRunSetupCompleted: try container.decodeIfPresent(Bool.self, forKey: .firstRunSetupCompleted) ?? false,
             entitlementSnapshotData: try container.decodeIfPresent(Data.self, forKey: .entitlementSnapshotData)
         )
@@ -542,6 +565,10 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         legacyHotMenuContainer: KeyedDecodingContainer<LegacyConvertedHotMenuCodingKeys>,
         dictionaryEntries: [DictionaryEntry]
     ) throws {
+        let decodedBindings = try container.decodeIfPresent([AskKeywordBinding].self, forKey: .askKeywordBindings)
+            ?? OmniVoicePreferences.defaultAskKeywordBindings
+        let decodedDefaultAIRoute = try container.decodeIfPresent(UnifiedAIRoute.self, forKey: .defaultAIRoute)
+            ?? Self.inferredDefaultAIRoute(from: decodedBindings)
         self.init(
             asrProvider: try container.decode(ASRProviderKind.self, forKey: .asrProvider),
             engineBackendMode: try container.decodeIfPresent(EngineBackendMode.self, forKey: .engineBackendMode) ?? .auto,
@@ -549,7 +576,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             dictionaryEntries: dictionaryEntries,
             autoLearnCorrectionsEnabled: try container.decodeIfPresent(Bool.self, forKey: .autoLearnCorrectionsEnabled) ?? true,
             llmCleanupEnabled: try container.decodeIfPresent(Bool.self, forKey: .llmCleanupEnabled) ?? false,
-            llmCleanupBackend: try container.decodeIfPresent(CleanupLLMBackend.self, forKey: .llmCleanupBackend) ?? .localMLX,
+            llmCleanupBackend: try container.decodeIfPresent(CleanupLLMBackend.self, forKey: .llmCleanupBackend) ?? .aiConfiguration,
             llmCleanupLocalModelID: try container.decodeIfPresent(String.self, forKey: .llmCleanupLocalModelID)
                 ?? CleanupModelRecommendation.defaultProviderID,
             llmCleanupAgentID: try container.decodeIfPresent(String.self, forKey: .llmCleanupAgentID) ?? "antigravity",
@@ -608,11 +635,12 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             openAICompatibleBaseURL: try container.decodeIfPresent(String.self, forKey: .openAICompatibleBaseURL) ?? "",
             openAICompatibleModel: try container.decodeIfPresent(String.self, forKey: .openAICompatibleModel) ?? "",
             openAICompatibleAPIKey: try container.decodeIfPresent(String.self, forKey: .openAICompatibleAPIKey) ?? "",
+            defaultAIRoute: decodedDefaultAIRoute,
             textLLMDefaultProvider: try container.decodeIfPresent(TextLLMProviderKind.self, forKey: .textLLMDefaultProvider)
                 ?? .custom,
             textLLMProviders: try container.decodeIfPresent([TextLLMProviderConfiguration].self, forKey: .textLLMProviders),
             customAgents: try container.decodeIfPresent([AgentConfiguration].self, forKey: .customAgents) ?? [],
-            askKeywordBindings: try container.decodeIfPresent([AskKeywordBinding].self, forKey: .askKeywordBindings) ?? OmniVoicePreferences.defaultAskKeywordBindings,
+            askKeywordBindings: decodedBindings,
             liveDraftInsertionEnabled: try container.decodeIfPresent(Bool.self, forKey: .liveDraftInsertionEnabled) ?? false,
             conversationArchiveFolderPath: try container.decodeIfPresent(String.self, forKey: .conversationArchiveFolderPath)
                 ?? ConversationArchive.defaultRootURL().path,
@@ -639,6 +667,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             recordingStopCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStopCueEnabled) ?? true,
             recordingCueSet: try container.decodeIfPresent(RecordingCueSet.self, forKey: .recordingCueSet) ?? .glassTap,
             recordingCueVolume: try container.decodeIfPresent(Double.self, forKey: .recordingCueVolume) ?? 0.28,
+            muteBackgroundAudioWhileDictating: try container.decodeIfPresent(Bool.self, forKey: .muteBackgroundAudioWhileDictating) ?? false,
             firstRunSetupCompleted: try container.decodeIfPresent(Bool.self, forKey: .firstRunSetupCompleted) ?? false,
             entitlementSnapshotData: try container.decodeIfPresent(Data.self, forKey: .entitlementSnapshotData)
         )
@@ -812,33 +841,59 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public func resolvedLLMCleanupConfig(timeoutSeconds: Double = 6.0) -> CleanupLLMConfig? {
         guard llmCleanupEnabled else { return nil }
         switch llmCleanupBackend {
+        case .aiConfiguration:
+            switch defaultAIRoute {
+            case .agent:
+                return nil
+            case .localMLX:
+                return localMLXCleanupConfig(timeoutSeconds: timeoutSeconds)
+            case .textLLM(let provider):
+                return textLLMCleanupConfig(for: provider, timeoutSeconds: timeoutSeconds)
+            case .auto:
+                let preferred = textLLMConfiguration(for: textLLMDefaultProvider)
+                if preferred.isConfigured {
+                    return textLLMCleanupConfig(for: preferred.provider, timeoutSeconds: timeoutSeconds)
+                }
+                if let firstConfigured = textLLMProviders.first(where: { $0.isConfigured }) {
+                    return textLLMCleanupConfig(for: firstConfigured.provider, timeoutSeconds: timeoutSeconds)
+                }
+                return nil
+            }
         case .agent:
             return nil
         case .localMLX:
-            let modelID = llmCleanupLocalModelID.trimmingCharacters(in: .whitespacesAndNewlines)
-            return CleanupLLMConfig(
-                enabled: true,
-                provider: "local_mlx",
-                model: modelID.isEmpty ? CleanupModelRecommendation.defaultProviderID : modelID,
-                transport: .localMLX,
-                timeoutSeconds: timeoutSeconds
-            )
+            return localMLXCleanupConfig(timeoutSeconds: timeoutSeconds)
         case .textLLM:
             let provider = llmCleanupProvider ?? textLLMDefaultProvider
-            let config = textLLMConfiguration(for: provider)
-            guard config.isConfigured else { return nil }
-            return CleanupLLMConfig(
-                enabled: true,
-                provider: provider.rawValue,
-                baseURL: config.resolvedBaseURL,
-                model: config.trimmedModel,
-                apiKey: config.trimmedAPIKey,
-                transport: config.transport,
-                oauthAccessToken: config.trimmedOAuthAccessToken,
-                headers: config.resolvedHeaders,
-                timeoutSeconds: timeoutSeconds
-            )
+            return textLLMCleanupConfig(for: provider, timeoutSeconds: timeoutSeconds)
         }
+    }
+
+    private func localMLXCleanupConfig(timeoutSeconds: Double) -> CleanupLLMConfig {
+        let modelID = llmCleanupLocalModelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return CleanupLLMConfig(
+            enabled: true,
+            provider: "local_mlx",
+            model: modelID.isEmpty ? CleanupModelRecommendation.defaultProviderID : modelID,
+            transport: .localMLX,
+            timeoutSeconds: timeoutSeconds
+        )
+    }
+
+    private func textLLMCleanupConfig(for provider: TextLLMProviderKind, timeoutSeconds: Double) -> CleanupLLMConfig? {
+        let config = textLLMConfiguration(for: provider)
+        guard config.isConfigured else { return nil }
+        return CleanupLLMConfig(
+            enabled: true,
+            provider: provider.rawValue,
+            baseURL: config.resolvedBaseURL,
+            model: config.trimmedModel,
+            apiKey: config.trimmedAPIKey,
+            transport: config.transport,
+            oauthAccessToken: config.trimmedOAuthAccessToken,
+            headers: config.resolvedHeaders,
+            timeoutSeconds: timeoutSeconds
+        )
     }
 
     public func textLLMConfiguration(for target: AIHandoffTarget) -> TextLLMProviderConfiguration {
@@ -975,6 +1030,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case openAICompatibleBaseURL = "open_ai_compatible_base_url"
         case openAICompatibleModel = "open_ai_compatible_model"
         case openAICompatibleAPIKey = "open_ai_compatible_api_key"
+        case defaultAIRoute = "default_ai_route"
         case textLLMDefaultProvider = "text_llm_default_provider"
         case textLLMProviders = "text_llm_providers"
         case customAgents = "custom_agents"
@@ -1002,6 +1058,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case recordingStopCueEnabled = "recording_stop_cue_enabled"
         case recordingCueSet = "recording_cue_set"
         case recordingCueVolume = "recording_cue_volume"
+        case muteBackgroundAudioWhileDictating = "mute_background_audio_while_dictating"
         case firstRunSetupCompleted = "first_run_setup_completed"
         case entitlementSnapshotData = "entitlement_snapshot_data"
     }
@@ -1055,6 +1112,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case openAICompatibleBaseURL = "openAiCompatibleBaseUrl"
         case openAICompatibleModel = "openAiCompatibleModel"
         case openAICompatibleAPIKey = "openAiCompatibleApiKey"
+        case defaultAIRoute = "defaultAiRoute"
         case textLLMDefaultProvider
         case textLLMProviders
         case customAgents
@@ -1082,6 +1140,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case recordingStopCueEnabled
         case recordingCueSet
         case recordingCueVolume
+        case muteBackgroundAudioWhileDictating
         case firstRunSetupCompleted
         case entitlementSnapshotData
     }

@@ -30,6 +30,23 @@ final class AgentRunnerTests: XCTestCase {
             XCTFail("wrong error: \(error)")
         }
     }
+
+    func testTimeoutTerminatesSlowProcessQuickly() async {
+        let descriptor = AgentDescriptor(
+            id: "sleep", displayName: "sleep", keywords: ["sleep"],
+            binaryName: "sleep", binaryPath: "/bin/sleep",
+            invocation: .args(["10"]), streamFormat: .plainText
+        )
+        let start = Date()
+        do {
+            _ = try await AgentRunner().run(descriptor, prompt: "", timeoutSeconds: 0.25) { _ in }
+            XCTFail("expected timedOut")
+        } catch AgentRunError.timedOut {
+            XCTAssertLessThan(Date().timeIntervalSince(start), 2.0)
+        } catch {
+            XCTFail("wrong error: \(error)")
+        }
+    }
 }
 
 private final class ChunkCollector: @unchecked Sendable {

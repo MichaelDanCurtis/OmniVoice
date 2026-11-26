@@ -1,3 +1,4 @@
+import Accelerate
 import Foundation
 import OmniVoiceCore
 
@@ -105,11 +106,42 @@ final class DeepgramStreamingSession: @unchecked Sendable {
     private var finishContinuation: CheckedContinuation<String, Never>?
 
     var onPartial: (@Sendable (String) -> Void)?
+    var onDiarizedSegments: (@Sendable ([DeepgramAPIHelper.DiarizedSegment]) -> Void)?
 
-    func start(config: ServiceModeConfiguration, sampleRate: Int, apiKey: String) throws {
+    /// Converts mono Float32 PCM (-1...1) into Int16 little-endian linear16 PCM for Deepgram WebSocket.
+    static func float32PCMToInt16PCM(_ float32Data: Data) -> Data {
+        let sampleCount = float32Data.count / MemoryLayout<Float>.size
+        guard sampleCount > 0 else { return Data() }
+        var out = Data(count: sampleCount * MemoryLayout<Int16>.size)
+        float32Data.withUnsafeBytes { srcRaw in
+            out.withUnsafeMutableBytes { dstRaw in
+                guard let src = srcRaw.bindMemory(to: Float.self).baseAddress,
+                      let dst = dstRaw.bindMemory(to: Int16.self).baseAddress else { return }
+                var scaled = [Float](repeating: 0, count: sampleCount)
+                var lo: Float = -1.0
+                var hi: Float = 1.0
+                vDSP_vclip(src, 1, &lo, &hi, &scaled, 1, vDSP_Length(sampleCount))
+                var scale: Float = Float(Int16.max)
+                vDSP_vsmul(scaled, 1, &scale, &scaled, 1, vDSP_Length(sampleCount))
+                vDSP_vfix16(scaled, 1, dst, 1, vDSP_Length(sampleCount))
+            }
+        }
+        return out
+    }
+
+    func start(
+        config: ServiceModeConfiguration,
+        sampleRate: Int,
+        apiKey: String,
+        diarize: Bool = false
+    ) throws {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw DeepgramClientError.missingAPIKey }
-        guard let url = DeepgramAPIHelper.streamingListenURL(config: config, sampleRate: sampleRate) else {
+        guard let url = DeepgramAPIHelper.streamingListenURL(
+            config: config,
+            sampleRate: sampleRate,
+            diarize: diarize
+        ) else {
             throw DeepgramClientError.invalidURL
         }
 
@@ -223,6 +255,15 @@ final class DeepgramStreamingSession: @unchecked Sendable {
     }
 
     private func handleServerMessage(_ text: String) {
+        let diarizedCallback: (@Sendable ([DeepgramAPIHelper.DiarizedSegment]) -> Void)? = lock.withLock {
+            onDiarizedSegments
+        }
+        if let diarizedCallback,
+           let segments = DeepgramAPIHelper.parseStreamDiarizedSegments(from: text),
+           !segments.isEmpty {
+            diarizedCallback(segments)
+        }
+
         guard let event = DeepgramAPIHelper.parseStreamEvent(from: text) else { return }
 
         let (combined, callback): (String, (@Sendable (String) -> Void)?) = lock.withLock {

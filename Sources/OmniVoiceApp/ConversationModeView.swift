@@ -1536,8 +1536,14 @@ private struct ConversationAIProviderControls: View {
     let theme: OmniVoiceTheme
 
     var body: some View {
-        let provider = model.selectedConversationAIProvider
-        let modelChoices = model.conversationAIModelChoices(for: provider)
+        let resolvedRoute = model.resolvedSelectedConversationAIRoute
+        let textLLMProvider: TextLLMProviderKind? = {
+            if case .textLLM(let provider) = resolvedRoute { return provider }
+            return nil
+        }()
+        let modelChoices = textLLMProvider.map { model.conversationAIModelChoices(for: $0) } ?? []
+        let registry = AgentRegistry(custom: model.preferences.customAgents)
+        let discoveredIDs = Set(model.discoveredAgents.map(\.id))
 
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
@@ -1549,34 +1555,50 @@ private struct ConversationAIProviderControls: View {
                 Spacer(minLength: 0)
             }
 
-            Picker("Provider", selection: providerBinding) {
-                ForEach(model.conversationAIProviderChoices) { provider in
-                    Text(model.askAIProviderLabel(provider)).tag(provider)
+            Picker("AI Engine", selection: routeBinding) {
+                Text("AI Configuration (\(model.resolvedUnifiedAILabel))").tag("default")
+                Section("Installed AI Agents") {
+                    ForEach(registry.all, id: \.id) { agent in
+                        let badge = discoveredIDs.contains(agent.id) ? " ✓" : ""
+                        Text("\(agent.displayName)\(badge)")
+                            .tag(UnifiedAIRoute.agent(agentID: agent.id).pickerID)
+                    }
+                }
+                Section("API & OAuth Providers") {
+                    ForEach(model.conversationAIProviderChoices) { provider in
+                        Text(model.askAIProviderLabel(provider))
+                            .tag(UnifiedAIRoute.textLLM(provider: provider).pickerID)
+                    }
+                }
+                Section("On-Device") {
+                    Text("Local MLX").tag(UnifiedAIRoute.localMLX.pickerID)
                 }
             }
             .pickerStyle(.menu)
-            .help("Choose the AI provider used by conversation chat")
+            .help("Choose the AI engine (Agent, API/OAuth, or Local MLX) used by conversation chat and insights")
 
-            if modelChoices.isEmpty {
-                TextField("Model", text: modelBinding)
-                    .textFieldStyle(.roundedBorder)
-                    .help("Enter the model used by conversation chat")
-            } else {
-                Picker("Model", selection: modelBinding) {
-                    ForEach(modelChoices, id: \.self) { modelName in
-                        Text(modelName).tag(modelName)
+            if textLLMProvider != nil {
+                if modelChoices.isEmpty {
+                    TextField("Model", text: modelBinding)
+                        .textFieldStyle(.roundedBorder)
+                        .help("Enter the model used by conversation chat")
+                } else {
+                    Picker("Model", selection: modelBinding) {
+                        ForEach(modelChoices, id: \.self) { modelName in
+                            Text(modelName).tag(modelName)
+                        }
                     }
+                    .pickerStyle(.menu)
+                    .help("Choose the model used by conversation chat")
                 }
-                .pickerStyle(.menu)
-                .help("Choose the model used by conversation chat")
-            }
 
-            Toggle(isOn: webSearchBinding) {
-                Label("Web search", systemImage: "network")
-                    .font(.caption)
+                Toggle(isOn: webSearchBinding) {
+                    Label("Web search", systemImage: "network")
+                        .font(.caption)
+                }
+                .toggleStyle(.switch)
+                .help("Allow conversation chat to use web search when the selected provider supports it")
             }
-            .toggleStyle(.switch)
-            .help("Allow conversation chat to use web search when the selected provider supports it")
 
             Text(model.conversationAIProviderSummary)
                 .font(.caption2)
@@ -1589,10 +1611,10 @@ private struct ConversationAIProviderControls: View {
         .themeSurface(theme, cornerRadius: 10, interactive: false)
     }
 
-    private var providerBinding: Binding<TextLLMProviderKind> {
+    private var routeBinding: Binding<String> {
         Binding(
-            get: { model.selectedConversationAIProvider },
-            set: { model.setSelectedConversationAIProvider($0) }
+            get: { model.selectedConversationAIRoutePickerID },
+            set: { model.setSelectedConversationAIRoutePickerID($0) }
         )
     }
 

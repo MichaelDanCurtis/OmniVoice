@@ -288,6 +288,7 @@ public struct AskAIThread: Codable, Equatable, Identifiable, Sendable {
     public var createdAt: String
     public var updatedAt: String
     public var subjectID: String?
+    public var routeOverride: UnifiedAIRoute?
     public var providerOverride: TextLLMProviderKind?
     public var modelOverride: String?
     public var webSearchEnabled: Bool
@@ -300,6 +301,7 @@ public struct AskAIThread: Codable, Equatable, Identifiable, Sendable {
         case createdAt
         case updatedAt
         case subjectID
+        case routeOverride
         case providerOverride
         case modelOverride
         case webSearchEnabled
@@ -313,6 +315,7 @@ public struct AskAIThread: Codable, Equatable, Identifiable, Sendable {
         createdAt: String = OmniWorkspaceClock.now(),
         updatedAt: String = OmniWorkspaceClock.now(),
         subjectID: String? = nil,
+        routeOverride: UnifiedAIRoute? = nil,
         providerOverride: TextLLMProviderKind? = nil,
         modelOverride: String? = nil,
         webSearchEnabled: Bool = false,
@@ -324,6 +327,7 @@ public struct AskAIThread: Codable, Equatable, Identifiable, Sendable {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.subjectID = subjectID
+        self.routeOverride = routeOverride
         self.providerOverride = providerOverride
         self.modelOverride = modelOverride
         self.webSearchEnabled = webSearchEnabled
@@ -339,6 +343,7 @@ public struct AskAIThread: Codable, Equatable, Identifiable, Sendable {
             createdAt: try container.decode(String.self, forKey: .createdAt),
             updatedAt: try container.decode(String.self, forKey: .updatedAt),
             subjectID: try container.decodeIfPresent(String.self, forKey: .subjectID),
+            routeOverride: try container.decodeIfPresent(UnifiedAIRoute.self, forKey: .routeOverride),
             providerOverride: try container.decodeIfPresent(TextLLMProviderKind.self, forKey: .providerOverride),
             modelOverride: try container.decodeIfPresent(String.self, forKey: .modelOverride),
             webSearchEnabled: try container.decodeIfPresent(Bool.self, forKey: .webSearchEnabled) ?? false,

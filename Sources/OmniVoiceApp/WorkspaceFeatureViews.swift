@@ -1053,17 +1053,21 @@ private struct AskAIProviderSessionControls: View {
     var compact = false
 
     var body: some View {
-        let provider = model.selectedAskAIProvider
-        let modelChoices = model.askAIModelChoices(for: provider)
+        let resolvedRoute = model.resolvedSelectedAskAIRoute
+        let textLLMProvider: TextLLMProviderKind? = {
+            if case .textLLM(let provider) = resolvedRoute { return provider }
+            return nil
+        }()
+        let modelChoices = textLLMProvider.map { model.askAIModelChoices(for: $0) } ?? []
 
         Group {
             if compact {
                 VStack(alignment: .leading, spacing: 6) {
-                    controls(provider: provider, modelChoices: modelChoices)
+                    controls(textLLMProvider: textLLMProvider, modelChoices: modelChoices)
                 }
             } else {
                 HStack(spacing: 10) {
-                    controls(provider: provider, modelChoices: modelChoices)
+                    controls(textLLMProvider: textLLMProvider, modelChoices: modelChoices)
                     Spacer()
                 }
             }
@@ -1072,43 +1076,62 @@ private struct AskAIProviderSessionControls: View {
     }
 
     @ViewBuilder
-    private func controls(provider: TextLLMProviderKind, modelChoices: [String]) -> some View {
-        Picker("Provider", selection: providerBinding) {
-            ForEach(model.askAIProviderChoices) { provider in
-                Text(model.askAIProviderLabel(provider)).tag(provider)
+    private func controls(textLLMProvider: TextLLMProviderKind?, modelChoices: [String]) -> some View {
+        let registry = AgentRegistry(custom: model.preferences.customAgents)
+        let discoveredIDs = Set(model.discoveredAgents.map(\.id))
+
+        Picker("AI Engine", selection: routeBinding) {
+            Text("AI Configuration (\(model.resolvedUnifiedAILabel))").tag("default")
+            Section("Installed AI Agents") {
+                ForEach(registry.all, id: \.id) { agent in
+                    let badge = discoveredIDs.contains(agent.id) ? " ✓" : ""
+                    Text("\(agent.displayName)\(badge)")
+                        .tag(UnifiedAIRoute.agent(agentID: agent.id).pickerID)
+                }
+            }
+            Section("API & OAuth Providers") {
+                ForEach(model.askAIProviderChoices) { provider in
+                    Text(model.askAIProviderLabel(provider))
+                        .tag(UnifiedAIRoute.textLLM(provider: provider).pickerID)
+                }
+            }
+            Section("On-Device") {
+                Text("Local MLX").tag(UnifiedAIRoute.localMLX.pickerID)
             }
         }
         .pickerStyle(.menu)
-        .frame(width: compact ? 220 : 190)
-        .help("Choose the AI provider for this chat session")
+        .frame(width: compact ? 220 : 220)
+        .help("Choose the AI engine (Agent, API/OAuth, or Local MLX) for this chat session")
 
-        if modelChoices.isEmpty {
-            TextField("Model", text: modelBinding)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: compact ? 220 : 260)
-                .help("Enter the model for this Ask AI session")
-        } else {
-            Picker("Model", selection: modelBinding) {
-                ForEach(modelChoices, id: \.self) { modelName in
-                    Text(modelName).tag(modelName)
+        if textLLMProvider != nil {
+            if modelChoices.isEmpty {
+                TextField("Model", text: modelBinding)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: compact ? 220 : 260)
+                    .help("Enter the model for this Ask AI session")
+            } else {
+                Picker("Model", selection: modelBinding) {
+                    ForEach(modelChoices, id: \.self) { modelName in
+                        Text(modelName).tag(modelName)
+                    }
                 }
+                .pickerStyle(.menu)
+                .frame(width: compact ? 220 : 300)
+                .help("Choose the model for this chat session")
             }
-            .pickerStyle(.menu)
-            .frame(width: compact ? 220 : 300)
-            .help("Choose the model for this chat session")
-        }
 
-        Toggle(isOn: webSearchBinding) {
-            Label("Web", systemImage: "network")
+            Toggle(isOn: webSearchBinding) {
+                Label("Web", systemImage: "network")
+            }
+            .toggleStyle(.switch)
+            .help("Search the web and attach current results to this Ask AI message")
         }
-        .toggleStyle(.switch)
-        .help("Search the web and attach current results to this Ask AI message")
     }
 
-    private var providerBinding: Binding<TextLLMProviderKind> {
+    private var routeBinding: Binding<String> {
         Binding(
-            get: { model.selectedAskAIProvider },
-            set: { model.setSelectedAskAIProvider($0) }
+            get: { model.selectedAskAIRoutePickerID },
+            set: { model.setSelectedAskAIRoutePickerID($0) }
         )
     }
 
