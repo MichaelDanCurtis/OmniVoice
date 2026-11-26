@@ -1,7 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${1:-run}"
+MODE="run"
+SWIFT_BUILD_CONFIG="${OMNIVOICE_BUILD_CONFIG:-debug}"
+for arg in "$@"; do
+  case "$arg" in
+    --release|release)
+      SWIFT_BUILD_CONFIG="release"
+      ;;
+    --debug-build)
+      SWIFT_BUILD_CONFIG="debug"
+      ;;
+    *)
+      if [[ "$MODE" == "run" ]]; then
+        MODE="$arg"
+      fi
+      ;;
+  esac
+done
 APP_NAME="OmniVoiceApp"
 APP_DISPLAY_NAME="OmniSpeak"
 BUNDLE_ID="com.omnispeak.OmniVoiceApp"
@@ -551,8 +567,8 @@ sign_app_bundle() {
   return 1
 }
 
-swift build
-BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
+swift build -c "$SWIFT_BUILD_CONFIG"
+BUILD_BINARY="$(swift build -c "$SWIFT_BUILD_CONFIG" --show-bin-path)/$APP_NAME"
 
 make_bundle_writable_for_rebuild "$APP_BUNDLE"
 rm -rf "$APP_BUNDLE"
@@ -621,7 +637,7 @@ bundle_sparkle() {
   # build — without it dyld can't satisfy @rpath/Sparkle.framework and the app
   # crashes on launch.
   local src
-  src="$(swift build --show-bin-path)/Sparkle.framework"
+  src="$(swift build -c "$SWIFT_BUILD_CONFIG" --show-bin-path)/Sparkle.framework"
   if [[ ! -d "$src" ]]; then
     echo "Sparkle.framework not found at $src; build the package first." >&2
     return 1
