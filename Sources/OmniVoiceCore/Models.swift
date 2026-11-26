@@ -142,18 +142,21 @@ public enum SpeechModelRecommendation: String, CaseIterable, Codable, Equatable,
 }
 
 public enum CleanupLLMBackend: String, CaseIterable, Codable, Equatable, Sendable {
+    case aiConfiguration = "ai_configuration"
     case localMLX = "local_mlx"
     case agent = "agent"
     case textLLM = "text_llm"
 
     public var displayName: String {
         switch self {
+        case .aiConfiguration:
+            "AI Configuration"
         case .localMLX:
-            "Built-in Local MLX"
+            "Local MLX"
         case .agent:
-            "Installed AI Agent"
+            "AI Agent"
         case .textLLM:
-            "Configured Text LLM"
+            "API / OAuth"
         }
     }
 }

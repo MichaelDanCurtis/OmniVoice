@@ -170,6 +170,11 @@ impl RuntimeStore {
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS voice_settings_profiles (
+                profile_id TEXT PRIMARY KEY,
+                settings_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             "#,
         )?;
         Ok(())
@@ -611,6 +616,96 @@ impl RuntimeStore {
             source_ids,
         })
     }
+
+    pub fn get_settings_profile(
+        &self,
+        profile_id: &str,
+    ) -> Result<Option<(serde_json::Value, String)>, StoreError> {
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT settings_json, updated_at FROM voice_settings_profiles WHERE profile_id = ?1",
+        )?;
+        let row = stmt
+            .query_row(params![profile_id], |row| {
+                let raw: String = row.get(0)?;
+                let updated_at: String = row.get(1)?;
+                Ok((raw, updated_at))
+            })
+            .optional()?;
+        Ok(row.map(|(raw, updated_at)| {
+            let parsed = serde_json::from_str(&raw).unwrap_or_else(|_| serde_json::json!({}));
+            (parsed, updated_at)
+        }))
+    }
+
+    pub fn upsert_settings_profile(
+        &self,
+        profile_id: &str,
+        patch: &serde_json::Value,
+    ) -> Result<(serde_json::Value, String), StoreError> {
+        let existing = self
+            .get_settings_profile(profile_id)?
+            .map(|(v, _)| v)
+            .unwrap_or_else(|| serde_json::json!({}));
+        let merged = merge_json_objects(&existing, patch);
+        let updated_at = Utc::now().to_rfc3339();
+        let serialized = serde_json::to_string(&merged).unwrap_or_else(|_| "{}".to_string());
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        conn.execute(
+            r#"
+            INSERT INTO voice_settings_profiles (profile_id, settings_json, updated_at)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT(profile_id) DO UPDATE SET
+                settings_json = excluded.settings_json,
+                updated_at = excluded.updated_at
+            "#,
+            params![profile_id, serialized, updated_at],
+        )?;
+        Ok((merged, updated_at))
+    }
+
+    pub fn delete_settings_profile(&self, profile_id: &str) -> Result<bool, StoreError> {
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        let affected = conn.execute(
+            "DELETE FROM voice_settings_profiles WHERE profile_id = ?1",
+            params![profile_id],
+        )?;
+        Ok(affected > 0)
+    }
+
+    pub fn list_settings_profiles(&self) -> Result<Vec<(String, String)>, StoreError> {
+        let conn = self.conn.lock().expect("store mutex poisoned");
+        let mut stmt = conn.prepare(
+            "SELECT profile_id, updated_at FROM voice_settings_profiles ORDER BY profile_id ASC",
+        )?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+}
+
+pub fn merge_json_objects(
+    base: &serde_json::Value,
+    patch: &serde_json::Value,
+) -> serde_json::Value {
+    let mut out = match base {
+        serde_json::Value::Object(map) => map.clone(),
+        _ => serde_json::Map::new(),
+    };
+    if let serde_json::Value::Object(patch_map) = patch {
+        for (k, v) in patch_map {
+            if v.is_null() {
+                out.remove(k);
+            } else if v.is_object() && out.get(k).is_some_and(|existing| existing.is_object()) {
+                let merged_child = merge_json_objects(&out[k], v);
+                out.insert(k.clone(), merged_child);
+            } else {
+                out.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    serde_json::Value::Object(out)
 }
 
 #[cfg(test)]

@@ -78,6 +78,7 @@ extension AppModel {
         preferences.captionGlassOpacity = clamped
         persistPreferencesDebounced()
         onThemeChanged?(activeTheme, preferences.appearanceMode)
+        onCaptionGlassOpacityChanged?(clamped)
     }
 
     func persistPreferencesDebounced(delayMs: Int = 220) {
@@ -146,6 +147,16 @@ extension AppModel {
             }
         }
 
+        if preferences.defaultAIRoute != .auto, preferences.defaultAIRoute != .localMLX {
+            if let result = await runUnifiedAIPrompt(
+                systemPrompt: "Translate the user's text into \(languageName). Output ONLY the translation with no commentary or quotes.",
+                userPrompt: trimmed
+            ) {
+                let cleaned = TextInsertionEdit.sanitizedInsertionText(result)
+                if !cleaned.isEmpty { return cleaned }
+            }
+        }
+
         if let local = try? await MLXLocalCleanupService.shared.translate(
             text: trimmed,
             targetLanguage: languageName,
@@ -155,7 +166,7 @@ extension AppModel {
             if !cleaned.isEmpty { return cleaned }
         }
 
-        if let result = await synthesizeMeetingAIResponse(
+        if let result = await runUnifiedAIPrompt(
             systemPrompt: "Translate the user's text into \(languageName). Output ONLY the translation with no commentary or quotes.",
             userPrompt: trimmed
         ) {
@@ -172,12 +183,19 @@ extension AppModel {
 
     /// Rewrites currently highlighted text according to a spoken instruction ("make this shorter", etc.).
     func transformSelectedText(_ selectedText: String, instruction: String) async -> String? {
+        let systemPrompt = "You are a crisp inline text editor. Apply the user's instruction to the selected text and return ONLY the transformed text with no quotes or preamble."
+        let userPrompt = "Instruction: \(instruction)\n\nSelected text:\n\(selectedText)"
+
         if preferences.serviceMode.enabled {
-            if let cloud = await runServiceModeLLM(
-                systemPrompt: "You are a crisp inline text editor. Apply the user's instruction to the selected text and return ONLY the transformed text with no quotes or preamble.",
-                userPrompt: "Instruction: \(instruction)\n\nSelected text:\n\(selectedText)"
-            ) {
+            if let cloud = await runServiceModeLLM(systemPrompt: systemPrompt, userPrompt: userPrompt) {
                 let cleaned = TextInsertionEdit.sanitizedInsertionText(cloud)
+                if !cleaned.isEmpty { return cleaned }
+            }
+        }
+
+        if preferences.defaultAIRoute != .localMLX {
+            if let unified = await runUnifiedAIPrompt(systemPrompt: systemPrompt, userPrompt: userPrompt) {
+                let cleaned = TextInsertionEdit.sanitizedInsertionText(unified)
                 if !cleaned.isEmpty { return cleaned }
             }
         }
@@ -191,11 +209,8 @@ extension AppModel {
             if !cleaned.isEmpty { return cleaned }
         }
 
-        if let cloud = await synthesizeMeetingAIResponse(
-            systemPrompt: "You are a crisp inline text editor. Apply the user's instruction to the selected text and return ONLY the transformed text with no quotes or preamble.",
-            userPrompt: "Instruction: \(instruction)\n\nSelected text:\n\(selectedText)"
-        ) {
-            let cleaned = TextInsertionEdit.sanitizedInsertionText(cloud)
+        if let fallback = await runUnifiedAIPrompt(systemPrompt: systemPrompt, userPrompt: userPrompt) {
+            let cleaned = TextInsertionEdit.sanitizedInsertionText(fallback)
             if !cleaned.isEmpty { return cleaned }
         }
         return nil
@@ -206,8 +221,12 @@ extension AppModel {
            let servicePlan = await runServiceModeLLM(systemPrompt: systemPrompt, userPrompt: userPrompt) {
             return servicePlan
         }
-        if let cloud = await synthesizeMeetingAIResponse(systemPrompt: systemPrompt, userPrompt: userPrompt) {
-            return cloud
+        if let unified = await runUnifiedAIPrompt(
+            systemPrompt: systemPrompt,
+            userPrompt: userPrompt,
+            sanitize: false
+        ) {
+            return unified
         }
         return try? await MLXLocalCleanupService.shared.generateRaw(
             instructions: systemPrompt,

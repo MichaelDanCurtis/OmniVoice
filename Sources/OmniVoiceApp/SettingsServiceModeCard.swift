@@ -29,7 +29,7 @@ struct SettingsServiceModeCard: View {
                             )
                         }
 
-                        Text("Stream voice through Deepgram and route LLM cleanup, translation, Voice Edit, and Command Mode through your existing AI subscriptions.")
+                        Text("Flip everything to cloud/outbound services — Deepgram handles dictation, conversations, and speaker diarization while your AI subscriptions handle cleanup, Ask AI, and Meeting Co-Pilot. Zero local models loaded in RAM.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -124,7 +124,7 @@ struct SettingsServiceModeCard: View {
                         get: { model.preferences.serviceMode.llmRoute.pickerID },
                         set: { model.setServiceModeLLMRoute(ServiceModeLLMRoute(pickerID: $0)) }
                     )) {
-                        Text("Auto (Best Available Subscription)").tag(ServiceModeLLMRoute.auto.pickerID)
+                        Text("Follow AI Configuration (\(model.resolvedUnifiedAILabel))").tag(ServiceModeLLMRoute.auto.pickerID)
                         Section("Installed Subscription CLIs") {
                             ForEach(registry.all, id: \.id) { agent in
                                 let badge = discoveredIDs.contains(agent.id) ? " ✓" : ""
@@ -152,7 +152,13 @@ struct SettingsServiceModeCard: View {
                     ))
                     .font(.caption)
 
-                    Toggle("Unload local MLX RAM while active", isOn: Binding(
+                    Toggle("Cloud Speaker Diarization", isOn: Binding(
+                        get: { model.preferences.serviceMode.deepgramDiarize },
+                        set: { model.setServiceModeDeepgramDiarize($0) }
+                    ))
+                    .font(.caption)
+
+                    Toggle("Unload local MLX RAM", isOn: Binding(
                         get: { model.preferences.serviceMode.unloadLocalModelsWhenEnabled },
                         set: { model.setServiceModeUnloadLocalModels($0) }
                     ))

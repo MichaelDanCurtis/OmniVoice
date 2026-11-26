@@ -23,19 +23,9 @@ extension AppModel {
     var serviceModeLLMLabel: String {
         switch preferences.serviceMode.llmRoute {
         case .auto:
-            if let cfg = configuredConversationTextLLMConfiguration() {
-                return "Auto (\(cfg.displayName))"
-            }
-            if let firstAgent = discoveredAgents.first {
-                return "Auto (\(firstAgent.displayName) CLI)"
-            }
-            return "Auto"
+            return "AI Config (\(resolvedUnifiedAILabel))"
         case .subscriptionAgent(let agentID):
-            let registry = AgentRegistry(custom: preferences.customAgents)
-            if let agent = registry.all.first(where: { $0.id == agentID }) {
-                return "\(agent.displayName) CLI"
-            }
-            return "\(agentID) CLI"
+            return "\(agentDisplayName(for: agentID)) CLI"
         case .configuredTextLLM(let provider):
             return preferences.textLLMConfiguration(for: provider).displayName
         }
@@ -61,6 +51,8 @@ extension AppModel {
         } else {
             statusText = "Local mode active (\(label(for: preferences.asrProvider)))"
         }
+        warmUpConfiguredACPAgents()
+        Task { await refreshStartupChecks() }
     }
 
     func setServiceModeDeepgramModel(_ model: DeepgramModel) {
@@ -83,6 +75,13 @@ extension AppModel {
         _ = persistPreferences()
     }
 
+    func setServiceModeDeepgramDiarize(_ enabled: Bool) {
+        guard preferences.serviceMode.deepgramDiarize != enabled else { return }
+        preferences.serviceMode.deepgramDiarize = enabled
+        _ = persistPreferences()
+        Task { await refreshStartupChecks() }
+    }
+
     func setServiceModeLLMRoute(_ route: ServiceModeLLMRoute) {
         guard preferences.serviceMode.llmRoute != route else { return }
         preferences.serviceMode.llmRoute = route
@@ -90,6 +89,8 @@ extension AppModel {
         if preferences.serviceMode.enabled {
             statusText = "Service Mode LLM → \(serviceModeLLMLabel)"
         }
+        warmUpConfiguredACPAgents()
+        Task { await refreshStartupChecks() }
     }
 
     func setServiceModeUnloadLocalModels(_ enabled: Bool) {
@@ -133,7 +134,9 @@ extension AppModel {
     func runServiceModeLLM(
         systemPrompt: String,
         userPrompt: String,
-        attachments: [AIChatAttachment] = []
+        attachments: [AIChatAttachment] = [],
+        isCleanup: Bool = false,
+        agentTimeoutSeconds: Double? = nil
     ) async -> String? {
         switch preferences.serviceMode.llmRoute {
         case .configuredTextLLM(let provider):
@@ -156,7 +159,37 @@ extension AppModel {
             let registry = AgentRegistry(custom: preferences.customAgents)
             if let descriptor = registry.all.first(where: { $0.id == agentID }) ?? discoveredAgents.first?.descriptor {
                 let combinedPrompt = "\(systemPrompt)\n\n\(userPrompt)"
-                if let output = try? await meetingAgentRunner.run(descriptor, prompt: combinedPrompt, onChunk: { _ in }) {
+                if descriptor.supportsACP {
+                    if isCleanup {
+                        // Zero-wait cold start for dictation cleanup: if ACP is warming, skip
+                        // editing and return nil immediately so raw/Deepgram text pastes right away.
+                        if let output = await ACPAgentPool.shared.promptIfReady(
+                            descriptor,
+                            prompt: combinedPrompt,
+                            purpose: .cleanup,
+                            timeoutSeconds: 8.5
+                        ) {
+                            let sanitized = MLXLocalCleanupService.sanitizeOutput(output)
+                            if !sanitized.isEmpty { return sanitized }
+                        }
+                        return nil
+                    }
+                    if let output = try? await ACPAgentPool.shared.promptWaitingForWarmup(
+                        descriptor,
+                        prompt: combinedPrompt,
+                        purpose: .interactive,
+                        timeoutSeconds: agentTimeoutSeconds
+                    ) {
+                        let sanitized = MLXLocalCleanupService.sanitizeOutput(output)
+                        if !sanitized.isEmpty { return sanitized }
+                    }
+                }
+                if let output = try? await meetingAgentRunner.run(
+                    descriptor,
+                    prompt: combinedPrompt,
+                    timeoutSeconds: agentTimeoutSeconds,
+                    onChunk: { _ in }
+                ) {
                     let sanitized = MLXLocalCleanupService.sanitizeOutput(output)
                     if !sanitized.isEmpty { return sanitized }
                 }
@@ -164,16 +197,37 @@ extension AppModel {
             return nil
 
         case .auto:
-            if let cfg = configuredConversationTextLLMConfiguration(),
-               let text = await callTextLLMConfiguration(cfg, systemPrompt: systemPrompt, userPrompt: userPrompt, attachments: attachments) {
+            let route = resolvedUnifiedAIRoute()
+            if isCleanup, case .agent(let agentID) = route {
+                let registry = AgentRegistry(custom: preferences.customAgents)
+                if let descriptor = registry.all.first(where: { $0.id == agentID }) ?? discoveredAgents.first?.descriptor,
+                   descriptor.supportsACP {
+                    let combinedPrompt = "\(systemPrompt)\n\n\(userPrompt)"
+                    if let output = await ACPAgentPool.shared.promptIfReady(
+                        descriptor,
+                        prompt: combinedPrompt,
+                        purpose: .cleanup,
+                        timeoutSeconds: 8.5
+                    ) {
+                        let sanitized = MLXLocalCleanupService.sanitizeOutput(output)
+                        if !sanitized.isEmpty { return sanitized }
+                    }
+                    return nil
+                }
+            }
+            if let text = await runUnifiedAIPrompt(
+                systemPrompt: systemPrompt,
+                userPrompt: userPrompt,
+                attachments: attachments,
+                routeOverride: route,
+                agentTimeoutSeconds: agentTimeoutSeconds
+            ) {
                 return text
             }
-            if attachments.isEmpty, let localAgent = discoveredAgents.first?.descriptor {
-                let combinedPrompt = "\(systemPrompt)\n\n\(userPrompt)"
-                if let output = try? await meetingAgentRunner.run(localAgent, prompt: combinedPrompt, onChunk: { _ in }) {
-                    let sanitized = MLXLocalCleanupService.sanitizeOutput(output)
-                    if !sanitized.isEmpty { return sanitized }
-                }
+            if route != .auto,
+               let cfg = configuredConversationTextLLMConfiguration(),
+               let text = await callTextLLMConfiguration(cfg, systemPrompt: systemPrompt, userPrompt: userPrompt, attachments: attachments) {
+                return text
             }
             return nil
         }

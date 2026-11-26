@@ -566,6 +566,13 @@ struct SettingsView: View {
                     .help("Refresh available microphones")
                 }
 
+                VStack(alignment: .leading, spacing: 3) {
+                    Toggle("Mute background audio while dictating", isOn: muteBackgroundAudioWhileDictatingBinding)
+                    Text("Temporarily mutes system music and media while your mic is keyed up, then restores playback automatically on release.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Divider().opacity(0.35)
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -584,14 +591,38 @@ struct SettingsView: View {
 
                 Toggle("Smart AI cleanup (LLM)", isOn: llmCleanupEnabledBinding)
                 if model.preferences.llmCleanupEnabled {
-                    Picker("Cleanup Backend", selection: llmCleanupBackendBinding) {
+                    Picker("Cleanup Source", selection: llmCleanupBackendBinding) {
                         ForEach(CleanupLLMBackend.allCases, id: \.self) { backend in
                             Text(backend.displayName).tag(backend)
                         }
                     }
                     .pickerStyle(.segmented)
 
-                    if model.preferences.llmCleanupBackend == .localMLX {
+                    if model.preferences.llmCleanupBackend == .aiConfiguration {
+                        HStack(alignment: .center, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "sparkles")
+                                        .foregroundStyle(Color(themeColor: model.activeTheme.accentColor))
+                                    Text("Using: \(model.resolvedUnifiedAILabel)")
+                                        .font(.callout.weight(.medium))
+                                }
+                                Text("Follows your single Default AI Engine in Settings → AI (supports Agents like Gemini Antigravity, Claude, Codex, Gemini, API/OAuth providers, or Local MLX).")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Configure in AI") {
+                                withAnimation(.snappy(duration: 0.22)) {
+                                    selectedTab = .integrations
+                                }
+                            }
+                            .controlSize(.small)
+                            .buttonStyle(.bordered)
+                        }
+                        .padding(10)
+                        .themeSurface(model.activeTheme, cornerRadius: 8, strong: false)
+                    } else if model.preferences.llmCleanupBackend == .localMLX {
                         Picker("Local Cleanup Model", selection: llmCleanupLocalModelBinding) {
                             ForEach(CleanupModelRecommendation.allCases) { option in
                                 Text("\(option.displayName) (\(option.badge))").tag(option.providerID)
@@ -1483,6 +1514,108 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var integrationsSection: some View {
+        Section("Default AI Engine (Used Everywhere)") {
+            let registry = AgentRegistry(custom: model.preferences.customAgents)
+            let discoveredIDs = Set(model.discoveredAgents.map(\.id))
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .center, spacing: 8) {
+                    Text("Single source of truth for Dictation Cleanup, Ask AI (voice & workspace), Conversations, Meeting Co-Pilot, Editor AI, Translation, Voice Edit, Command Mode, and Service Mode.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    OmniStatusPill(
+                        title: model.resolvedUnifiedAILabel,
+                        tint: model.isUnifiedAIRouteReady(model.preferences.defaultAIRoute) ? .green : .orange,
+                        systemImage: "sparkles",
+                        theme: model.activeTheme
+                    )
+                }
+
+                Picker("AI Mode", selection: Binding<UnifiedAIRoute.Category>(
+                    get: { model.preferences.defaultAIRoute.category },
+                    set: { model.setDefaultAICategory($0) }
+                )) {
+                    ForEach(UnifiedAIRoute.Category.allCases) { category in
+                        Text(category.displayName).tag(category)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                switch model.preferences.defaultAIRoute {
+                case .auto:
+                    Text("Auto selects the best available engine: a configured API/OAuth provider first, then an installed AI Agent CLI, then Built-in Local MLX.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                case .agent(let agentID):
+                    let selectedDescriptor = registry.all.first(where: { $0.id == agentID })
+                    let acpCleanupState = model.acpState(for: agentID, purpose: .cleanup)
+                    let acpInteractiveState = model.acpState(for: agentID, purpose: .interactive)
+                    HStack(spacing: 8) {
+                        Picker("Default AI Agent", selection: Binding<String>(
+                            get: { agentID },
+                            set: { model.setDefaultAIRoute(.agent(agentID: $0)) }
+                        )) {
+                            ForEach(registry.all, id: \.id) { agent in
+                                let badge = discoveredIDs.contains(agent.id) ? " ✓" : ""
+                                let acpTag = agent.supportsACP ? " · ACP" : ""
+                                Text("\(agent.displayName) (\(agent.binaryName))\(acpTag)\(badge)").tag(agent.id)
+                            }
+                        }
+
+                        if selectedDescriptor?.supportsACP == true {
+                            let ready = acpCleanupState.isReady || acpInteractiveState.isReady
+                            let warming = acpCleanupState.isWarming || acpInteractiveState.isWarming
+                            if ready {
+                                OmniStatusPill(title: "ACP Warm", tint: .green, systemImage: "bolt.fill", theme: model.activeTheme)
+                            } else if warming {
+                                OmniStatusPill(title: "Warming ACP…", tint: .cyan, systemImage: "flame", theme: model.activeTheme)
+                            }
+                        }
+
+                        Button(model.isScanningAgents ? "Scanning…" : "Rescan") {
+                            Task { await model.discoverSystemAgents() }
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                        .disabled(model.isScanningAgents)
+                    }
+                    Text("Uses your existing CLI subscription everywhere an LLM is needed. ACP-capable agents warm up silently in the background — while cold-starting, dictation skips editing so your text inserts immediately with zero wait.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                case .textLLM(let provider):
+                    Picker("Default API / OAuth Provider", selection: Binding<TextLLMProviderKind>(
+                        get: { provider },
+                        set: { model.setDefaultAIRoute(.textLLM(provider: $0)) }
+                    )) {
+                        ForEach(TextLLMProviderKind.allCases, id: \.self) { kind in
+                            let cfg = model.preferences.textLLMConfiguration(for: kind)
+                            let badge = cfg.isConfigured ? " ✓" : ""
+                            Text("\(cfg.displayName)\(badge)").tag(kind)
+                        }
+                    }
+
+                    if !model.preferences.textLLMConfiguration(for: provider).isConfigured {
+                        Text("\(model.preferences.textLLMConfiguration(for: provider).displayName) needs an API key, OAuth sign-in, or local endpoint configured below.")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+
+                case .localMLX:
+                    Picker("Local MLX Model", selection: llmCleanupLocalModelBinding) {
+                        ForEach(CleanupModelRecommendation.allCases) { option in
+                            Text("\(option.displayName) (\(option.badge))").tag(option.providerID)
+                        }
+                    }
+                    Text("Runs 100% on-device on Apple Silicon with zero network calls or API keys.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+
         Section("API configurations") {
             HStack {
                 Text("Providers that authenticate with an API key.")
@@ -1517,14 +1650,6 @@ struct SettingsView: View {
                 VStack(spacing: 10) {
                     ForEach(apiProviders) { provider in
                         textLLMProviderCard(provider)
-                    }
-                }
-            }
-
-            if !visibleTextLLMProviders.isEmpty {
-                Picker("Default \u{201C}Ask AI\u{201D} Provider", selection: textLLMDefaultProviderBinding) {
-                    ForEach(visibleTextLLMProviders) { provider in
-                        Text(model.preferences.textLLMConfiguration(for: provider).displayName).tag(provider)
                     }
                 }
             }
@@ -1593,7 +1718,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(model.discoveredAgents) { agent in
-                    let isDefaultAsk = model.defaultAskTarget == AskTarget(kind: .agent, id: agent.id)
+                    let isDefaultAI = model.preferences.defaultAIRoute == .agent(agentID: agent.id)
                     let displayPath = agent.resolvedPath.replacingOccurrences(
                         of: NSHomeDirectory(),
                         with: "~"
@@ -1622,12 +1747,12 @@ struct SettingsView: View {
 
                         Spacer()
 
-                        if isDefaultAsk {
-                            Label("Default", systemImage: "checkmark.circle.fill")
+                        if isDefaultAI {
+                            Label("Default AI", systemImage: "checkmark.circle.fill")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.green)
                         } else {
-                            Button("Use for \u{201C}ask ai\u{201D}") {
+                            Button("Set as Default AI") {
                                 model.selectAgentForDefaultAsk(agent)
                             }
                             .buttonStyle(.bordered)
@@ -1638,7 +1763,8 @@ struct SettingsView: View {
             }
 
             ForEach(model.preferences.customAgents) { agent in
-                HStack(alignment: .top) {
+                let isDefaultAI = model.preferences.defaultAIRoute == .agent(agentID: agent.id)
+                HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(agent.displayName)
                         Text("say \u{201C}ask \(agent.keyword)\u{201D} · \(agent.binaryPath)")
@@ -1646,7 +1772,19 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
+                    if isDefaultAI {
+                        Label("Default AI", systemImage: "checkmark.circle.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.green)
+                    } else {
+                        Button("Set as Default AI") {
+                            model.setDefaultAIRoute(.agent(agentID: agent.id))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
                     Button("Remove") { model.removeCustomAgent(id: agent.id) }
+                        .controlSize(.small)
                 }
             }
 
@@ -2234,6 +2372,13 @@ struct SettingsView: View {
         )
     }
 
+    private var muteBackgroundAudioWhileDictatingBinding: Binding<Bool> {
+        Binding(
+            get: { model.preferences.muteBackgroundAudioWhileDictating },
+            set: { model.setMuteBackgroundAudioWhileDictating($0) }
+        )
+    }
+
     private var recordingCueTimingBinding: Binding<RecordingCueTiming> {
         Binding(
             get: { model.preferences.recordingCueTiming },
@@ -2373,19 +2518,6 @@ struct SettingsView: View {
                 return ""
             },
             set: { model.setTranslationQuickTargetLanguage($0, slot: slot) }
-        )
-    }
-
-    private var textLLMDefaultProviderBinding: Binding<TextLLMProviderKind> {
-        Binding(
-            get: {
-                let current = model.preferences.textLLMDefaultProvider
-                if visibleTextLLMProviders.contains(current) {
-                    return current
-                }
-                return visibleTextLLMProviders.first ?? current
-            },
-            set: { model.setTextLLMDefaultProvider($0) }
         )
     }
 

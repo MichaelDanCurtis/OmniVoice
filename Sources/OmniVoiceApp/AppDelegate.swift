@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let paywallWindow = PaywallWindow()
     private var lastLearnableInsertion: String?
     private let recordingCuePlayer = RecordingCuePlayer.shared
+    private let backgroundAudioMuter = BackgroundAudioMuteController()
     private let dockIconController = DynamicDockIconController()
     private let commandExecutor = DictationCommandExecutor()
     private var lastInputLevel: Float = 0
@@ -46,6 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var activeDictationUsesDeepgram = false
     private var pendingAudioCaptureStartTask: Task<Void, Never>?
     private var dictationCaptureGeneration: UInt64 = 0
+    private var dictationSessionID: UInt64 = 0
+    private var activeFinishDictationTask: Task<Void, Never>?
     private var audioCaptureHasStartedForSession = false
     private var didPromptForAccessibility = false
     private var permissionRefreshTimer: Timer?
@@ -119,6 +122,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         meetingCopilotOverlay.endSession(keepPinnedModals: false)
         meetingWrapUpWindow.hide()
         commandModeController.shutdown()
+        backgroundAudioMuter.endDictationMute()
+        ACPAgentPool.shared.shutdownAllSynchronously()
         EngineSupervisor.shared.stopStartedProcess()
     }
 
@@ -135,7 +140,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.statusText = "Saved settings couldn't be read — using defaults"
         }
         askController.updateConfiguration(model.preferences)
-        Task { [weak model] in
+        Task { [weak self, weak model] in
+            await ACPAgentPool.shared.setOnStateChange { [weak self] agentID, purpose, state in
+                Task { @MainActor [weak self] in
+                    guard let model = self?.model else { return }
+                    let key = AppModel.acpStateKey(agentID: agentID, purpose: purpose)
+                    if state == .idle {
+                        model.acpWorkerStates.removeValue(forKey: key)
+                    } else {
+                        model.acpWorkerStates[key] = state
+                    }
+                }
+            }
             await model?.discoverSystemAgents()
         }
         configureMeetingCopilot(model: model)
@@ -158,18 +174,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let result = try await self.engineClient.transcribe(audio: wavData, provider: engineProvider)
             return result.text
         }
-        hotMenuOverlay.onSelectTranslationLanguage = { [weak self, weak model] code in
+        hotMenuOverlay.onExecuteCommand = { [weak self, weak model] command in
             guard let self, let model else { return }
             self.hotMenuTriggerState.finish()
-            model.selectQuickTranslationLanguage(code)
-            let label = code.flatMap { InlineTranslationParser.languageInfo(forCode: $0)?.name } ?? "Off"
-            self.showOverlay(text: code == nil ? "Translation Off" : "Translate → \(label)", styleName: "Translation", theme: model.activeTheme)
-            self.scheduleOverlayAutoHide(after: 1.0, resetSession: false)
-        }
-        hotMenuOverlay.onExecuteAction = { [weak self, weak model] action in
-            guard let self, let model else { return }
-            self.hotMenuTriggerState.finish()
-            self.executeHotMenu(action, model: model)
+            self.executeHotMenuCommand(command, model: model)
         }
         correctionWatcher.onLearn = { [weak self, weak model] correction in
             guard let self, let model, model.preferences.autoLearnCorrectionsEnabled else { return }
@@ -229,6 +237,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     stealthMode: model.preferences.meetingStealthModeEnabled
                 )
                 self?.commandModeController.updateTheme(model: model)
+            }
+        }
+        model.onCaptionGlassOpacityChanged = { [weak self, weak model] opacity in
+            guard let self, let model else { return }
+            self.overlay.updateGlassOpacity(opacity)
+            if model.session.state == .idle {
+                self.showOverlay(
+                    text: "Listening HUD · \(Int((opacity * 100).rounded()))% Glass",
+                    styleName: model.preferences.style.displayName,
+                    level: 0.42,
+                    theme: model.activeTheme
+                )
+                self.scheduleOverlayAutoHide(after: 2.2, resetSession: false)
             }
         }
         streamingClient.setOnDiagnostics { [weak self] diagnostics in
@@ -694,6 +715,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = try? audioCapture.stopWAVData()   // stop capture, drop the audio
             audioCaptureHasStartedForSession = false
         }
+        backgroundAudioMuter.endDictationMute()
         streamingClient.cancel()
         cancelAppleSpeechIfNeeded()
         cancelDeepgramStreamIfNeeded()
@@ -769,8 +791,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func finishDictationNow() {
         streamingClient.finish()
-        Task { [weak self] in
-            await self?.finishDictation()
+        let sessionID = dictationSessionID
+        activeFinishDictationTask?.cancel()
+        activeFinishDictationTask = Task { [weak self] in
+            await self?.finishDictation(sessionID: sessionID)
         }
     }
 
@@ -855,20 +879,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard hotMenuTriggerState.mode != .latched else { return }
 
         let mode = hotMenuTriggerState.press(at: Date.timeIntervalSinceReferenceDate)
-        let actions = Dictionary(
-            uniqueKeysWithValues: HotMenuDirection.allCases.map { direction in
-                (direction, model.preferences.effectiveHotMenuActions(for: direction))
-            }
-        )
-        let actionLabels = actions.values.flatMap { $0 }.reduce(into: [HotMenuAction: String]()) { labels, action in
-            labels[action] = model.hotMenuActionLabel(action)
-        }
         hotMenuOverlay.show(
-            center: overlay.preferredHotMenuCenter(),
+            center: NSEvent.mouseLocation,
             theme: model.activeTheme,
-            actions: actions,
-            actionLabels: actionLabels,
             mode: mode,
+            llmCleanupEnabled: model.preferences.llmCleanupEnabled,
+            activeAILabel: model.resolvedUnifiedAILabel,
+            activeStyle: model.preferences.style,
+            serviceModeEnabled: model.preferences.serviceMode.enabled,
+            serviceModeSummary: model.serviceModeStatusSummary,
+            asrProviderLabel: model.label(for: model.preferences.asrProvider),
+            muteBackgroundAudioWhileDictating: model.preferences.muteBackgroundAudioWhileDictating,
             liveTranslationEnabled: model.preferences.liveTranslationEnabled,
             activeLanguageCode: model.preferences.translationTargetLanguage,
             quickLanguages: model.preferences.translationQuickTargetLanguages,
@@ -896,7 +917,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func finishHotMenu(model: AppModel, clearTriggerState: Bool) {
-        guard let action = hotMenuOverlay.finish(), action != .none else {
+        guard let command = hotMenuOverlay.finish() else {
             model.statusText = "Hot menu cancelled"
             if clearTriggerState {
                 hotMenuTriggerState.finish()
@@ -907,7 +928,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if clearTriggerState {
             hotMenuTriggerState.finish()
         }
-        executeHotMenu(action, model: model)
+        executeHotMenuCommand(command, model: model)
+    }
+
+    private func executeHotMenuCommand(_ command: HotMenuCommand, model: AppModel) {
+        switch command {
+        case .action(let action):
+            executeHotMenu(action, model: model)
+        case .setLLMCleanupEnabled(let enabled):
+            model.setLLMCleanupEnabled(enabled)
+            showOverlay(
+                text: enabled
+                    ? "AI Cleanup On (\(model.resolvedUnifiedAILabel))"
+                    : "AI Cleanup Off (Instant Raw)",
+                styleName: "Cleanup",
+                theme: model.activeTheme
+            )
+            scheduleOverlayAutoHide(after: 1.1, resetSession: false)
+        case .setServiceModeEnabled(let enabled):
+            model.setServiceModeEnabled(enabled)
+            showOverlay(
+                text: enabled
+                    ? "Service Mode On (\(model.serviceModeStatusSummary))"
+                    : "Local Mode (\(model.label(for: model.preferences.asrProvider)))",
+                styleName: enabled ? "Cloud" : "Local",
+                theme: model.activeTheme
+            )
+            scheduleOverlayAutoHide(after: 1.2, resetSession: false)
+        case .setMuteBackgroundAudioWhileDictating(let enabled):
+            model.setMuteBackgroundAudioWhileDictating(enabled)
+            showOverlay(
+                text: enabled ? "Mute Background Audio: On" : "Mute Background Audio: Off",
+                styleName: "Audio",
+                theme: model.activeTheme
+            )
+            scheduleOverlayAutoHide(after: 1.1, resetSession: false)
+        case .selectTranslationLanguage(let code):
+            model.selectQuickTranslationLanguage(code)
+            let label = code.flatMap { InlineTranslationParser.languageInfo(forCode: $0)?.name } ?? "Off"
+            showOverlay(
+                text: code == nil ? "Translation Off" : "Translate → \(label)",
+                styleName: "Translation",
+                theme: model.activeTheme
+            )
+            scheduleOverlayAutoHide(after: 1.0, resetSession: false)
+        }
     }
 
     private func cancelHotMenu(model: AppModel, clearTriggerState: Bool) {
@@ -1078,6 +1143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     model.session.fail("Apple Speech failed: \(error.localizedDescription)")
                     model.statusText = "Apple Speech unavailable"
                     _ = try? self.audioCapture.stopWAVData()
+                    self.backgroundAudioMuter.endDictationMute()
                     self.dictationTriggerState.cancel()
                     self.cancelAppleSpeechIfNeeded()
                     self.cancelLiveDraftIfNeeded()
@@ -1127,6 +1193,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startDictation(model: AppModel) {
+        // Cancel any previous in-flight cleanup/transcription task so a slow prior
+        // dictation can never wake up late and paste stale text over this dictation.
+        activeFinishDictationTask?.cancel()
+        activeFinishDictationTask = nil
+        dictationSessionID &+= 1
+
         if commandModeController.isActive {
             commandModeController.pauseOpenMicForManualDictation()
         }
@@ -1241,12 +1313,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
                 do {
+                    if model.preferences.muteBackgroundAudioWhileDictating {
+                        self.backgroundAudioMuter.beginDictationMute()
+                    }
                     _ = try self.audioCapture.start(deviceUID: model.preferences.microphoneID)
                     self.audioCaptureHasStartedForSession = true
                     if usesCoreMLParakeet {
                         self.startCoreMLParakeetLivePartials(model: model)
                     }
                 } catch {
+                    self.backgroundAudioMuter.endDictationMute()
                     self.coreMLPartialTask?.cancel()
                     self.coreMLPartialTask = nil
                     model.session.fail("Microphone failed: \(error.localizedDescription)")
@@ -1281,6 +1357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 beginAudioCapture()
             }
         } catch {
+            backgroundAudioMuter.endDictationMute()
             pendingAudioCaptureStartTask?.cancel()
             pendingAudioCaptureStartTask = nil
             dictationCaptureGeneration &+= 1
@@ -1313,21 +1390,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    private func finishDictation() async {
+    private func finishDictation(sessionID: UInt64) async {
         guard let model else {
-            insertionTarget = nil
+            if dictationSessionID == sessionID {
+                insertionTarget = nil
+            }
             return
         }
-        defer {
-            pendingAudioCaptureStartTask?.cancel()
-            pendingAudioCaptureStartTask = nil
-            dictationCaptureGeneration &+= 1
-            audioCaptureHasStartedForSession = false
-            coreMLPartialTask?.cancel()
-            coreMLPartialTask = nil
+        // Snapshot target & live draft immediately so a subsequent dictation can never
+        // share or mutate this session's insertion state.
+        let capturedTarget = insertionTarget
+        var capturedLiveDraft = liveDraft
+        if dictationSessionID == sessionID {
             insertionTarget = nil
-            pendingDictationFinishTask = nil
-            commandModeController.resumeOpenMicIfActive()
+            liveDraft = nil
+        }
+
+        defer {
+            if dictationSessionID == sessionID {
+                backgroundAudioMuter.endDictationMute()
+                pendingAudioCaptureStartTask?.cancel()
+                pendingAudioCaptureStartTask = nil
+                dictationCaptureGeneration &+= 1
+                audioCaptureHasStartedForSession = false
+                coreMLPartialTask?.cancel()
+                coreMLPartialTask = nil
+                pendingDictationFinishTask = nil
+                activeFinishDictationTask = nil
+                commandModeController.resumeOpenMicIfActive()
+            }
         }
 
         coreMLPartialTask?.cancel()
@@ -1338,13 +1429,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pendingAudioCaptureStartTask?.cancel()
             pendingAudioCaptureStartTask = nil
             dictationCaptureGeneration &+= 1
+            backgroundAudioMuter.endDictationMute()
             recordingCuePlayer.playEmptyCue(preferences: model.preferences)
             model.session.reset()
             model.statusText = "No speech detected"
             streamingClient.cancel()
             cancelAppleSpeechIfNeeded()
             cancelDeepgramStreamIfNeeded()
-            cancelLiveDraftIfNeeded()
+            if let draft = capturedLiveDraft {
+                insertionService.cancelLiveDraft(draft)
+            }
             hideOverlay()
             return
         }
@@ -1353,6 +1447,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             audio = try audioCapture.stopWAVData()
             audioCaptureHasStartedForSession = false
+            backgroundAudioMuter.endDictationMute()
             recordingCuePlayer.playStopCue(preferences: model.preferences)
             model.statusText = "Transcribing"
             showOverlay(
@@ -1362,13 +1457,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 anchorFrame: activeOverlayAnchor
             )
         } catch {
+            backgroundAudioMuter.endDictationMute()
             recordingCuePlayer.playEmptyCue(preferences: model.preferences)
             model.session.fail("Audio capture failed: \(error.localizedDescription)")
             model.statusText = "Audio capture failed"
             streamingClient.cancel()
             cancelAppleSpeechIfNeeded()
             cancelDeepgramStreamIfNeeded()
-            cancelLiveDraftIfNeeded()
+            if let draft = capturedLiveDraft {
+                insertionService.cancelLiveDraft(draft)
+            }
             hideOverlay()
             return
         }
@@ -1377,6 +1475,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             transcript = try await transcribeFinishedDictation(audio: audio, model: model)
         } catch {
+            guard !Task.isCancelled, dictationSessionID == sessionID else { return }
             recordingCuePlayer.playEmptyCue(preferences: model.preferences)
             await model.refreshProviderAndModelStatus()
             let message = model.transcriptionFailureMessage(for: error)
@@ -1384,11 +1483,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.statusText = message
             streamingClient.cancel()
             cancelAppleSpeechIfNeeded()
-            cancelLiveDraftIfNeeded()
+            if let draft = capturedLiveDraft {
+                insertionService.cancelLiveDraft(draft)
+            }
             showOverlay(text: message, styleName: "Transcription failed", level: 0, anchorFrame: activeOverlayAnchor)
             scheduleOverlayAutoHide(after: 2.2)
             return
         }
+
+        guard !Task.isCancelled, dictationSessionID == sessionID else { return }
 
         let rawTranscript = TextInsertionEdit.sanitizedInsertionText(transcript.text)
         guard !rawTranscript.isEmpty else {
@@ -1397,7 +1500,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.statusText = "No speech detected"
             streamingClient.cancel()
             cancelAppleSpeechIfNeeded()
-            cancelLiveDraftIfNeeded()
+            if let draft = capturedLiveDraft {
+                insertionService.cancelLiveDraft(draft)
+            }
             showOverlay(
                 text: "No speech detected",
                 styleName: model.preferences.style.displayName,
@@ -1413,7 +1518,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.session.reset()
             streamingClient.cancel()
             cancelAppleSpeechIfNeeded()
-            cancelLiveDraftIfNeeded()
+            if let draft = capturedLiveDraft {
+                insertionService.cancelLiveDraft(draft)
+            }
             hideOverlay()
             switch directive {
             case .enter(let initialCommand):
@@ -1428,7 +1535,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.session.reset()
             streamingClient.cancel()
             cancelAppleSpeechIfNeeded()
-            cancelLiveDraftIfNeeded()
+            if let draft = capturedLiveDraft {
+                insertionService.cancelLiveDraft(draft)
+            }
             overlay.commitAndHide(mode: model.activeTheme.commitAnimationMode)
             await commandModeController.execute(spokenCommand: rawTranscript, model: model)
             commandModeController.resumeOpenMicIfActive()
@@ -1437,11 +1546,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 2. Route "ask <agent> …" (and follow-ups / actions while the bubble is open)
         // to Ask AI instead of typing the transcript.
-        if askController.handle(transcript: rawTranscript, captureTarget: insertionTarget) {
+        if askController.handle(transcript: rawTranscript, captureTarget: capturedTarget) {
             model.session.reset()
             streamingClient.cancel()
             cancelAppleSpeechIfNeeded()
-            cancelLiveDraftIfNeeded()
+            if let draft = capturedLiveDraft {
+                insertionService.cancelLiveDraft(draft)
+            }
             hideOverlay()
             return
         }
@@ -1455,22 +1566,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) {
             model.session.releaseHotkey(finalTranscript: rawTranscript)
             model.session.finishCleanup(expandedSnippet)
-            await insertFinalText(expandedSnippet, model: model, successStatus: "Snippet inserted", learnable: false)
+            await insertFinalText(
+                expandedSnippet,
+                target: capturedTarget,
+                liveDraft: &capturedLiveDraft,
+                sessionID: sessionID,
+                model: model,
+                successStatus: "Snippet inserted",
+                learnable: false
+            )
             return
         }
 
         // 4. Highlight & Transform ("Voice Edit Mode") when text is selected
-        let selectedText = insertionTarget?.selectedText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let selectedText = capturedTarget?.selectedText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if model.preferences.voiceEditSelectionEnabled,
            VoiceEditDetector.isEditInstruction(rawTranscript, hasSelectedText: !selectedText.isEmpty) {
             model.session.releaseHotkey(finalTranscript: rawTranscript)
             model.statusText = "Transforming selection…"
             showOverlay(text: "Transforming selection…", styleName: "Voice Edit", level: 0, anchorFrame: activeOverlayAnchor)
             if let transformed = await model.transformSelectedText(selectedText, instruction: rawTranscript) {
+                guard !Task.isCancelled, dictationSessionID == sessionID else { return }
                 model.session.finishCleanup(transformed)
-                await insertFinalText(transformed, model: model, successStatus: "Selection updated", learnable: false)
+                await insertFinalText(
+                    transformed,
+                    target: capturedTarget,
+                    liveDraft: &capturedLiveDraft,
+                    sessionID: sessionID,
+                    model: model,
+                    successStatus: "Selection updated",
+                    learnable: false
+                )
                 return
             }
+            guard !Task.isCancelled, dictationSessionID == sessionID else { return }
         }
 
         // 5. Inline Voice Translation ("in Spanish, ..." / "translate to Japanese, ...")
@@ -1488,30 +1617,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 targetLanguageCode: inlineTranslation.targetLanguageCode,
                 targetLanguageName: inlineTranslation.targetLanguageName
             ) {
+                guard !Task.isCancelled, dictationSessionID == sessionID else { return }
                 model.session.finishCleanup(translated)
-                await insertFinalText(translated, model: model, successStatus: "Translated to \(inlineTranslation.targetLanguageName)", learnable: false)
+                await insertFinalText(
+                    translated,
+                    target: capturedTarget,
+                    liveDraft: &capturedLiveDraft,
+                    sessionID: sessionID,
+                    model: model,
+                    successStatus: "Translated to \(inlineTranslation.targetLanguageName)",
+                    learnable: false
+                )
                 await model.refreshTranscripts(updateStatus: false)
                 return
             }
+            guard !Task.isCancelled, dictationSessionID == sessionID else { return }
         }
 
         model.session.releaseHotkey(finalTranscript: rawTranscript)
         model.captionText = rawTranscript
-        showOverlay(text: rawTranscript, styleName: model.preferences.style.displayName, anchorFrame: activeOverlayAnchor)
+        let polishingBadge: String
+        if model.preferences.llmCleanupEnabled && model.preferences.style != .raw {
+            polishingBadge = model.isActiveCleanupAgentColdACP
+                ? "\(model.preferences.style.displayName) · Warming ACP"
+                : "Polishing (\(model.resolvedUnifiedAILabel))…"
+        } else {
+            polishingBadge = model.preferences.style.displayName
+        }
+        showOverlay(text: rawTranscript, styleName: polishingBadge, anchorFrame: activeOverlayAnchor)
 
         let finalText: String
         if let literalText = literalPayload(from: rawTranscript) {
             finalText = TextInsertionEdit.sanitizedInsertionText(literalText)
             model.statusText = "Literal mode"
         } else {
-            let cleanupStyle = cleanupStyle(for: insertionTarget, preferredStyle: model.preferences.style)
-            let baseAppName = insertionTarget?.application?.localizedName
-                ?? insertionTarget?.application?.bundleIdentifier
+            let cleanupStyle = cleanupStyle(for: capturedTarget, preferredStyle: model.preferences.style)
+            let baseAppName = capturedTarget?.application?.localizedName
+                ?? capturedTarget?.application?.bundleIdentifier
                 ?? ""
             let appContext: String
             if model.preferences.autoTonePerAppEnabled {
                 appContext = AppToneContext.detect(
-                    bundleIdentifier: insertionTarget?.application?.bundleIdentifier,
+                    bundleIdentifier: capturedTarget?.application?.bundleIdentifier,
                     appName: baseAppName
                 ).formattingHint
             } else {
@@ -1523,24 +1670,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     style: cleanupStyle,
                     appContext: appContext
                 )
+                guard !Task.isCancelled, dictationSessionID == sessionID else { return }
                 finalText = TextInsertionEdit.sanitizedInsertionText(cleanup.text)
             } catch {
+                guard !Task.isCancelled, dictationSessionID == sessionID else { return }
                 finalText = TextInsertionEdit.sanitizedInsertionText(lightlyPunctuate(rawTranscript))
                 model.statusText = "Cleanup skipped"
             }
         }
 
+        guard !Task.isCancelled, dictationSessionID == sessionID else { return }
+
         if let command = DictationCommandParser.parse(finalText) {
-            cancelLiveDraftIfNeeded()
-            await handle(command: command, model: model)
+            if let draft = capturedLiveDraft {
+                insertionService.cancelLiveDraft(draft)
+                capturedLiveDraft = nil
+            }
+            await handle(command: command, target: capturedTarget, sessionID: sessionID, model: model)
             return
         }
 
         let insertionText = await translatedTextIfNeeded(finalText, model: model)
+        guard !Task.isCancelled, dictationSessionID == sessionID else { return }
         model.session.finishCleanup(insertionText)
         let speakingSeconds = max(1.0, Date.timeIntervalSinceReferenceDate - dictationPressedAt)
-        let targetAppName = insertionTarget?.application?.localizedName
-        await insertFinalText(insertionText, model: model, successStatus: model.preferences.liveTranslationEnabled ? "Translated text inserted" : "Inserted", learnable: true)
+        let targetAppName = capturedTarget?.application?.localizedName
+        await insertFinalText(
+            insertionText,
+            target: capturedTarget,
+            liveDraft: &capturedLiveDraft,
+            sessionID: sessionID,
+            model: model,
+            successStatus: model.preferences.liveTranslationEnabled ? "Translated text inserted" : "Inserted",
+            learnable: true
+        )
         model.recordDictationStats(text: insertionText, speakingSeconds: speakingSeconds, appName: targetAppName)
         await model.refreshTranscripts(updateStatus: false)
     }
@@ -1577,10 +1740,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         learnedWordToast.show(correction: correction, entryID: entry.id)
     }
 
-    private func insertFinalText(_ finalText: String, model: AppModel, successStatus: String, learnable: Bool = false) async {
-        if var draft = liveDraft {
+    private func insertFinalText(
+        _ finalText: String,
+        target: TextInsertionService.Target?,
+        liveDraft capturedLiveDraft: inout TextInsertionService.LiveDraft?,
+        sessionID: UInt64,
+        model: AppModel,
+        successStatus: String,
+        learnable: Bool = false
+    ) async {
+        guard !Task.isCancelled, dictationSessionID == sessionID else { return }
+        if var draft = capturedLiveDraft {
             if insertionService.commitLiveDraft(finalText, draft: &draft) {
-                liveDraft = nil
+                capturedLiveDraft = nil
                 model.statusText = successStatus
                 overlay.commitAndHide(mode: model.activeTheme.commitAnimationMode)
                 model.session.reset()
@@ -1594,11 +1766,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             insertionService.cancelLiveDraft(draft)
-            liveDraft = nil
+            capturedLiveDraft = nil
         }
 
         do {
-            try await insertionService.insert(finalText, target: insertionTarget)
+            try await insertionService.insert(finalText, target: target)
+            guard dictationSessionID == sessionID else { return }
             model.statusText = successStatus
             overlay.commitAndHide(mode: model.activeTheme.commitAnimationMode)
             model.session.reset()
@@ -1609,6 +1782,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         } catch TextInsertionService.InsertionError.accessibilityPermissionRequired {
+            guard dictationSessionID == sessionID else { return }
             model.session.fail("Accessibility permission required")
             model.statusText = "Accessibility permission required"
             copyToPasteboard(finalText)
@@ -1618,6 +1792,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             showOverlay(text: finalText, styleName: "Accessibility required - copied", anchorFrame: activeOverlayAnchor)
             scheduleOverlayAutoHide(after: 2.4)
         } catch {
+            guard dictationSessionID == sessionID else { return }
             model.session.fail("Insertion failed: \(error.localizedDescription)")
             model.statusText = "Insertion failed"
             copyToPasteboard(finalText)
@@ -1626,7 +1801,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func handle(command: DictationCommand, model: AppModel) async {
+    private func handle(
+        command: DictationCommand,
+        target capturedTarget: TextInsertionService.Target?,
+        sessionID: UInt64,
+        model: AppModel
+    ) async {
         do {
             switch command.action {
             case .openApplication:
@@ -1636,7 +1816,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .undoLastDictation:
                 try await insertionService.undoLastInsertion()
             case .aiHandoff(let target, let prompt):
-                await handleAIHandoff(target: target, prompt: prompt, model: model)
+                await handleAIHandoff(
+                    target: target,
+                    prompt: prompt,
+                    insertionTarget: capturedTarget,
+                    sessionID: sessionID,
+                    model: model
+                )
                 return
             }
             model.statusText = command.displayText
@@ -1652,39 +1838,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func handleAIHandoff(target: AIHandoffTarget, prompt: String, model: AppModel) async {
-        let configuration = model.preferences.textLLMConfiguration(for: target)
-        guard configuration.isConfigured else {
-            let providerName = configuration.provider.displayName
-            model.session.fail("\(providerName) is not configured")
-            model.statusText = "\(providerName) not configured"
+    private func handleAIHandoff(
+        target: AIHandoffTarget,
+        prompt: String,
+        insertionTarget capturedTarget: TextInsertionService.Target?,
+        sessionID: UInt64,
+        model: AppModel
+    ) async {
+        let context = capturedTarget?.selectedText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let route: UnifiedAIRoute = target == .custom
+            ? model.defaultAIRoute
+            : .textLLM(provider: TextLLMProviderKind(target: target))
+        guard model.isUnifiedAIRouteReady(route) else {
+            let label = model.unifiedAIRouteLabel(route)
+            model.session.fail("\(label) is not configured")
+            model.statusText = "\(label) not configured"
             showOverlay(
-                text: "Configure \(providerName) in AI settings.",
+                text: "Configure \(label) in AI settings.",
                 styleName: "AI handoff",
                 anchorFrame: activeOverlayAnchor
             )
             return
         }
 
-        let context = insertionTarget?.selectedText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        model.statusText = "Asking \(target.displayName)"
-        showOverlay(text: "Asking \(target.displayName)...", styleName: "AI handoff", anchorFrame: activeOverlayAnchor)
+        model.statusText = "Asking \(model.unifiedAIRouteLabel(route))"
+        showOverlay(text: "Asking \(model.unifiedAIRouteLabel(route))...", styleName: "AI handoff", anchorFrame: activeOverlayAnchor)
 
         do {
-            let result = try await engineClient.aiHandoff(
-                AIHandoffRequest(
-                    prompt: prompt,
-                    provider: configuration.provider.rawValue,
-                    baseURL: configuration.resolvedBaseURL,
-                    model: configuration.trimmedModel,
-                    apiKey: configuration.trimmedAPIKey,
-                    transport: configuration.transport,
-                    oauthAccessToken: configuration.trimmedOAuthAccessToken,
-                    headers: configuration.resolvedHeaders,
-                    context: context
-                )
+            let userContent = context.isEmpty ? prompt : "\(prompt)\n\nContext:\n\(context)"
+            let rawReply = try await model.runUnifiedAI(
+                messages: [
+                    AIChatMessage(role: .system, content: "You are a concise, helpful writing assistant. Return only the requested text with no preamble."),
+                    AIChatMessage(role: .user, content: userContent),
+                ],
+                routeOverride: route
             )
-            let insertion = TextInsertionEdit.sanitizedInsertionText(result.text)
+            guard !Task.isCancelled, dictationSessionID == sessionID else { return }
+            let insertion = TextInsertionEdit.sanitizedInsertionText(rawReply)
             guard !insertion.isEmpty else {
                 model.session.fail("AI returned empty text")
                 model.statusText = "AI returned empty text"
@@ -1692,8 +1882,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
-            await insertFinalText(insertion, model: model, successStatus: "AI response inserted")
+            var noDraft: TextInsertionService.LiveDraft? = nil
+            await insertFinalText(
+                insertion,
+                target: capturedTarget,
+                liveDraft: &noDraft,
+                sessionID: sessionID,
+                model: model,
+                successStatus: "AI response inserted"
+            )
         } catch {
+            guard !Task.isCancelled, dictationSessionID == sessionID else { return }
             model.session.fail("AI handoff failed: \(error.localizedDescription)")
             model.statusText = "AI handoff failed"
             showOverlay(text: error.localizedDescription, styleName: "AI handoff failed", anchorFrame: activeOverlayAnchor)

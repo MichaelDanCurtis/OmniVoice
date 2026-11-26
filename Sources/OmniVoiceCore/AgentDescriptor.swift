@@ -17,17 +17,31 @@ public struct AgentDescriptor: Identifiable, Equatable, Sendable {
     public let binaryPath: String?
     public let invocation: AgentInvocation
     public let streamFormat: AgentStreamFormat
+    /// Arguments to launch this CLI as a persistent Agent Client Protocol (ACP) stdio server
+    /// (e.g. `["acp"]` or `["--acp"]`), or `nil` if the CLI only supports one-shot runs.
+    public let acpArgs: [String]?
+    /// Ordered substrings/IDs preferred when selecting a low-latency model on an ACP
+    /// cleanup session via `session/set_model`.
+    public let acpFastModelPreference: [String]
 
     public var primaryKeyword: String {
         keywords.first ?? id.lowercased()
     }
 
+    public var supportsACP: Bool {
+        acpArgs != nil
+    }
+
     public init(id: String, displayName: String, keywords: [String],
                 binaryName: String, binaryPath: String? = nil,
-                invocation: AgentInvocation, streamFormat: AgentStreamFormat) {
+                invocation: AgentInvocation, streamFormat: AgentStreamFormat,
+                acpArgs: [String]? = nil,
+                acpFastModelPreference: [String] = []) {
         self.id = id; self.displayName = displayName; self.keywords = keywords
         self.binaryName = binaryName; self.binaryPath = binaryPath
         self.invocation = invocation; self.streamFormat = streamFormat
+        self.acpArgs = acpArgs
+        self.acpFastModelPreference = acpFastModelPreference
     }
 
     public func withBinaryPath(_ path: String) -> AgentDescriptor {
@@ -38,7 +52,9 @@ public struct AgentDescriptor: Identifiable, Equatable, Sendable {
             binaryName: binaryName,
             binaryPath: path,
             invocation: invocation,
-            streamFormat: streamFormat
+            streamFormat: streamFormat,
+            acpArgs: acpArgs,
+            acpFastModelPreference: acpFastModelPreference
         )
     }
 

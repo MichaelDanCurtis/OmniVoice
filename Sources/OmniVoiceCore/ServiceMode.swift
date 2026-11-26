@@ -112,6 +112,7 @@ public struct ServiceModeConfiguration: Codable, Equatable, Sendable {
     public var deepgramModel: DeepgramModel
     public var deepgramLanguage: String
     public var deepgramSmartFormat: Bool
+    public var deepgramDiarize: Bool
     public var llmRoute: ServiceModeLLMRoute
     public var unloadLocalModelsWhenEnabled: Bool
 
@@ -120,6 +121,7 @@ public struct ServiceModeConfiguration: Codable, Equatable, Sendable {
         deepgramModel: .nova3,
         deepgramLanguage: "multi",
         deepgramSmartFormat: true,
+        deepgramDiarize: true,
         llmRoute: .auto,
         unloadLocalModelsWhenEnabled: true
     )
@@ -143,6 +145,7 @@ public struct ServiceModeConfiguration: Codable, Equatable, Sendable {
         deepgramModel: DeepgramModel = .nova3,
         deepgramLanguage: String = "multi",
         deepgramSmartFormat: Bool = true,
+        deepgramDiarize: Bool = true,
         llmRoute: ServiceModeLLMRoute = .auto,
         unloadLocalModelsWhenEnabled: Bool = true
     ) {
@@ -151,6 +154,7 @@ public struct ServiceModeConfiguration: Codable, Equatable, Sendable {
         let cleanLang = deepgramLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
         self.deepgramLanguage = cleanLang.isEmpty ? "multi" : cleanLang
         self.deepgramSmartFormat = deepgramSmartFormat
+        self.deepgramDiarize = deepgramDiarize
         self.llmRoute = llmRoute
         self.unloadLocalModelsWhenEnabled = unloadLocalModelsWhenEnabled
     }
@@ -160,6 +164,7 @@ public struct ServiceModeConfiguration: Codable, Equatable, Sendable {
         case deepgramModel
         case deepgramLanguage
         case deepgramSmartFormat
+        case deepgramDiarize
         case llmRoute
         case unloadLocalModelsWhenEnabled
     }
@@ -171,6 +176,7 @@ public struct ServiceModeConfiguration: Codable, Equatable, Sendable {
             deepgramModel: try c.decodeIfPresent(DeepgramModel.self, forKey: .deepgramModel) ?? .nova3,
             deepgramLanguage: try c.decodeIfPresent(String.self, forKey: .deepgramLanguage) ?? "multi",
             deepgramSmartFormat: try c.decodeIfPresent(Bool.self, forKey: .deepgramSmartFormat) ?? true,
+            deepgramDiarize: try c.decodeIfPresent(Bool.self, forKey: .deepgramDiarize) ?? true,
             llmRoute: try c.decodeIfPresent(ServiceModeLLMRoute.self, forKey: .llmRoute) ?? .auto,
             unloadLocalModelsWhenEnabled: try c.decodeIfPresent(Bool.self, forKey: .unloadLocalModelsWhenEnabled) ?? true
         )
@@ -191,7 +197,42 @@ public enum DeepgramAPIHelper {
         }
     }
 
-    public static func restListenURL(config: ServiceModeConfiguration) -> URL? {
+    public struct DiarizedSegment: Equatable, Sendable {
+        public let speakerIndex: Int?
+        public let text: String
+        public let startMs: Int
+        public let endMs: Int
+        public let isFinal: Bool
+        public let speechFinal: Bool
+
+        public init(
+            speakerIndex: Int?,
+            text: String,
+            startMs: Int,
+            endMs: Int,
+            isFinal: Bool,
+            speechFinal: Bool
+        ) {
+            self.speakerIndex = speakerIndex
+            self.text = text
+            self.startMs = startMs
+            self.endMs = endMs
+            self.isFinal = isFinal
+            self.speechFinal = speechFinal
+        }
+
+        public var speakerID: String? {
+            guard let speakerIndex else { return nil }
+            return "deepgram_speaker_\(speakerIndex + 1)"
+        }
+
+        public var speakerDisplayName: String? {
+            guard let speakerIndex else { return nil }
+            return "Speaker \(speakerIndex + 1)"
+        }
+    }
+
+    public static func restListenURL(config: ServiceModeConfiguration, diarize: Bool = false) -> URL? {
         var components = URLComponents(string: "https://api.deepgram.com/v1/listen")
         var items: [URLQueryItem] = [
             URLQueryItem(name: "model", value: config.deepgramModel.rawValue),
@@ -200,6 +241,9 @@ public enum DeepgramAPIHelper {
         ]
         if config.deepgramModel != .flux {
             items.append(URLQueryItem(name: "language", value: config.deepgramLanguage))
+            if diarize {
+                items.append(URLQueryItem(name: "diarize", value: "true"))
+            }
         }
         components?.queryItems = items
         return components?.url
@@ -207,7 +251,8 @@ public enum DeepgramAPIHelper {
 
     public static func streamingListenURL(
         config: ServiceModeConfiguration,
-        sampleRate: Int
+        sampleRate: Int,
+        diarize: Bool = false
     ) -> URL? {
         var components = URLComponents(string: "wss://api.deepgram.com/v1/listen")
         let clampedRate = max(8_000, sampleRate)
@@ -222,6 +267,9 @@ public enum DeepgramAPIHelper {
         ]
         if config.deepgramModel != .flux {
             items.append(URLQueryItem(name: "language", value: config.deepgramLanguage))
+            if diarize {
+                items.append(URLQueryItem(name: "diarize", value: "true"))
+            }
         }
         components?.queryItems = items
         return components?.url
@@ -258,5 +306,117 @@ public enum DeepgramAPIHelper {
             isFinal: isFinal,
             speechFinal: speechFinal
         )
+    }
+
+    /// Parses a Deepgram streaming JSON message (`diarize=true`) into one or more
+    /// contiguous speaker-attributed segments. When a single utterance spans multiple
+    /// speakers (e.g., speaker 0 then speaker 1), words are grouped into separate
+    /// segments with accurate millisecond timestamps.
+    public static func parseStreamDiarizedSegments(from text: String) -> [DiarizedSegment]? {
+        guard let data = text.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = root["type"] as? String,
+              type == "Results",
+              let channel = root["channel"] as? [String: Any],
+              let alternatives = channel["alternatives"] as? [[String: Any]],
+              let firstAlt = alternatives.first else {
+            return nil
+        }
+
+        let isFinal = (root["is_final"] as? Bool) ?? false
+        let speechFinal = (root["speech_final"] as? Bool) ?? false
+        let fallbackStartMs = max(0, Int((((root["start"] as? Double) ?? 0) * 1000).rounded()))
+        let fallbackDurationMs = max(0, Int((((root["duration"] as? Double) ?? 0) * 1000).rounded()))
+
+        if let words = firstAlt["words"] as? [[String: Any]], !words.isEmpty {
+            var segments: [DiarizedSegment] = []
+            var currentSpeaker: Int?
+            var hasCurrent = false
+            var currentTokens: [String] = []
+            var currentStartMs = fallbackStartMs
+            var currentEndMs = fallbackStartMs + fallbackDurationMs
+
+            for wordObj in words {
+                let token = ((wordObj["punctuated_word"] as? String) ?? (wordObj["word"] as? String) ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !token.isEmpty else { continue }
+                let speaker: Int?
+                if let intVal = wordObj["speaker"] as? Int {
+                    speaker = intVal
+                } else if let numVal = wordObj["speaker"] as? NSNumber {
+                    speaker = numVal.intValue
+                } else {
+                    speaker = nil
+                }
+                let wordStartMs = max(0, Int((((wordObj["start"] as? Double) ?? 0) * 1000).rounded()))
+                let wordEndMs = max(wordStartMs, Int((((wordObj["end"] as? Double) ?? 0) * 1000).rounded()))
+
+                if !hasCurrent {
+                    hasCurrent = true
+                    currentSpeaker = speaker
+                    currentTokens = [token]
+                    currentStartMs = wordStartMs
+                    currentEndMs = wordEndMs
+                } else if speaker == currentSpeaker {
+                    currentTokens.append(token)
+                    currentEndMs = max(currentEndMs, wordEndMs)
+                } else {
+                    let joined = currentTokens.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !joined.isEmpty {
+                        segments.append(
+                            DiarizedSegment(
+                                speakerIndex: currentSpeaker,
+                                text: joined,
+                                startMs: currentStartMs,
+                                endMs: currentEndMs,
+                                isFinal: isFinal,
+                                speechFinal: speechFinal
+                            )
+                        )
+                    }
+                    currentSpeaker = speaker
+                    currentTokens = [token]
+                    currentStartMs = wordStartMs
+                    currentEndMs = wordEndMs
+                }
+            }
+
+            if hasCurrent {
+                let joined = currentTokens.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                if !joined.isEmpty {
+                    segments.append(
+                        DiarizedSegment(
+                            speakerIndex: currentSpeaker,
+                            text: joined,
+                            startMs: currentStartMs,
+                            endMs: currentEndMs,
+                            isFinal: isFinal,
+                            speechFinal: speechFinal
+                        )
+                    )
+                }
+            }
+
+            if !segments.isEmpty {
+                return segments
+            }
+        }
+
+        guard let transcript = (firstAlt["transcript"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !transcript.isEmpty else {
+            return []
+        }
+
+        return [
+            DiarizedSegment(
+                speakerIndex: nil,
+                text: transcript,
+                startMs: fallbackStartMs,
+                endMs: fallbackStartMs + fallbackDurationMs,
+                isFinal: isFinal,
+                speechFinal: speechFinal
+            ),
+        ]
     }
 }
