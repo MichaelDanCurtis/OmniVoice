@@ -33,14 +33,16 @@ public enum CommandModeDirective: Equatable, Sendable {
 }
 
 public enum CommandModeVoiceParser {
-    private static let enterTriggers = [
+    private static let explicitEnterTriggers = [
         "go into command mode",
         "enter command mode",
         "start command mode",
         "enable command mode",
         "turn on command mode",
         "switch to command mode",
-        "command mode",
+        "open command mode",
+        "launch command mode",
+        "activate command mode",
     ]
 
     private static let exitTriggers = [
@@ -50,22 +52,49 @@ public enum CommandModeVoiceParser {
         "disable command mode",
         "turn off command mode",
         "end command mode",
+        "close command mode",
+        "quit command mode",
         "back to dictation",
         "normal mode",
         "dictation mode",
     ]
 
+    private static let politeLeadIns = [
+        "hey", "okay", "ok", "please", "can you", "could you",
+    ]
+
     public static func parse(_ text: String) -> CommandModeDirective? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalized = trimmed
+        var normalized = trimmed
             .lowercased()
             .trimmingCharacters(in: CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines))
+
+        var strippedLead = true
+        while strippedLead {
+            strippedLead = false
+            for lead in politeLeadIns where normalized.hasPrefix(lead) {
+                let afterIdx = normalized.index(normalized.startIndex, offsetBy: lead.count)
+                if afterIdx < normalized.endIndex {
+                    let next = normalized[afterIdx]
+                    if next.isWhitespace || next.isPunctuation {
+                        normalized = String(normalized[afterIdx...])
+                            .trimmingCharacters(in: CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines))
+                        strippedLead = true
+                        break
+                    }
+                }
+            }
+        }
+        for trailing in [" please", " now"] where normalized.hasSuffix(trailing) {
+            normalized = String(normalized.dropLast(trailing.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
 
         if exitTriggers.contains(where: { normalized == $0 || normalized.hasPrefix($0 + " ") }) {
             return .exit
         }
 
-        for trigger in enterTriggers {
+        for trigger in explicitEnterTriggers {
             if normalized == trigger {
                 return .enter(initialCommand: nil)
             }
@@ -75,6 +104,20 @@ public enum CommandModeVoiceParser {
                     .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".,:;!?-")))
                 return .enter(initialCommand: remainder.isEmpty ? nil : remainder)
             }
+        }
+
+        // Bare "command mode" trigger: match exact ("command mode", "command mode on")
+        // or punctuated command ("Command mode, open Safari..."), but do NOT hijack normal prose
+        // like "Command mode doesn't work".
+        if normalized == "command mode" || normalized == "command mode on" {
+            return .enter(initialCommand: nil)
+        }
+        let lowerTrimmed = trimmed.lowercased()
+        if lowerTrimmed.hasPrefix("command mode,") || lowerTrimmed.hasPrefix("command mode:") || lowerTrimmed.hasPrefix("command mode -") {
+            let dropIdx = lowerTrimmed.range(of: "command mode")?.upperBound ?? trimmed.endIndex
+            let remainder = String(trimmed[dropIdx...])
+                .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".,:;!?-")))
+            return .enter(initialCommand: remainder.isEmpty ? nil : remainder)
         }
         return nil
     }
@@ -130,22 +173,83 @@ public enum NativeDesktopFastPath {
         switch lower {
         case "press enter", "hit enter", "enter", "return":
             return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "enter"])
-        case "press escape", "escape", "cancel":
+        case "press escape", "hit escape", "escape", "cancel":
             return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "escape"])
+        case "press tab", "tab":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "tab"])
+        case "press space", "space", "spacebar":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "space"])
+        case "backspace", "delete", "press delete":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "delete"])
+        case "arrow up", "press up":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "up"])
+        case "arrow down", "press down":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "down"])
+        case "arrow left", "press left":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "left"])
+        case "arrow right", "press right":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "right"])
         case "new tab", "open new tab":
             return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "t"], arrayArgs: ["modifiers": ["cmd"]])
-        case "close tab":
+        case "close tab", "close window":
             return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "w"], arrayArgs: ["modifiers": ["cmd"]])
+        case "reopen tab", "reopen closed tab":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "t"], arrayArgs: ["modifiers": ["cmd", "shift"]])
+        case "next tab":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "tab"], arrayArgs: ["modifiers": ["ctrl"]])
+        case "previous tab", "last tab":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "tab"], arrayArgs: ["modifiers": ["ctrl", "shift"]])
+        case "go back", "back":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "["], arrayArgs: ["modifiers": ["cmd"]])
+        case "go forward", "forward":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "]"], arrayArgs: ["modifiers": ["cmd"]])
+        case "refresh", "reload", "reload page", "refresh page":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "r"], arrayArgs: ["modifiers": ["cmd"]])
+        case "find", "search page":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "f"], arrayArgs: ["modifiers": ["cmd"]])
+        case "select all":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "a"], arrayArgs: ["modifiers": ["cmd"]])
+        case "cut", "cut that":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "x"], arrayArgs: ["modifiers": ["cmd"]])
         case "copy", "copy that":
             return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "c"], arrayArgs: ["modifiers": ["cmd"]])
         case "paste", "paste that":
             return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "v"], arrayArgs: ["modifiers": ["cmd"]])
         case "undo", "undo that":
             return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "z"], arrayArgs: ["modifiers": ["cmd"]])
+        case "redo", "redo that":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "z"], arrayArgs: ["modifiers": ["cmd", "shift"]])
         case "save", "save file":
             return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "s"], arrayArgs: ["modifiers": ["cmd"]])
+        case "minimize", "minimize window":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "m"], arrayArgs: ["modifiers": ["cmd"]])
+        case "hide", "hide window", "hide app":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "h"], arrayArgs: ["modifiers": ["cmd"]])
+        case "full screen", "fullscreen", "toggle full screen":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "f"], arrayArgs: ["modifiers": ["ctrl", "cmd"]])
+        case "spotlight", "open spotlight":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "space"], arrayArgs: ["modifiers": ["cmd"]])
+        case "switch window", "next window":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "`"], arrayArgs: ["modifiers": ["cmd"]])
+        case "switch app", "next app":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "tab"], arrayArgs: ["modifiers": ["cmd"]])
+        case "quit app", "quit":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "q"], arrayArgs: ["modifiers": ["cmd"]])
+        case "zoom in":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "="], arrayArgs: ["modifiers": ["cmd"]])
+        case "zoom out":
+            return NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "-"], arrayArgs: ["modifiers": ["cmd"]])
         default:
             break
+        }
+
+        // Web search fast path ("google <query>" / "search for <query>")
+        for prefix in ["google ", "search for ", "search the web for "] where lower.hasPrefix(prefix) {
+            let query = String(cleaned.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !query.isEmpty,
+               let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                return NativeDesktopFastAction(tool: "open_url", stringArgs: ["url": "https://www.google.com/search?q=\(encoded)"])
+            }
         }
 
         // Open / switch to single app (only when it's a simple single-step request without "and")

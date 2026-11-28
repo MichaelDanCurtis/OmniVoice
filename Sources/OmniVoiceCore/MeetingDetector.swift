@@ -9,6 +9,14 @@ public enum DetectedMeetingApp: String, CaseIterable, Codable, Hashable, Sendabl
     case slackHuddle
     case webex
     case discord
+    case whatsapp
+    case signal
+    case telegram
+    case ringCentral
+    case dialpad
+    case chime
+    case upcomingMeeting
+    case twoWayCall
 
     public var displayName: String {
         switch self {
@@ -20,6 +28,14 @@ public enum DetectedMeetingApp: String, CaseIterable, Codable, Hashable, Sendabl
         case .slackHuddle: "Slack Huddle"
         case .webex: "Webex"
         case .discord: "Discord"
+        case .whatsapp: "WhatsApp"
+        case .signal: "Signal"
+        case .telegram: "Telegram"
+        case .ringCentral: "RingCentral"
+        case .dialpad: "Dialpad"
+        case .chime: "Amazon Chime"
+        case .upcomingMeeting: "Upcoming Meeting"
+        case .twoWayCall: "Two-Way Call"
         }
     }
 
@@ -33,6 +49,14 @@ public enum DetectedMeetingApp: String, CaseIterable, Codable, Hashable, Sendabl
         case .slackHuddle: "headphones"
         case .webex: "video.bubble.left.fill"
         case .discord: "waveform.circle.fill"
+        case .whatsapp: "phone.bubble.left.fill"
+        case .signal: "lock.shield.fill"
+        case .telegram: "paperplane.fill"
+        case .ringCentral: "phone.connection.fill"
+        case .dialpad: "phone.arrow.up.right.fill"
+        case .chime: "video.fill"
+        case .upcomingMeeting: "calendar.badge.clock"
+        case .twoWayCall: "phone.and.waveform.fill"
         }
     }
 
@@ -45,11 +69,18 @@ public struct DetectedMeetingEvent: Equatable, Hashable, Sendable {
     public let app: DetectedMeetingApp
     public let bundleIdentifier: String
     public let windowTitle: String?
+    public let isPreJoin: Bool
 
-    public init(app: DetectedMeetingApp, bundleIdentifier: String, windowTitle: String? = nil) {
+    public init(
+        app: DetectedMeetingApp,
+        bundleIdentifier: String,
+        windowTitle: String? = nil,
+        isPreJoin: Bool = false
+    ) {
         self.app = app
         self.bundleIdentifier = bundleIdentifier
         self.windowTitle = windowTitle
+        self.isPreJoin = isPreJoin
     }
 }
 
@@ -65,23 +96,38 @@ public struct RunningWindowSnapshot: Equatable, Sendable {
     }
 }
 
-/// Pure heuristic matcher that identifies an active Teams, FaceTime, Phone, Zoom,
-/// Google Meet, Slack Huddle, Webex, or Discord call from running apps, window titles,
-/// and whether the system microphone is currently active.
+/// Pure heuristic matcher that identifies an active or about-to-join Teams, FaceTime, Phone,
+/// Zoom, Google Meet, Slack Huddle, Webex, Discord, WhatsApp, Signal, Telegram, RingCentral,
+/// Dialpad, Chime, or generic two-way call from running apps, window titles, and CoreAudio state.
 public enum MeetingAppMatcher {
     private static let browserBundleIDs: Set<String> = [
         "com.apple.safari",
         "com.google.chrome",
+        "com.google.chrome.canary",
         "com.brave.browser",
         "com.microsoft.edgemac",
         "company.thebrowser.browser", // Arc
         "org.mozilla.firefox",
+        "com.vivaldi.vivaldi",
+        "com.operasoftware.opera",
+    ]
+
+    private static let nonCallAudioBundleIDs: Set<String> = [
+        "com.omnispeak.omnivoiceapp",
+        "com.apple.logic10",
+        "com.apple.garageband10",
+        "com.apple.quicktimeplayerx",
+        "com.apple.voicememos",
+        "com.obsproject.obs-studio",
+        "com.loom.desktop",
     ]
 
     public static func detect(
         runningBundleIDs: Set<String>,
         windows: [RunningWindowSnapshot],
-        microphoneActive: Bool
+        microphoneActive: Bool,
+        systemAudioActive: Bool = false,
+        frontmostBundleID: String? = nil
     ) -> DetectedMeetingEvent? {
         let lowerBundles = Set(runningBundleIDs.map { $0.lowercased() })
 
@@ -89,18 +135,25 @@ public enum MeetingAppMatcher {
         if lowerBundles.contains("com.apple.facetime") {
             let ftWindow = windows.first { $0.bundleIdentifier.lowercased() == "com.apple.facetime" }
             let title = ftWindow?.windowTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-            if microphoneActive || (title != nil && !title!.isEmpty && title!.lowercased() != "facetime") {
-                let isPhone = title?.lowercased().contains("phone") == true
-                    || title?.lowercased().contains("call") == true
+            let lowerTitle = title?.lowercased() ?? ""
+            let looksLikeCallWindow = !lowerTitle.isEmpty && lowerTitle != "facetime"
+            if microphoneActive || looksLikeCallWindow {
+                let isPhone = lowerTitle.contains("phone") || lowerTitle.contains("call")
+                let isPreJoin = !microphoneActive && (lowerTitle.contains("incoming") || lowerTitle.contains("ringing") || lowerTitle.contains("join"))
                 return DetectedMeetingEvent(
                     app: isPhone ? .phoneCall : .facetime,
                     bundleIdentifier: "com.apple.FaceTime",
-                    windowTitle: title
+                    windowTitle: title,
+                    isPreJoin: isPreJoin
                 )
             }
         }
         // Continuity / macOS Phone call via CallServices / Phone app when mic is active
-        if microphoneActive && (lowerBundles.contains("com.apple.phone") || lowerBundles.contains("com.apple.callservicesd")) {
+        if microphoneActive && (
+            lowerBundles.contains("com.apple.phone")
+                || lowerBundles.contains("com.apple.mobilephone")
+                || lowerBundles.contains("com.apple.callservicesd")
+        ) {
             return DetectedMeetingEvent(
                 app: .phoneCall,
                 bundleIdentifier: "com.apple.FaceTime",
@@ -108,40 +161,75 @@ public enum MeetingAppMatcher {
             )
         }
 
-        // 2. Microsoft Teams (New Teams + Classic Teams)
-        for teamsID in ["com.microsoft.teams2", "com.microsoft.teams"] where lowerBundles.contains(teamsID) {
-            let meetingWindow = windows.first {
-                $0.bundleIdentifier.lowercased() == teamsID
-                    && isTeamsMeetingTitle($0.windowTitle)
-            }
-            if let meetingWindow {
+        // 2. Microsoft Teams (New Teams, Classic Teams, and Teams Chrome/Edge PWAs)
+        let teamsWindows = windows.filter { isTeamsWindow($0) }
+        let hasTeamsApp = lowerBundles.contains("com.microsoft.teams2")
+            || lowerBundles.contains("com.microsoft.teams")
+            || !teamsWindows.isEmpty
+
+        if hasTeamsApp {
+            // 2a. Explicit Teams pre-join lobby or meeting/call window title (works even before mic turns on!)
+            if let meetingWindow = teamsWindows.first(where: { isTeamsMeetingOrPreJoinTitle($0.windowTitle) }) {
                 return DetectedMeetingEvent(
                     app: .teams,
                     bundleIdentifier: meetingWindow.bundleIdentifier,
-                    windowTitle: meetingWindow.windowTitle
+                    windowTitle: meetingWindow.windowTitle,
+                    isPreJoin: !microphoneActive && isPreJoinTitle(meetingWindow.windowTitle)
                 )
             }
-            if microphoneActive {
-                let anyTitle = windows.first { $0.bundleIdentifier.lowercased() == teamsID }?.windowTitle
+
+            // 2b. Popped-out native Teams meeting/pre-join window heuristic:
+            // New Teams opens a second window for pre-join lobbies and active calls even when the
+            // meeting title doesn't literally contain the word "meeting" or "call".
+            let nativeTeamsWindows = windows.filter {
+                let id = $0.bundleIdentifier.lowercased()
+                return id == "com.microsoft.teams2" || id == "com.microsoft.teams"
+            }
+            let titledNativeTeams = nativeTeamsWindows.filter {
+                !$0.windowTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            if titledNativeTeams.count >= 2,
+               let poppedWindow = titledNativeTeams.first(where: { !isGenericTeamsNavigationTitle($0.windowTitle) }) {
                 return DetectedMeetingEvent(
                     app: .teams,
-                    bundleIdentifier: teamsID,
+                    bundleIdentifier: poppedWindow.bundleIdentifier,
+                    windowTitle: poppedWindow.windowTitle,
+                    isPreJoin: !microphoneActive
+                )
+            }
+
+            // 2c. Active mic while Teams native/PWA is running
+            if microphoneActive {
+                let primaryTeamsBundle = lowerBundles.contains("com.microsoft.teams2")
+                    ? "com.microsoft.teams2"
+                    : (lowerBundles.contains("com.microsoft.teams")
+                        ? "com.microsoft.teams"
+                        : (teamsWindows.first?.bundleIdentifier ?? "com.microsoft.teams2"))
+                let anyTitle = teamsWindows.first?.windowTitle
+                return DetectedMeetingEvent(
+                    app: .teams,
+                    bundleIdentifier: primaryTeamsBundle,
                     windowTitle: anyTitle
                 )
             }
         }
 
-        // 3. Zoom
+        // 3. Zoom (active or pre-join waiting room)
         if lowerBundles.contains("us.zoom.xos") {
             let zoomMeeting = windows.first {
-                $0.bundleIdentifier.lowercased() == "us.zoom.xos"
-                    && $0.windowTitle.lowercased().contains("zoom meeting")
+                let lowerTitle = $0.windowTitle.lowercased()
+                return $0.bundleIdentifier.lowercased() == "us.zoom.xos"
+                    && (lowerTitle.contains("zoom meeting")
+                        || lowerTitle.contains("waiting room")
+                        || lowerTitle.contains("join a meeting")
+                        || lowerTitle.contains("zoom webinar"))
             }
             if let zoomMeeting {
                 return DetectedMeetingEvent(
                     app: .zoom,
                     bundleIdentifier: zoomMeeting.bundleIdentifier,
-                    windowTitle: zoomMeeting.windowTitle
+                    windowTitle: zoomMeeting.windowTitle,
+                    isPreJoin: !microphoneActive && isPreJoinTitle(zoomMeeting.windowTitle)
                 )
             }
             if microphoneActive {
@@ -151,39 +239,57 @@ public enum MeetingAppMatcher {
 
         // 4. Webex
         for webexID in ["cisco-systems.spark", "com.webex.meetingmanager"] where lowerBundles.contains(webexID) {
+            let preJoinWindow = windows.first {
+                $0.bundleIdentifier.lowercased() == webexID && isPreJoinTitle($0.windowTitle)
+            }
+            if let preJoinWindow {
+                return DetectedMeetingEvent(
+                    app: .webex,
+                    bundleIdentifier: preJoinWindow.bundleIdentifier,
+                    windowTitle: preJoinWindow.windowTitle,
+                    isPreJoin: !microphoneActive
+                )
+            }
             if microphoneActive {
                 let title = windows.first { $0.bundleIdentifier.lowercased() == webexID }?.windowTitle
                 return DetectedMeetingEvent(app: .webex, bundleIdentifier: webexID, windowTitle: title)
             }
         }
 
-        // 5. Slack Huddle
+        // 5. Slack Huddle (active mic OR open Huddle window)
         if lowerBundles.contains("com.tinyspeck.slackmacgap") {
             let huddleWindow = windows.first {
                 $0.bundleIdentifier.lowercased() == "com.tinyspeck.slackmacgap"
                     && $0.windowTitle.lowercased().contains("huddle")
             }
-            if let huddleWindow, microphoneActive {
+            if let huddleWindow, microphoneActive || isPreJoinTitle(huddleWindow.windowTitle) {
                 return DetectedMeetingEvent(
                     app: .slackHuddle,
                     bundleIdentifier: huddleWindow.bundleIdentifier,
-                    windowTitle: huddleWindow.windowTitle
+                    windowTitle: huddleWindow.windowTitle,
+                    isPreJoin: !microphoneActive
                 )
             }
         }
 
-        // 6. Browser-based Google Meet / Teams Web / Zoom Web (requires active mic to avoid false positives on idle tabs)
-        if microphoneActive {
-            for window in windows where browserBundleIDs.contains(window.bundleIdentifier.lowercased()) {
-                let lowerTitle = window.windowTitle.lowercased()
-                if lowerTitle.contains("meet -") || lowerTitle.contains("google meet") || lowerTitle.contains("meet.google.com") {
+        // 6. Browser-based Teams Web / Google Meet / Zoom Web / browser calling apps
+        for window in windows where isBrowserOrWebApp(window.bundleIdentifier) {
+            let lowerTitle = window.windowTitle.lowercased()
+
+            // Teams Web: detect pre-join lobby EVEN BEFORE mic activates, and any Teams tab when mic is active
+            let isTeamsTab = lowerTitle.contains("microsoft teams")
+                || lowerTitle.contains("teams.microsoft.com")
+                || lowerTitle.contains("teams.live.com")
+            if isTeamsTab {
+                if isTeamsMeetingOrPreJoinTitle(window.windowTitle) {
                     return DetectedMeetingEvent(
-                        app: .googleMeet,
+                        app: .teams,
                         bundleIdentifier: window.bundleIdentifier,
-                        windowTitle: window.windowTitle
+                        windowTitle: window.windowTitle,
+                        isPreJoin: !microphoneActive
                     )
                 }
-                if lowerTitle.contains("microsoft teams") && (lowerTitle.contains("meeting") || lowerTitle.contains("call")) {
+                if microphoneActive {
                     return DetectedMeetingEvent(
                         app: .teams,
                         bundleIdentifier: window.bundleIdentifier,
@@ -191,20 +297,167 @@ public enum MeetingAppMatcher {
                     )
                 }
             }
+
+            // Google Meet: detect pre-join lobby ("ready to join" / "getting ready") or active mic tab
+            let isMeetTab = lowerTitle.contains("meet -")
+                || lowerTitle.contains("google meet")
+                || lowerTitle.contains("meet.google.com")
+            if isMeetTab {
+                if !microphoneActive && (lowerTitle.contains("ready to join") || lowerTitle.contains("getting ready")) {
+                    return DetectedMeetingEvent(
+                        app: .googleMeet,
+                        bundleIdentifier: window.bundleIdentifier,
+                        windowTitle: window.windowTitle,
+                        isPreJoin: true
+                    )
+                }
+                if microphoneActive {
+                    return DetectedMeetingEvent(
+                        app: .googleMeet,
+                        bundleIdentifier: window.bundleIdentifier,
+                        windowTitle: window.windowTitle
+                    )
+                }
+            }
+
+            // Zoom Web / Whereby / Jitsi / Dialpad / RingCentral / Google Voice in browser when mic is active
+            if microphoneActive {
+                if lowerTitle.contains("zoom") && (lowerTitle.contains("meeting") || lowerTitle.contains("join")) {
+                    return DetectedMeetingEvent(app: .zoom, bundleIdentifier: window.bundleIdentifier, windowTitle: window.windowTitle)
+                }
+                if lowerTitle.contains("ringcentral") {
+                    return DetectedMeetingEvent(app: .ringCentral, bundleIdentifier: window.bundleIdentifier, windowTitle: window.windowTitle)
+                }
+                if lowerTitle.contains("dialpad") {
+                    return DetectedMeetingEvent(app: .dialpad, bundleIdentifier: window.bundleIdentifier, windowTitle: window.windowTitle)
+                }
+                if lowerTitle.contains("google voice") || lowerTitle.contains("openphone") || lowerTitle.contains("aircall") {
+                    return DetectedMeetingEvent(app: .phoneCall, bundleIdentifier: window.bundleIdentifier, windowTitle: window.windowTitle)
+                }
+            }
         }
 
-        // 7. Discord voice call
-        if microphoneActive && lowerBundles.contains("com.hnc.discord") {
-            let title = windows.first { $0.bundleIdentifier.lowercased() == "com.hnc.discord" }?.windowTitle
-            return DetectedMeetingEvent(app: .discord, bundleIdentifier: "com.hnc.discord", windowTitle: title)
+        // 7. Native VoIP / Messaging / Conferencing apps (Discord, WhatsApp, Signal, Telegram, RingCentral, Dialpad, Chime)
+        let commsApps: [(bundleIDs: [String], app: DetectedMeetingApp)] = [
+            (["com.hnc.discord"], .discord),
+            (["net.whatsapp.whatsapp", "desktop.whatsapp"], .whatsapp),
+            (["org.whispersystems.signal-desktop"], .signal),
+            (["ru.keepcoder.telegram", "org.telegram.desktop"], .telegram),
+            (["com.ringcentral.glip", "com.ringcentral.ringcentral"], .ringCentral),
+            (["com.dialpad.dialpad", "com.electron.dialpad"], .dialpad),
+            (["com.amazon.amazonchime"], .chime),
+        ]
+        for entry in commsApps {
+            if let matchedID = entry.bundleIDs.first(where: { lowerBundles.contains($0) }) {
+                let callWindow = windows.first {
+                    $0.bundleIdentifier.lowercased() == matchedID && isGenericCallTitle($0.windowTitle)
+                }
+                if let callWindow {
+                    return DetectedMeetingEvent(
+                        app: entry.app,
+                        bundleIdentifier: callWindow.bundleIdentifier,
+                        windowTitle: callWindow.windowTitle,
+                        isPreJoin: !microphoneActive
+                    )
+                }
+                if microphoneActive {
+                    let title = windows.first { $0.bundleIdentifier.lowercased() == matchedID }?.windowTitle
+                    return DetectedMeetingEvent(app: entry.app, bundleIdentifier: matchedID, windowTitle: title)
+                }
+            }
+        }
+
+        // 8. Generic Two-Way Call Fallback (ANY app with BOTH microphone + system audio output active!)
+        if microphoneActive && systemAudioActive {
+            let candidateBundle = frontmostBundleID?.lowercased()
+            let chosenWindow: RunningWindowSnapshot? = {
+                if let candidateBundle, !nonCallAudioBundleIDs.contains(candidateBundle),
+                   let frontWin = windows.first(where: { $0.bundleIdentifier.lowercased() == candidateBundle }) {
+                    return frontWin
+                }
+                return windows.first(where: { !nonCallAudioBundleIDs.contains($0.bundleIdentifier.lowercased()) })
+            }()
+            let bundle = chosenWindow?.bundleIdentifier ?? frontmostBundleID ?? "system.two-way-call"
+            guard !nonCallAudioBundleIDs.contains(bundle.lowercased()) else { return nil }
+            let appLabel = chosenWindow?.localizedName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let title: String?
+            if let winTitle = chosenWindow?.windowTitle.trimmingCharacters(in: .whitespacesAndNewlines), !winTitle.isEmpty {
+                title = winTitle
+            } else if let appLabel, !appLabel.isEmpty {
+                title = "Active call in \(appLabel)"
+            } else {
+                title = "Two-Way Audio Active"
+            }
+            return DetectedMeetingEvent(
+                app: .twoWayCall,
+                bundleIdentifier: bundle,
+                windowTitle: title
+            )
         }
 
         return nil
     }
 
-    private static func isTeamsMeetingTitle(_ title: String) -> Bool {
+    private static func isBrowserOrWebApp(_ bundleID: String) -> Bool {
+        let lower = bundleID.lowercased()
+        if browserBundleIDs.contains(lower) { return true }
+        // Chrome / Edge / Brave PWAs installed as standalone macOS app shims
+        return lower.hasPrefix("com.google.chrome.app.")
+            || lower.hasPrefix("com.microsoft.edgemac.app.")
+            || lower.hasPrefix("com.brave.browser.app.")
+    }
+
+    private static func isTeamsWindow(_ window: RunningWindowSnapshot) -> Bool {
+        let id = window.bundleIdentifier.lowercased()
+        if id == "com.microsoft.teams2" || id == "com.microsoft.teams" || id.hasPrefix("com.microsoft.teams.") {
+            return true
+        }
+        if isBrowserOrWebApp(id) {
+            let name = window.localizedName.lowercased()
+            let title = window.windowTitle.lowercased()
+            if name.contains("microsoft teams") || (name.contains("teams") && id.contains(".app.")) {
+                return true
+            }
+            if title.contains("microsoft teams") || title.contains("teams.microsoft.com") {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func isTeamsMeetingOrPreJoinTitle(_ title: String) -> Bool {
         let lower = title.lowercased()
-        return lower.contains("meeting") || lower.contains("call with") || lower.contains("huddle")
+        let cues = [
+            "meeting", "call with", "huddle", "join", "lobby", "waiting",
+            "choose your audio", "pre-join", "prejoin", "calling",
+            "incoming call", "standup", "stand-up", "town hall", "webinar",
+        ]
+        return cues.contains { lower.contains($0) }
+    }
+
+    private static func isGenericTeamsNavigationTitle(_ title: String) -> Bool {
+        let lower = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if lower.isEmpty || lower == "microsoft teams" || lower == "teams" {
+            return true
+        }
+        let navPrefixes = ["chat |", "activity |", "calendar |", "teams |", "calls |", "files |", "apps |", "planner |"]
+        return navPrefixes.contains { lower.hasPrefix($0) }
+    }
+
+    private static func isPreJoinTitle(_ title: String) -> Bool {
+        let lower = title.lowercased()
+        let cues = ["join", "lobby", "waiting", "choose your audio", "pre-join", "prejoin", "ready to join", "incoming", "ringing"]
+        return cues.contains { lower.contains($0) }
+    }
+
+    private static func isGenericCallTitle(_ title: String) -> Bool {
+        let lower = title.lowercased()
+        return lower.contains("voice call")
+            || lower.contains("video call")
+            || lower.contains("incoming call")
+            || lower.contains("calling")
+            || lower.contains("in a call")
+            || lower.contains("huddle")
     }
 }
 

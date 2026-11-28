@@ -17,19 +17,58 @@ extension AppModel {
             : "Calendar access denied — grant access in System Settings"
     }
 
-    func startDetectedMeeting(_ event: DetectedMeetingEvent) async {
-        if preferences.conversationCaptureMode != .microphoneAndSystemAudio {
-            preferences.conversationCaptureMode = .microphoneAndSystemAudio
+    var activeDiarizationBannerLabel: String {
+        if isServiceModeReady {
+            return "Deepgram"
+        }
+        if let ready = diarizationProviderStatuses.first(where: { $0.id != "none" && $0.id != "off" && $0.available }) {
+            return ready.id.lowercased().contains("sortformer") ? "Sortformer" : ready.label
+        }
+        return "2-Track"
+    }
+
+    func upcomingMeetingSoonForBanner() -> MeetingCalendarContext? {
+        calendarService.upcomingMeetingSoon(withinMinutes: 2.0)
+    }
+
+    func startDetectedMeeting(
+        _ event: DetectedMeetingEvent,
+        options: MeetingStartOptions = .defaultMeeting
+    ) async {
+        let desiredCaptureMode: ConversationCaptureMode = options.captureTwoWayAudio
+            ? .microphoneAndSystemAudio
+            : .microphoneOnly
+        if preferences.conversationCaptureMode != desiredCaptureMode {
+            preferences.conversationCaptureMode = desiredCaptureMode
             _ = persistPreferences()
         }
-        if preferences.conversationDiarizationProvider == "off",
-           let ready = diarizationProviderStatuses.first(where: { $0.id != "off" && $0.available }) {
-            preferences.conversationDiarizationProvider = ready.id
+
+        if isServiceModeReady {
+            if preferences.serviceMode.deepgramDiarize != options.diarizationEnabled {
+                preferences.serviceMode.deepgramDiarize = options.diarizationEnabled
+                _ = persistPreferences()
+            }
+        } else if options.diarizationEnabled {
+            let current = preferences.conversationDiarizationProvider.lowercased()
+            if current.isEmpty || current == "none" || current == "off" {
+                if let ready = diarizationProviderStatuses.first(where: { $0.id != "none" && $0.id != "off" && $0.available }) {
+                    preferences.conversationDiarizationProvider = ready.id
+                    preferences.liveConversationDiarizationEnabled = true
+                    _ = persistPreferences()
+                }
+            }
+        } else if preferences.conversationDiarizationProvider != "none" {
+            preferences.conversationDiarizationProvider = "none"
+            preferences.liveConversationDiarizationEnabled = false
             _ = persistPreferences()
         }
+
         meetingStartedByAutoDetect = true
         let calendarContext = calendarService.currentMeetingContext()
-        let title = calendarContext?.title ?? event.app.defaultSessionTitle()
+            ?? (event.app == .upcomingMeeting ? calendarService.upcomingMeetingSoon(withinMinutes: 5.0) : nil)
+        let title = calendarContext?.title
+            ?? (event.windowTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? event.windowTitle! : nil)
+            ?? event.app.defaultSessionTitle()
         await startConversationRecording(title: title, calendarContext: calendarContext)
     }
 

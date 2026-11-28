@@ -14,6 +14,9 @@ use omnivoice_core::cleanup::{
     build_llm_cleanup_messages, clean_transcript, sanitize_llm_cleanup_output, ChatMessage,
     CleanupRequest, CleanupResponse,
 };
+use omnivoice_core::grammar::{
+    check_and_correct_grammar, GrammarCheckRequest, GrammarCheckResponse,
+};
 use omnivoice_core::llm::{complete_chat, list_models, llm_config_is_ready};
 use omnivoice_core::local_llm::LocalLlmRuntime;
 use omnivoice_core::models::{
@@ -112,6 +115,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/huggingface/validate", post(validate_huggingface))
         .route("/cleanup", post(cleanup))
+        .route("/api/grammar", post(check_grammar_endpoint))
         .route("/api/ai/handoff", post(ai_handoff))
         .route("/api/ai/chat", post(ai_chat))
         .route("/api/ai/models", post(ai_models))
@@ -812,6 +816,22 @@ async fn cleanup(
     );
 
     Ok(Json(result))
+}
+
+async fn check_grammar_endpoint(
+    Json(request): Json<GrammarCheckRequest>,
+) -> Json<GrammarCheckResponse> {
+    let result = tokio::task::spawn_blocking(move || {
+        check_and_correct_grammar(&request.text, &request.protected_terms)
+    })
+    .await
+    .unwrap_or_else(|_| GrammarCheckResponse {
+        text: String::new(),
+        applied_count: 0,
+        engine: "harper-core".to_string(),
+        edits: Vec::new(),
+    });
+    Json(result)
 }
 
 #[derive(Deserialize)]

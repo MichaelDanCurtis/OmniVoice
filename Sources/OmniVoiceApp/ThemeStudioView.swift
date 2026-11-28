@@ -700,6 +700,28 @@ private struct SignatureLookRolodexCard: View {
     private func miniatureBackdrop(accent: Color, secondary: Color) -> some View {
         let tint = Color(themeColor: sampleTheme.surfaceTint)
         switch sampleTheme.look {
+        case .omniGlass:
+            ZStack {
+                (colorScheme == .dark
+                    ? Color.black
+                    : Color(red: 0.953, green: 0.949, blue: 0.937))
+                Canvas { ctx, size in
+                    let dotColor = (colorScheme == .dark ? Color.white : Color.black).opacity(0.22)
+                    var y: CGFloat = 8
+                    while y < size.height * 0.65 {
+                        var x: CGFloat = size.width * 0.35
+                        while x < size.width - 6 {
+                            ctx.fill(Path(ellipseIn: CGRect(x: x, y: y, width: 1.6, height: 1.6)), with: .color(dotColor))
+                            x += 8
+                        }
+                        y += 8
+                    }
+                    ctx.fill(
+                        Path(ellipseIn: CGRect(x: size.width - 18, y: 12, width: 5, height: 5)),
+                        with: .color(accent)
+                    )
+                }
+            }
         case .liquidGlass:
             LinearGradient(
                 colors: [
@@ -727,6 +749,8 @@ private struct SignatureLookRolodexCard: View {
 
     private func miniatureCardFill(accent: Color) -> Color {
         switch sampleTheme.look {
+        case .omniGlass:
+            colorScheme == .dark ? Color(red: 0.07, green: 0.07, blue: 0.07).opacity(0.84) : Color.white.opacity(0.82)
         case .liquidGlass, .crystalPrism:
             colorScheme == .dark ? Color.white.opacity(0.11) : Color.white.opacity(0.68)
         case .studioPro:
@@ -750,6 +774,15 @@ private struct SignatureLookRolodexCard: View {
 
     private func miniatureCardStroke(accent: Color, secondary: Color) -> LinearGradient {
         switch sampleTheme.look {
+        case .omniGlass:
+            LinearGradient(
+                colors: [
+                    (colorScheme == .dark ? Color.white : Color.black).opacity(0.22),
+                    accent.opacity(0.45),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         case .crystalPrism:
             LinearGradient(
                 colors: [Color(red: 0.4, green: 0.92, blue: 1.0), accent, Color(red: 0.98, green: 0.54, blue: 0.92)],

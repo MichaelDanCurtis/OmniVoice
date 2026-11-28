@@ -60,7 +60,7 @@ final class PreferencesStoreTests: XCTestCase {
     func testDefaultsIncludeV2ThemeSettings() {
         let preferences = OmniVoicePreferences.defaults
 
-        XCTAssertEqual(preferences.themeID, .auroraBlue)
+        XCTAssertEqual(preferences.themeID, .omniSignal)
         XCTAssertEqual(preferences.customAccentColor, ThemeColor(hex: "#38BDF8"))
         XCTAssertEqual(preferences.appearanceMode, .system)
         XCTAssertEqual(preferences.waveformMode, .bars)
@@ -125,7 +125,7 @@ final class PreferencesStoreTests: XCTestCase {
 
         let preferences = try EngineCoding.decoder.decode(OmniVoicePreferences.self, from: json)
 
-        XCTAssertEqual(preferences.themeID, .auroraBlue)
+        XCTAssertEqual(preferences.themeID, .omniSignal)
         XCTAssertEqual(preferences.appearanceMode, .system)
         XCTAssertEqual(preferences.waveformMode, .bars)
         XCTAssertEqual(preferences.engineFrameSide, .right)

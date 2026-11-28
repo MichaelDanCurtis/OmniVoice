@@ -7,8 +7,8 @@ final class AskPromptBuilderTests: XCTestCase {
             history: [AskTurn(role: .user, text: "names like Bill"),
                       AskTurn(role: .assistant, text: "Bill, Will, Jill")],
             question: "how about Jack")
+        XCTAssertTrue(p.contains("personal AI agent"))
         XCTAssertTrue(p.contains("plain text"))
-        XCTAssertTrue(p.contains("do not use tools"))
         XCTAssertTrue(p.contains("User: names like Bill"))
         XCTAssertTrue(p.contains("Assistant: Bill, Will, Jill"))
         XCTAssertTrue(p.hasSuffix("User: how about Jack"))

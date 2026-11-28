@@ -22,6 +22,25 @@ public enum StyleProfile: String, CaseIterable, Codable, Equatable, Sendable {
         }
     }
 
+    /// Describes the cleanup engine tier for this style:
+    /// - `.raw`: Pure Zero-LLM (instant local self-correction + macOS grammar)
+    /// - `.neutral` (Standard): Smart Hybrid (instant local pass; escalates to LLM only on ambiguous repairs)
+    /// - `.professional` / `.concise` / `.expanded`: LLM-first style rewriting
+    public var cleanupStrategySummary: String {
+        switch self {
+        case .raw:
+            "Pure Zero-LLM · Self-Correction + macOS Grammar"
+        case .neutral:
+            "Smart Hybrid · Local + LLM only on ambiguous repairs"
+        case .professional:
+            "LLM Rewrite · Professional tone & polish"
+        case .concise:
+            "LLM Rewrite · Tight & direct"
+        case .expanded:
+            "LLM Rewrite · Expanded detail"
+        }
+    }
+
     public func next() -> StyleProfile {
         let values = Self.allCases
         let index = values.firstIndex(of: self) ?? 0

@@ -331,29 +331,40 @@ private struct CommandModeGlassSurface: ViewModifier {
     let accent: Color
     let secondary: Color
 
-    @ViewBuilder
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
-        if #available(macOS 26.0, *) {
-            content
-                .glassEffect(.clear.tint(Color.white.opacity(0.025)), in: shape)
-                .overlay {
-                    shape.stroke(
-                        LinearGradient(
-                            colors: [accent.opacity(0.55), Color.white.opacity(0.28), secondary.opacity(0.35)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1.1
-                    )
+        content
+            .background {
+                ZStack {
+                    shape
+                        .stroke(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.32), accent.opacity(0.42), secondary.opacity(0.28)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 2.0
+                        )
+                        .blur(radius: 2.6)
+
+                    shape
+                        .fill(.ultraThinMaterial)
+                        .opacity(0.86)
+
+                    shape
+                        .fill(Color.black.opacity(0.68))
+
+                    shape
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [accent.opacity(0.55), Color.white.opacity(0.28), secondary.opacity(0.35)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1.0
+                        )
                 }
-                .shadow(color: accent.opacity(0.18), radius: 16, x: 0, y: 6)
-        } else {
-            content
-                .background(.ultraThinMaterial.opacity(0.75), in: shape)
-                .overlay {
-                    shape.stroke(accent.opacity(0.45), lineWidth: 1)
-                }
-        }
+                .shadow(color: Color.black.opacity(0.36), radius: 10, x: 0, y: 4)
+            }
     }
 }

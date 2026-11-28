@@ -585,6 +585,106 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
+                    Text(model.preferences.style.cleanupStrategySummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Divider().opacity(0.35)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        Label("Local Punctuation & Grammar (Zero-LLM)", systemImage: "text.badge.checkmark")
+                            .font(.callout.weight(.semibold))
+                        Spacer()
+                        if model.isCoreMLPunctuationInstalled {
+                            OmniStatusPill(title: "CoreML ANE Ready", tint: .green, systemImage: "cpu", theme: model.activeTheme)
+                        } else {
+                            OmniStatusPill(title: "Built-In Rules + Harper", tint: .secondary, systemImage: "bolt.fill", theme: model.activeTheme)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Punctuation Engine")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        Picker("Punctuation Engine", selection: Binding(
+                            get: { model.preferences.localStreamPolish.punctuationEngine },
+                            set: { model.setLocalPunctuationEngine($0) }
+                        )) {
+                            ForEach(LocalPunctuationEngine.allCases, id: \.self) { engine in
+                                Text(engine.shortLabel).tag(engine)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        Text(model.preferences.localStreamPolish.punctuationEngine.detail)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Grammar Engine")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        Picker("Grammar Engine", selection: Binding(
+                            get: { model.preferences.localStreamPolish.grammarEngine },
+                            set: { model.setLocalGrammarEngine($0) }
+                        )) {
+                            ForEach(LocalGrammarEngine.allCases, id: \.self) { engine in
+                                Text(engine.shortLabel).tag(engine)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        Text(model.preferences.localStreamPolish.grammarEngine.detail)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Toggle("Restore commas & punctuation live in the voice stream", isOn: Binding(
+                        get: { model.preferences.localStreamPolish.liveStreamPunctuationEnabled },
+                        set: { model.setLiveStreamPunctuationEnabled($0) }
+                    ))
+                    .font(.callout)
+
+                    Toggle("Use active window words as temporary vocabulary hints", isOn: Binding(
+                        get: { model.preferences.localStreamPolish.activeWindowVocabularyEnabled },
+                        set: { model.setActiveWindowVocabularyEnabled($0) }
+                    ))
+                    .font(.callout)
+
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(CoreMLPunctuationService.modelDisplayName) · \(CoreMLPunctuationService.modelSizeLabel)")
+                                .font(.caption.weight(.medium))
+                            Text(model.coreMLPunctuationStatusMessage
+                                ?? (model.isCoreMLPunctuationInstalled
+                                    ? "Downloaded & verified (SHA-256) — restores commas, periods & question marks on ANE in ~10 ms."
+                                    : "Optional on-device CoreML FP16 model (handyshed/lark-punctuation) for neural comma placement with zero word rewriting."))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if model.isDownloadingCoreMLPunctuation {
+                            ProgressView(value: model.coreMLPunctuationDownloadProgress)
+                                .frame(width: 90)
+                        } else if model.isCoreMLPunctuationInstalled {
+                            Button("Remove", role: .destructive) {
+                                Task { await model.removeCoreMLPunctuationModel() }
+                            }
+                            .controlSize(.small)
+                            .buttonStyle(.bordered)
+                        } else {
+                            Button("Download") {
+                                Task { await model.downloadCoreMLPunctuationModel() }
+                            }
+                            .controlSize(.small)
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+                    .padding(10)
+                    .themeSurface(model.activeTheme, cornerRadius: 10, strong: false)
                 }
 
                 Divider().opacity(0.35)
@@ -1616,6 +1716,123 @@ struct SettingsView: View {
             }
         }
 
+        Section("Ember & Inferno Integration") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    if model.emberInfernoEnvironment.isInfernoAvailable {
+                        OmniStatusPill(title: "Inferno Ready", tint: .orange, systemImage: "flame.fill", theme: model.activeTheme)
+                    } else {
+                        OmniStatusPill(title: "Inferno Not Installed", tint: .secondary, systemImage: "flame", theme: model.activeTheme)
+                    }
+
+                    if model.emberInfernoEnvironment.emberAppPath != nil {
+                        OmniStatusPill(title: "Ember.app Ready", tint: .green, systemImage: "checkmark.circle.fill", theme: model.activeTheme)
+                    } else if model.emberInfernoEnvironment.isEmberOrFuegoDetectedLocally {
+                        OmniStatusPill(title: "Fuego / Ember Detected", tint: .green, systemImage: "checkmark.circle.fill", theme: model.activeTheme)
+                    } else if model.preferences.emberDelegation.isConfigured {
+                        OmniStatusPill(title: "Ember Remote Configured", tint: .cyan, systemImage: "cloud.fill", theme: model.activeTheme)
+                    }
+
+                    Spacer()
+
+                    if model.emberInfernoEnvironment.isInfernoAvailable {
+                        Button("Open Inferno") {
+                            model.openInfernoApp()
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.bordered)
+                    }
+
+                    Button("Open Ember") {
+                        model.openEmberOrFuegoDesktop()
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                }
+
+                Toggle("Delegate Ask AI to Ember", isOn: Binding(
+                    get: { model.preferences.emberDelegation.enabled },
+                    set: { model.setEmberDelegationEnabled($0) }
+                ))
+
+                Text("Say \u{201C}ember\u{201D}, \u{201C}call ember\u{201D}, or \u{201C}talk to ember\u{201D} anytime to bring up the Ember agent. When delegation is enabled, \u{201C}ask ai …\u{201D} and Ask AI Workspace also route to Ember (automatically using local Ember.app when running, or remote Fuego below). Command Mode always stays native to OmniSpeak.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                TextField("Ember Server URL", text: Binding(
+                    get: { model.preferences.emberDelegation.serverURL },
+                    set: { model.setEmberServerURL($0) }
+                ), prompt: Text("https://fuego.curtishome.org"))
+                .textFieldStyle(.roundedBorder)
+
+                HStack(spacing: 8) {
+                    TextField("Company ID", text: Binding(
+                        get: { model.preferences.emberDelegation.companyID },
+                        set: { model.setEmberCompanyID($0) }
+                    ), prompt: Text("Company ID"))
+                    .textFieldStyle(.roundedBorder)
+
+                    TextField("Ember Agent ID", text: Binding(
+                        get: { model.preferences.emberDelegation.agentID },
+                        set: { model.setEmberAgentID($0) }
+                    ), prompt: Text("Agent ID"))
+                    .textFieldStyle(.roundedBorder)
+                }
+
+                SecureField("Ember API / Session Token (saved in Keychain)", text: Binding(
+                    get: { model.emberAPIToken },
+                    set: { model.setEmberAPIToken($0) }
+                ))
+                .textFieldStyle(.roundedBorder)
+
+                HStack(spacing: 8) {
+                    Button {
+                        Task { await model.testEmberConnection() }
+                    } label: {
+                        if model.isTestingEmberConnection {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Label("Test Ember Connection", systemImage: "network")
+                        }
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                    .disabled(model.isTestingEmberConnection || !model.isEmberBackendReady)
+
+                    if let status = model.emberConnectionStatus {
+                        Text(status)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+
+                if model.emberInfernoEnvironment.isInfernoAvailable {
+                    Divider().opacity(0.35)
+
+                    HStack(spacing: 8) {
+                        Text("Inferno Agent (\u{201C}ask inferno …\u{201D})")
+                            .font(.callout)
+                        Spacer()
+                        Picker("Inferno Agent", selection: Binding(
+                            get: { model.preferences.emberDelegation.trimmedInfernoAgentID },
+                            set: { model.setInfernoDefaultAgentID($0) }
+                        )) {
+                            let agentIDs = model.infernoInstalledAgents.isEmpty
+                                ? ["claude", "codex", "antigravity", "copilot", "kimi"]
+                                : model.infernoInstalledAgents.map(\.id)
+                            ForEach(agentIDs, id: \.self) { id in
+                                let label = model.infernoInstalledAgents.first(where: { $0.id == id })?.name ?? id.capitalized
+                                Text(label).tag(id)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: 200)
+                    }
+                }
+            }
+        }
+
         Section("API configurations") {
             HStack {
                 Text("Providers that authenticate with an API key.")
@@ -1818,9 +2035,26 @@ struct SettingsView: View {
         }
 
         Section("Command Mode (Built-in Native Computer-Use)") {
-            Text("Say \u{201C}go into command mode\u{201D} to open the floating Command Mode window and control macOS natively in-process using Accessibility + CGEvent (no external MCP server needed). Say \u{201C}exit command mode\u{201D} to return to normal dictation.")
+            Text("Say \u{201C}go into command mode\u{201D} (or click below / open the Option+Shift Hot Menu) to control macOS natively in-process using Accessibility + CGEvent. Say \u{201C}exit command mode\u{201D} to return to normal dictation.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            HStack {
+                Button {
+                    model.onToggleCommandMode?()
+                } label: {
+                    Label(
+                        model.isCommandModeActive ? "Exit Command Mode" : "Start Command Mode",
+                        systemImage: model.isCommandModeActive ? "xmark.circle.fill" : "command.square.fill"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+
+                if model.isCommandModeActive {
+                    OmniStatusPill(title: "Active", tint: .green, systemImage: "waveform", theme: model.activeTheme)
+                }
+            }
 
             Picker("Window Corner", selection: Binding(
                 get: { model.preferences.commandModeCorner },
@@ -3046,7 +3280,21 @@ private struct SettingsTabLiquidBlob: View {
         let radius = theme.look.cardRadius(forRequested: 12)
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
 
-        if theme.look == .liquidGlass || theme.look == .softClay {
+        if theme.look == .omniGlass {
+            ZStack(alignment: .leading) {
+                shape
+                    .fill(.ultraThinMaterial)
+                    .opacity(0.70)
+                shape
+                    .fill(Color.primary.opacity(0.08))
+                shape
+                    .stroke(Color.primary.opacity(0.18), lineWidth: 1.0)
+                Circle()
+                    .fill(accent)
+                    .frame(width: 5, height: 5)
+                    .padding(.leading, 6)
+            }
+        } else if theme.look == .liquidGlass || theme.look == .softClay {
             ZStack {
                 shape
                     .fill(.ultraThinMaterial)

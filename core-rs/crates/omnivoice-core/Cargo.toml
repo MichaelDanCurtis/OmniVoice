@@ -7,6 +7,7 @@ description = "Shared core logic, cleanup, SQLite runtime store, security, and L
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
+harper-core = { version = "3.2", default-features = false, features = ["concurrent"] }
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rusqlite = { version = "0.32", features = ["bundled"] }

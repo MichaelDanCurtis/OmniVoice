@@ -1,6 +1,7 @@
 import Foundation
 
 public enum OmniVoiceThemeID: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
+    case omniSignal
     case auroraBlue
     case obsidianCyan
     case deepSignal
@@ -45,6 +46,7 @@ public enum OmniVoiceThemeID: String, CaseIterable, Codable, Equatable, Hashable
 }
 
 public enum ThemeLook: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
+    case omniGlass = "omni_glass"
     case liquidGlass = "liquid_glass"
     case studioPro = "studio_pro"
     case cyberTerminal = "cyber_terminal"
@@ -58,6 +60,7 @@ public enum ThemeLook: String, CaseIterable, Codable, Equatable, Hashable, Senda
 
     public var displayName: String {
         switch self {
+        case .omniGlass: "Omni Glass"
         case .liquidGlass: "Liquid Glass"
         case .studioPro: "Studio Pro"
         case .cyberTerminal: "Cyber Terminal"
@@ -73,6 +76,7 @@ public enum ThemeLook: String, CaseIterable, Codable, Equatable, Hashable, Senda
 
     public var tagline: String {
         switch self {
+        case .omniGlass: "Warm paper & OLED glass, signal red accent, 3D dot-matrix depth"
         case .liquidGlass: "Translucent frost, capsule pills, luminous depth"
         case .studioPro: "Machined hardware panels, hairline bevels, dot grid"
         case .cyberTerminal: "Sharp 3pt frames, monospaced grid, phosphor edges"
@@ -88,6 +92,7 @@ public enum ThemeLook: String, CaseIterable, Codable, Equatable, Hashable, Senda
 
     public var signatureThemeID: OmniVoiceThemeID {
         switch self {
+        case .omniGlass: .omniSignal
         case .liquidGlass: .auroraBlue
         case .studioPro: .obsidianCyan
         case .cyberTerminal: .terminalAmber
@@ -103,6 +108,7 @@ public enum ThemeLook: String, CaseIterable, Codable, Equatable, Hashable, Senda
 
     public var cardCornerRadius: Double {
         switch self {
+        case .omniGlass: 14
         case .liquidGlass: 16
         case .studioPro: 8
         case .cyberTerminal: 3
@@ -118,6 +124,7 @@ public enum ThemeLook: String, CaseIterable, Codable, Equatable, Hashable, Senda
 
     public var pillCornerRadius: Double {
         switch self {
+        case .omniGlass: 999
         case .liquidGlass: 999
         case .studioPro: 6
         case .cyberTerminal: 2
@@ -133,6 +140,7 @@ public enum ThemeLook: String, CaseIterable, Codable, Equatable, Hashable, Senda
 
     public var borderWidth: Double {
         switch self {
+        case .omniGlass: 1.0
         case .liquidGlass: 0.75
         case .studioPro: 1.0
         case .cyberTerminal: 1.25
@@ -147,11 +155,11 @@ public enum ThemeLook: String, CaseIterable, Codable, Equatable, Hashable, Senda
     }
 
     public var usesGlassMaterial: Bool {
-        self == .liquidGlass || self == .crystalPrism
+        self == .omniGlass || self == .liquidGlass || self == .crystalPrism
     }
 
     public var uppercaseMicroLabels: Bool {
-        self == .studioPro || self == .cyberTerminal || self == .blueprintGrid || self == .retroSynth
+        self == .omniGlass || self == .studioPro || self == .cyberTerminal || self == .blueprintGrid || self == .retroSynth
     }
 }
 
@@ -533,6 +541,7 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
     }
 
     public static let builtIn: [OmniVoiceTheme] = [
+        .preset(.omniSignal, "Omni Signal", "#D71921", "#8B8984", "#0F0F0F", 0.34, 0.14, 0.22, .standard, .signalDots, .cometCollapse, .right, 0.45),
         .preset(.auroraBlue, "Aurora Blue", "#38BDF8", "#818CF8", "#06121C", 0.36, 0.14, 0.34, .standard, .bars, .magicPoof, .right, 0.74),
         .preset(.obsidianCyan, "Obsidian Cyan", "#22D3EE", "#0EA5E9", "#071115", 0.38, 0.16, 0.32, .standard, .pulseRing, .beamSnap, .right, 0.68),
         .preset(.deepSignal, "Deep Signal", "#60A5FA", "#14B8A6", "#08111F", 0.34, 0.15, 0.30, .standard, .spectrumLine, .glyphStream, .left, 0.66),
@@ -579,6 +588,8 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
 
     public static func defaultLook(for id: OmniVoiceThemeID) -> ThemeLook {
         switch id {
+        case .omniSignal:
+            .omniGlass
         case .auroraBlue, .arcticGlass, .oceanGlass, .indigoMist, .custom:
             .liquidGlass
         case .obsidianCyan, .deepSignal, .cobaltPulse, .graphiteIce, .steelWhisper, .monoGlass, .copperBlue,
@@ -607,7 +618,7 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
         builtInTheme(id: look.signatureThemeID)?.withLook(look)
     }
 
-    public static let defaultTheme = builtInTheme(id: .auroraBlue)!
+    public static let defaultTheme = builtInTheme(id: .omniSignal)!
 
     public static func builtInTheme(id: OmniVoiceThemeID) -> OmniVoiceTheme? {
         builtIn.first { $0.id == id }
@@ -700,11 +711,11 @@ public struct OmniVoiceTheme: Codable, Equatable, Sendable, Identifiable {
     }
 
     public func resolvedPalette(for appearance: ThemeResolvedAppearance) -> ResolvedThemePalette {
-        let background = switch appearance {
-        case .light:
-            ThemeColor(hex: "#F8FAFC")
-        case .dark:
-            ThemeColor(hex: "#06121C")
+        let background: ThemeColor
+        if look == .omniGlass {
+            background = appearance == .light ? ThemeColor(hex: "#F3F2EF") : ThemeColor(hex: "#000000")
+        } else {
+            background = appearance == .light ? ThemeColor(hex: "#F8FAFC") : ThemeColor(hex: "#06121C")
         }
         let primaryText = ThemeColor.readableText(on: background)
 

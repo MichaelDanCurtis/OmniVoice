@@ -47,7 +47,7 @@ extension AppAppearanceMode {
 extension ThemeLook {
     var headerFontDesign: Font.Design {
         switch self {
-        case .liquidGlass, .studioPro, .brutalistInk, .crystalPrism:
+        case .omniGlass, .liquidGlass, .studioPro, .brutalistInk, .crystalPrism:
             .default
         case .cyberTerminal, .blueprintGrid:
             .monospaced
@@ -64,7 +64,7 @@ extension ThemeLook {
             .monospaced
         case .softClay:
             .rounded
-        case .liquidGlass, .studioPro, .editorialPaper, .brutalistInk,
+        case .omniGlass, .liquidGlass, .studioPro, .editorialPaper, .brutalistInk,
              .crystalPrism, .blueprintGrid, .retroSynth, .zenWashi:
             .default
         }
@@ -72,6 +72,8 @@ extension ThemeLook {
 
     func cardRadius(forRequested requested: CGFloat) -> CGFloat {
         switch self {
+        case .omniGlass:
+            min(max(requested, 10), 14)
         case .liquidGlass:
             requested
         case .studioPro:
@@ -147,6 +149,9 @@ struct ThemeSurface: ViewModifier {
         secondary: Color
     ) -> some View {
         switch theme.look {
+        case .omniGlass:
+            omniGlassBody(content: content, shape: shape, accent: accent)
+
         case .liquidGlass:
             liquidGlassBody(content: content, shape: shape, accent: accent)
 
@@ -405,6 +410,47 @@ struct ThemeSurface: ViewModifier {
         }
     }
 
+    /// Omni Design Language ("Nothing-like, with 3D") adapted for macOS Liquid Glass:
+    /// warm paper (#F3F2EF) / OLED black (#0F0F0F) translucent glass surfaces, crisp 1pt
+    /// hairlines (#E6E4DF / #222222), zero neon glow, subtle specular edge.
+    @ViewBuilder
+    private func omniGlassBody<S: InsettableShape>(content: Content, shape: S, accent: Color) -> some View {
+        let isDark = colorScheme == .dark
+        let paperOrOledTint = isDark
+            ? Color(red: 0.059, green: 0.059, blue: 0.059).opacity(strong ? 0.56 : 0.42) // #0F0F0F
+            : Color(red: 1.0, green: 1.0, blue: 1.0).opacity(strong ? 0.72 : 0.56)       // #FFFFFF on warm paper
+        let hairline = isDark
+            ? Color(red: 0.20, green: 0.20, blue: 0.20).opacity(strong ? 0.95 : 0.72)     // #333333 / #222222
+            : Color(red: 0.824, green: 0.812, blue: 0.784).opacity(strong ? 0.95 : 0.82)  // #D2CFC8 / #E6E4DF
+        let topSpecular = isDark ? Color.white.opacity(0.14) : Color.white.opacity(0.85)
+
+        if #available(macOS 26.0, *) {
+            content
+                .glassEffect(
+                    .regular.tint(paperOrOledTint.opacity(0.35)),
+                    in: shape
+                )
+                .background(paperOrOledTint, in: shape)
+                .overlay {
+                    shape.stroke(
+                        LinearGradient(
+                            colors: [topSpecular, hairline, hairline.opacity(0.75)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1.0
+                    )
+                }
+        } else {
+            content
+                .background(.ultraThinMaterial, in: shape)
+                .background(paperOrOledTint, in: shape)
+                .overlay {
+                    shape.stroke(hairline, lineWidth: 1.0)
+                }
+        }
+    }
+
     @ViewBuilder
     private func liquidGlassBody<S: InsettableShape>(content: Content, shape: S, accent: Color) -> some View {
         let surfaceOpacity = min(max(theme.glassOpacity + (strong ? 0.18 : 0), 0), 1)
@@ -464,7 +510,7 @@ struct LiquidGlassMotion: ViewModifier {
     func body(content: Content) -> some View {
         let motionMultiplier: CGFloat = switch theme.look {
         case .brutalistInk, .cyberTerminal: 0.0
-        case .blueprintGrid: 0.25
+        case .omniGlass, .blueprintGrid: 0.25
         case .studioPro, .editorialPaper, .zenWashi: 0.4
         case .retroSynth: 0.8
         case .liquidGlass, .softClay, .crystalPrism: 1.0
@@ -477,7 +523,7 @@ struct LiquidGlassMotion: ViewModifier {
 
         content
             .scaleEffect(scale)
-            .animation(.snappy(duration: 0.20), value: isHovering)
+            .animation(theme.look == .omniGlass ? .easeOut(duration: 0.14) : .snappy(duration: 0.20), value: isHovering)
             .onHover { hovering in
                 isHovering = hovering
             }
@@ -512,6 +558,8 @@ struct ThemePillSurface: ViewModifier {
             }
         } else {
             let bgColor: Color = switch theme.look {
+            case .omniGlass:
+                colorScheme == .dark ? Color(red: 0.08, green: 0.08, blue: 0.08).opacity(0.75) : Color(red: 0.953, green: 0.949, blue: 0.937).opacity(0.85)
             case .liquidGlass, .softClay, .crystalPrism:
                 tint.opacity(colorScheme == .dark ? 0.16 : 0.08)
             case .studioPro:
@@ -585,6 +633,93 @@ struct OmniVoiceWindowBackground: View {
         let tint = Color(themeColor: theme.surfaceTint)
 
         switch theme.look {
+        case .omniGlass:
+            let isDark = colorScheme == .dark
+            // Exact omni-design tokens over live macOS behind-window Liquid Glass:
+            // Light warm paper (#F3F2EF) / Dark OLED black (#000000) + masked dot-matrix field
+            // + subtle 3D dot-matrix sphere with one Signal Red (#D71921 / #E5262F) dot.
+            let wash = isDark
+                ? Color.black.opacity(0.56)
+                : Color(red: 0.953, green: 0.949, blue: 0.937).opacity(0.62)
+            let dotTone = isDark
+                ? Color(red: 0.49, green: 0.49, blue: 0.49)   // #7D7D7D
+                : Color(red: 0.545, green: 0.537, blue: 0.518) // #8B8984
+            let signalRed = isDark
+                ? Color(red: 0.898, green: 0.149, blue: 0.184) // #E5262F
+                : Color(red: 0.843, green: 0.098, blue: 0.129) // #D71921
+
+            ZStack {
+                LiquidGlassBehindWindowBackdrop()
+                    .allowsHitTesting(false)
+
+                wash
+
+                Canvas { ctx, size in
+                    // 1. Masked dot-matrix field behind page head (fading left & down)
+                    let step: CGFloat = 14
+                    let maxY = min(size.height, 260)
+                    var y: CGFloat = 10
+                    while y < maxY {
+                        let yFade = max(0, 1.0 - Double(y / maxY))
+                        var x: CGFloat = size.width * 0.24
+                        while x < size.width - 8 {
+                            let xFade = min(1.0, max(0, Double((x - size.width * 0.24) / max(1, size.width * 0.55))))
+                            let alpha = yFade * xFade * (isDark ? 0.34 : 0.30)
+                            if alpha > 0.02 {
+                                ctx.fill(
+                                    Path(ellipseIn: CGRect(x: x - 1.0, y: y - 1.0, width: 2.0, height: 2.0)),
+                                    with: .color(dotTone.opacity(alpha))
+                                )
+                            }
+                            x += step
+                        }
+                        y += step
+                    }
+
+                    // 2. Signature 3D perspective dot-matrix sphere in upper-right with one Signal Red dot
+                    let center = CGPoint(x: size.width - 96, y: 88)
+                    let radius: Double = 58
+                    let rotY: Double = 0.42
+                    let rotX: Double = -0.30
+                    let rings = 9
+                    let segs = 16
+                    for r in 1..<rings {
+                        let phi = Double(r) / Double(rings) * .pi
+                        let sinPhi = sin(phi)
+                        let cosPhi = cos(phi)
+                        let count = max(6, Int((Double(segs) * sinPhi).rounded()))
+                        for s in 0..<count {
+                            let theta = Double(s) / Double(count) * 2 * .pi
+                            let x0 = sinPhi * cos(theta)
+                            let y0 = cosPhi
+                            let z0 = sinPhi * sin(theta)
+
+                            // Rotate around Y then X
+                            let x1 = x0 * cos(rotY) + z0 * sin(rotY)
+                            let z1 = -x0 * sin(rotY) + z0 * cos(rotY)
+                            let y2 = y0 * cos(rotX) - z1 * sin(rotX)
+                            let z2 = y0 * sin(rotX) + z1 * cos(rotX)
+
+                            let depth = (z2 + 1.0) * 0.5 // 0 (back) -> 1 (front)
+                            let persp = 2.6 / (2.6 - z2 * 0.7)
+                            let px = center.x + CGFloat(x1 * radius * persp)
+                            let py = center.y + CGFloat(y2 * radius * persp)
+
+                            let isSignalDot = (r == 3 && s == 2)
+                            let dotR = CGFloat(isSignalDot ? 2.6 : (0.85 + depth * 1.15))
+                            let dotColor = isSignalDot
+                                ? signalRed.opacity(isDark ? 0.92 : 0.88)
+                                : dotTone.opacity(0.08 + depth * (isDark ? 0.36 : 0.30))
+                            ctx.fill(
+                                Path(ellipseIn: CGRect(x: px - dotR, y: py - dotR, width: dotR * 2, height: dotR * 2)),
+                                with: .color(dotColor)
+                            )
+                        }
+                    }
+                }
+                .drawingGroup()
+            }
+
         case .liquidGlass:
             ZStack {
                 LiquidGlassBehindWindowBackdrop()

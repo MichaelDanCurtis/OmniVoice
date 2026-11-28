@@ -35,6 +35,8 @@ public struct AgentRegistry {
             binaryName: "glm", invocation: .args(["{prompt}"]), streamFormat: .plainText),
         AgentDescriptor(id: "cursor-agent", displayName: "Cursor Agent", keywords: ["cursor"],
             binaryName: "cursor-agent", invocation: .args(["-p", "{prompt}"]), streamFormat: .plainText),
+        AgentDescriptor(id: "inferno", displayName: "Inferno", keywords: ["inferno"],
+            binaryName: "inferno", invocation: .args(["agent", "launch", "--agent", "claude", "--prompt", "{prompt}", "--json"]), streamFormat: .plainText),
     ]
     public static let defaultAgentID = "claude"
 

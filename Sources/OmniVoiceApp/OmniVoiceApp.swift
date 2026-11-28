@@ -81,6 +81,15 @@ struct OmniVoiceApp: App {
                 openAskAI: {
                     openWindow(id: "ask-ai")
                 },
+                openControlPanel: {
+                    openWindow(id: "control-panel")
+                    NSApp.activate(ignoringOtherApps: true)
+                },
+                openHistory: {
+                    isEngineFrameExpanded = true
+                    openWindow(id: "control-panel")
+                    NSApp.activate(ignoringOtherApps: true)
+                },
                 checkForUpdates: {
                     updater.checkForUpdates()
                 },
@@ -145,6 +154,10 @@ struct OmniVoiceApp: App {
         appDelegate.onOpenEditor = {
             model.editorWorkspaceMode = .documents
             openWindow(id: "editor")
+        }
+        appDelegate.onOpenControlPanel = {
+            openWindow(id: "control-panel")
+            NSApp.activate(ignoringOtherApps: true)
         }
     }
 

@@ -16,6 +16,7 @@ final class AskController {
     private var registry = AgentRegistry(custom: [])
     private var history: [AskTurn] = []
     private var activeTarget: AskTarget?
+    private var activeSessionIsEmber = false
     private var capturedTarget: TextInsertionService.Target?
     private var lastAnswer = ""
     private var runToken = 0
@@ -23,6 +24,9 @@ final class AskController {
     /// Fires when the bubble opens (true) or closes (false). AppDelegate uses this to
     /// register/unregister the global Insert/Copy/Dismiss hotkeys only while it's up.
     var onBubbleVisibilityChanged: ((Bool) -> Void)?
+
+    /// Supplies the Keychain/env Ember API token when Ask AI delegates to Ember.
+    var emberAPITokenProvider: (() -> String)?
 
     /// Entitlement gate for Ask AI. When set and returning false, a new ask/follow-up is
     /// blocked and `onAskAIPaywall` is invoked instead. Nil means "not wired yet" (allow).
@@ -51,14 +55,54 @@ final class AskController {
 
     /// Returns true if the transcript was consumed (caller must NOT type it).
     func handle(transcript: String, captureTarget: TextInsertionService.Target?) -> Bool {
-        let keywords = bindings.map(\.keyword)
+        var keywords = bindings.map(\.keyword)
+        if !keywords.contains(where: { $0.lowercased() == "ember" }) {
+            keywords.append("ember")
+        }
+        if !keywords.contains(where: { $0.lowercased() == "inferno" }) {
+            keywords.append("inferno")
+        }
         switch AskAICommandParser.parse(transcript, knownKeywords: keywords, bubbleOpen: bubbleOpen) {
         case .ask(let keyword, let question):
             if let isEntitledToAskAI, !isEntitledToAskAI() {
                 onAskAIPaywall?()
                 return true // consumed: don't type the "ask …" transcript
             }
-            if keyword.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ai" {
+            let normalizedKeyword = keyword.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+            // Explicit "ask ember …" always delegates to Ember.
+            if normalizedKeyword == "ember" {
+                history = []
+                activeTarget = nil
+                activeSessionIsEmber = true
+                capturedTarget = captureTarget
+                askEmber(question: question)
+                return true
+            }
+
+            // Explicit "ask inferno …" runs through local Inferno CLI agent launcher.
+            if normalizedKeyword == "inferno" {
+                let target = AskTarget(kind: .agent, id: "inferno")
+                history = []
+                activeTarget = target
+                activeSessionIsEmber = false
+                capturedTarget = captureTarget
+                askInferno(question: question)
+                return true
+            }
+
+            if normalizedKeyword == "ai" {
+                // Optional Ember delegation: when the user turned on Ember for Ask AI,
+                // Ember owns "ask ai …" while Command Mode / Computer Use stays native to OmniSpeak.
+                if preferences.emberDelegation.enabled {
+                    history = []
+                    activeTarget = nil
+                    activeSessionIsEmber = true
+                    capturedTarget = captureTarget
+                    askEmber(question: question)
+                    return true
+                }
+                activeSessionIsEmber = false
                 switch preferences.defaultAIRoute {
                 case .localMLX:
                     history = []
@@ -71,7 +115,11 @@ final class AskController {
                     history = []
                     activeTarget = target
                     capturedTarget = captureTarget
-                    ask(target: target, question: question)
+                    if agentID == "inferno" {
+                        askInferno(question: question)
+                    } else {
+                        ask(target: target, question: question)
+                    }
                     return true
                 case .textLLM(let provider):
                     let target = AskTarget(kind: .textLLM, id: provider.rawValue)
@@ -87,16 +135,29 @@ final class AskController {
             guard let target = AskKeywordResolver.resolve(keyword, in: bindings) else { return false }
             history = []
             activeTarget = target
+            activeSessionIsEmber = false
             capturedTarget = captureTarget
-            ask(target: target, question: question)
+            if target.kind == .agent && target.id == "inferno" {
+                askInferno(question: question)
+            } else {
+                ask(target: target, question: question)
+            }
             return true
         case .followUp(let question):
             if let isEntitledToAskAI, !isEntitledToAskAI() {
                 onAskAIPaywall?()
                 return true
             }
+            if activeSessionIsEmber {
+                askEmber(question: question)
+                return true
+            }
             if let target = activeTarget {
-                ask(target: target, question: question)
+                if target.kind == .agent && target.id == "inferno" {
+                    askInferno(question: question)
+                } else {
+                    ask(target: target, question: question)
+                }
                 return true
             }
             if preferences.defaultAIRoute == .localMLX {
@@ -225,6 +286,84 @@ final class AskController {
         }
     }
 
+    private func askEmber(question: String) {
+        let config = preferences.emberDelegation
+        let localEmberAvailable = EmberClient.detectLocalInstallations().isLocalEmberEngineAvailable
+        bubbleOpen = true
+        lastAnswer = ""
+        bubble.show(question: question, agentName: "Ember")
+
+        guard config.isConfigured || localEmberAvailable else {
+            bubble.showError("Install Ember.app or configure Ember (Server URL, Company ID, Agent ID & Token) in Settings → AI → Ember & Inferno.")
+            return
+        }
+
+        let enrichedQuestion = questionWithClipboardContextIfRelevant(question)
+        history.append(AskTurn(role: .user, text: enrichedQuestion))
+        runToken += 1
+        let token = runToken
+        let apiToken = emberAPITokenProvider?() ?? ""
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let reply = try await EmberClient.sendMessage(
+                    prompt: enrichedQuestion,
+                    config: config,
+                    apiToken: apiToken
+                )
+                guard self.runToken == token else { return }
+                let text = TextInsertionEdit.sanitizedInsertionText(reply)
+                self.bubble.setStreaming(false)
+                self.bubble.appendAnswer(text)
+                self.lastAnswer = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.history.append(AskTurn(role: .assistant, text: self.lastAnswer))
+            } catch {
+                guard self.runToken == token else { return }
+                self.bubble.showError(error.localizedDescription)
+            }
+        }
+    }
+
+    private func askInferno(question: String) {
+        let subAgent = preferences.emberDelegation.trimmedInfernoAgentID
+        bubbleOpen = true
+        lastAnswer = ""
+        bubble.show(question: question, agentName: "Inferno (\(subAgent))")
+
+        let env = EmberClient.detectLocalInstallations()
+        guard let binaryPath = env.infernoBinaryPath else {
+            bubble.showError(EmberClientError.infernoUnavailable.localizedDescription)
+            return
+        }
+
+        let enrichedQuestion = questionWithClipboardContextIfRelevant(question)
+        let prompt = AskPromptBuilder.build(history: history, question: enrichedQuestion)
+        history.append(AskTurn(role: .user, text: enrichedQuestion))
+        runToken += 1
+        let token = runToken
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let reply = try await EmberClient.runInfernoPrompt(
+                    binaryPath: binaryPath,
+                    agentID: subAgent,
+                    prompt: prompt
+                )
+                guard self.runToken == token else { return }
+                let text = TextInsertionEdit.sanitizedInsertionText(reply)
+                self.bubble.setStreaming(false)
+                self.bubble.appendAnswer(text)
+                self.lastAnswer = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.history.append(AskTurn(role: .assistant, text: self.lastAnswer))
+            } catch {
+                guard self.runToken == token else { return }
+                self.bubble.showError(error.localizedDescription)
+            }
+        }
+    }
+
     private func askLocalMLX(question: String) {
         let modelName = CleanupModelRecommendation(providerID: preferences.llmCleanupLocalModelID).displayName
         bubbleOpen = true
@@ -241,7 +380,7 @@ final class AskController {
             guard let self else { return }
             do {
                 let output = try await MLXLocalCleanupService.shared.generateRaw(
-                    instructions: "You are a concise, helpful macOS assistant. Answer directly without preamble.",
+                    instructions: AskPromptBuilder.agenticSystemPrompt,
                     prompt: prompt,
                     maxTokens: 768,
                     providerID: providerID

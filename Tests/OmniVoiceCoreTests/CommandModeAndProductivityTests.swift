@@ -9,6 +9,9 @@ final class CommandModeAndProductivityTests: XCTestCase {
             .enter(initialCommand: "open Safari and search for weather")
         )
         XCTAssertEqual(CommandModeVoiceParser.parse("Exit command mode"), .exit)
+        XCTAssertEqual(CommandModeVoiceParser.parse("Hey, please enter command mode."), .enter(initialCommand: nil))
+        XCTAssertEqual(CommandModeVoiceParser.parse("Open command mode now"), .enter(initialCommand: nil))
+        XCTAssertNil(CommandModeVoiceParser.parse("Command mode doesn't work right now"))
         XCTAssertNil(CommandModeVoiceParser.parse("Let's write a function for command parsing"))
     }
 
@@ -86,6 +89,14 @@ final class CommandModeAndProductivityTests: XCTestCase {
         XCTAssertEqual(
             NativeDesktopFastPath.match("New tab"),
             NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "t"], arrayArgs: ["modifiers": ["cmd"]])
+        )
+        XCTAssertEqual(
+            NativeDesktopFastPath.match("Reload page"),
+            NativeDesktopFastAction(tool: "press_key", stringArgs: ["key": "r"], arrayArgs: ["modifiers": ["cmd"]])
+        )
+        XCTAssertEqual(
+            NativeDesktopFastPath.match("Google Swift concurrency"),
+            NativeDesktopFastAction(tool: "open_url", stringArgs: ["url": "https://www.google.com/search?q=Swift%20concurrency"])
         )
         // Multi-step commands fall through to the AI planner
         XCTAssertNil(NativeDesktopFastPath.match("Open Safari and go to github.com"))

@@ -115,6 +115,17 @@ final class AudioCaptureService: @unchecked Sendable {
         }
     }
 
+    /// Keeps only the most recent `seconds` of buffered PCM16 audio so hands-free
+    /// open-mic VAD maintains a crisp pre-roll without accumulating minutes of silence.
+    func trimToTrailingSeconds(_ seconds: Double) {
+        queue.async {
+            let maxSamples = max(1, Int((self.captureSampleRate * max(0.1, seconds)).rounded()))
+            if self.samples.count > maxSamples {
+                self.samples.removeFirst(self.samples.count - maxSamples)
+            }
+        }
+    }
+
     func stopWAVData() throws -> Data {
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)

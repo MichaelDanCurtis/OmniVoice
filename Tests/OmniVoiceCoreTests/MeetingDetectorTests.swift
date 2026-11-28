@@ -66,6 +66,111 @@ final class MeetingDetectorTests: XCTestCase {
         XCTAssertEqual(detected?.app, .googleMeet)
     }
 
+    func testDetectsTeamsPreJoinLobbyBeforeMicActivates() {
+        let lobby = MeetingAppMatcher.detect(
+            runningBundleIDs: ["com.microsoft.teams2"],
+            windows: [
+                RunningWindowSnapshot(
+                    bundleIdentifier: "com.microsoft.teams2",
+                    localizedName: "Microsoft Teams",
+                    windowTitle: "Chat | Microsoft Teams"
+                ),
+                RunningWindowSnapshot(
+                    bundleIdentifier: "com.microsoft.teams2",
+                    localizedName: "Microsoft Teams",
+                    windowTitle: "Choose your audio and video settings | Microsoft Teams"
+                ),
+            ],
+            microphoneActive: false
+        )
+        XCTAssertEqual(lobby?.app, .teams)
+        XCTAssertEqual(lobby?.isPreJoin, true)
+
+        // Popped-out second Teams window with a custom meeting title (no "meeting" keyword)
+        let popped = MeetingAppMatcher.detect(
+            runningBundleIDs: ["com.microsoft.teams2"],
+            windows: [
+                RunningWindowSnapshot(
+                    bundleIdentifier: "com.microsoft.teams2",
+                    localizedName: "Microsoft Teams",
+                    windowTitle: "Calendar | Microsoft Teams"
+                ),
+                RunningWindowSnapshot(
+                    bundleIdentifier: "com.microsoft.teams2",
+                    localizedName: "Microsoft Teams",
+                    windowTitle: "Q4 Architecture Review"
+                ),
+            ],
+            microphoneActive: false
+        )
+        XCTAssertEqual(popped?.app, .teams)
+        XCTAssertEqual(popped?.isPreJoin, true)
+        XCTAssertEqual(popped?.windowTitle, "Q4 Architecture Review")
+    }
+
+    func testDetectsTeamsWebPreJoinAndActiveTabInBrowser() {
+        let preJoin = MeetingAppMatcher.detect(
+            runningBundleIDs: ["com.microsoft.edgemac"],
+            windows: [
+                RunningWindowSnapshot(
+                    bundleIdentifier: "com.microsoft.edgemac",
+                    localizedName: "Microsoft Edge",
+                    windowTitle: "Join conversation | Microsoft Teams"
+                ),
+            ],
+            microphoneActive: false
+        )
+        XCTAssertEqual(preJoin?.app, .teams)
+        XCTAssertEqual(preJoin?.isPreJoin, true)
+
+        let active = MeetingAppMatcher.detect(
+            runningBundleIDs: ["com.google.Chrome"],
+            windows: [
+                RunningWindowSnapshot(
+                    bundleIdentifier: "com.google.Chrome",
+                    localizedName: "Google Chrome",
+                    windowTitle: "Weekly Design Sync | Microsoft Teams"
+                ),
+            ],
+            microphoneActive: true
+        )
+        XCTAssertEqual(active?.app, .teams)
+    }
+
+    func testDetectsGenericTwoWayCallWhenMicAndSystemAudioBothActive() {
+        let detected = MeetingAppMatcher.detect(
+            runningBundleIDs: ["com.example.CustomDialer"],
+            windows: [
+                RunningWindowSnapshot(
+                    bundleIdentifier: "com.example.CustomDialer",
+                    localizedName: "Custom Dialer",
+                    windowTitle: "Call with Jamie"
+                ),
+            ],
+            microphoneActive: true,
+            systemAudioActive: true,
+            frontmostBundleID: "com.example.CustomDialer"
+        )
+        XCTAssertEqual(detected?.app, .twoWayCall)
+        XCTAssertEqual(detected?.windowTitle, "Call with Jamie")
+
+        // Must NOT fire for OmniSpeak itself
+        let selfIgnored = MeetingAppMatcher.detect(
+            runningBundleIDs: ["com.omnispeak.OmniVoiceApp"],
+            windows: [
+                RunningWindowSnapshot(
+                    bundleIdentifier: "com.omnispeak.OmniVoiceApp",
+                    localizedName: "OmniSpeak",
+                    windowTitle: "Control Panel"
+                ),
+            ],
+            microphoneActive: true,
+            systemAudioActive: true,
+            frontmostBundleID: "com.omnispeak.OmniVoiceApp"
+        )
+        XCTAssertNil(selfIgnored)
+    }
+
     func testQuestionDetectorIdentifiesSpokenQuestions() {
         XCTAssertTrue(MeetingQuestionDetector.looksLikeQuestion("What is our target launch date?"))
         XCTAssertTrue(MeetingQuestionDetector.looksLikeQuestion("Can you remind me how we handle token refresh"))

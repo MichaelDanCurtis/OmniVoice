@@ -10,6 +10,8 @@ enum HotMenuCommand: Equatable {
     case setLLMCleanupEnabled(Bool)
     case setServiceModeEnabled(Bool)
     case setMuteBackgroundAudioWhileDictating(Bool)
+    case setEmberDelegationEnabled(Bool)
+    case toggleCommandMode
     case selectTranslationLanguage(String?)
 }
 
@@ -78,6 +80,9 @@ final class HotMenuOverlayWindow {
         serviceModeSummary: String,
         asrProviderLabel: String,
         muteBackgroundAudioWhileDictating: Bool,
+        emberDelegationEnabled: Bool,
+        emberAvailable: Bool,
+        commandModeActive: Bool,
         liveTranslationEnabled: Bool,
         activeLanguageCode: String,
         quickLanguages: [String],
@@ -97,6 +102,9 @@ final class HotMenuOverlayWindow {
             serviceModeSummary: serviceModeSummary,
             asrProviderLabel: asrProviderLabel,
             muteBackgroundAudioWhileDictating: muteBackgroundAudioWhileDictating,
+            emberDelegationEnabled: emberDelegationEnabled,
+            emberAvailable: emberAvailable,
+            commandModeActive: commandModeActive,
             liveTranslationEnabled: liveTranslationEnabled,
             activeLanguageCode: activeLanguageCode,
             quickLanguages: quickLanguages
@@ -341,12 +349,24 @@ final class HotMenuOverlayWindow {
         serviceModeSummary: String,
         asrProviderLabel: String,
         muteBackgroundAudioWhileDictating: Bool,
+        emberDelegationEnabled: Bool,
+        emberAvailable: Bool,
+        commandModeActive: Bool,
         liveTranslationEnabled: Bool,
         activeLanguageCode: String,
         quickLanguages: [String]
     ) -> [HotMenuBarItem] {
         // 1. Conversation & Workspace Modes
         let modeOptions: [HotMenuDrawerOption] = [
+            HotMenuDrawerOption(
+                id: "mode-command",
+                title: commandModeActive ? "Exit Command Mode" : "Command Mode",
+                subtitle: commandModeActive ? "Hands-free control active" : "Hands-free Mac control",
+                systemImage: "command.square.fill",
+                isActive: commandModeActive,
+                isDestructiveOrOff: commandModeActive,
+                command: .toggleCommandMode
+            ),
             HotMenuDrawerOption(
                 id: "mode-conversation",
                 title: "Conversation",
@@ -396,9 +416,9 @@ final class HotMenuOverlayWindow {
             ),
             HotMenuDrawerOption(
                 id: "mode-dashboard",
-                title: "Dashboard",
-                subtitle: "Open engine status",
-                systemImage: "slider.horizontal.3",
+                title: "Engine Status",
+                subtitle: "Open native OmniSpeak panel",
+                systemImage: "gauge.with.dots.needle.33percent",
                 isActive: false,
                 isDestructiveOrOff: false,
                 command: .action(.openDashboard)
@@ -431,7 +451,7 @@ final class HotMenuOverlayWindow {
                 HotMenuDrawerOption(
                     id: "style-\(style.rawValue)",
                     title: style.displayName,
-                    subtitle: style == .raw ? "No rewrites" : "Dictation style",
+                    subtitle: style.cleanupStrategySummary,
                     systemImage: style == .raw ? "text.alignleft" : "textformat",
                     isActive: activeStyle == style,
                     isDestructiveOrOff: style == .raw,
@@ -440,14 +460,14 @@ final class HotMenuOverlayWindow {
             )
         }
 
-        // 3. Ask AI Quick Launch
-        let askAIOptions: [HotMenuDrawerOption] = [
+        // 3. Ask AI Quick Launch (plus optional Ember delegation toggle)
+        var askAIOptions: [HotMenuDrawerOption] = [
             HotMenuDrawerOption(
                 id: "ask-workspace",
                 title: "Ask AI Workspace",
-                subtitle: activeAILabel,
+                subtitle: emberDelegationEnabled ? "Delegated → Ember" : activeAILabel,
                 systemImage: "sparkles",
-                isActive: true,
+                isActive: !emberDelegationEnabled,
                 isDestructiveOrOff: false,
                 command: .action(.askAI)
             ),
@@ -470,6 +490,19 @@ final class HotMenuOverlayWindow {
                 command: .action(.openConversation)
             ),
         ]
+        if emberAvailable || emberDelegationEnabled {
+            askAIOptions.append(
+                HotMenuDrawerOption(
+                    id: "ask-ember-delegate",
+                    title: emberDelegationEnabled ? "Ember Ask AI: On" : "Delegate to Ember",
+                    subtitle: emberDelegationEnabled ? "Click to return Ask AI to OmniSpeak" : "Route Ask AI to Ember",
+                    systemImage: "flame.fill",
+                    isActive: emberDelegationEnabled,
+                    isDestructiveOrOff: !emberDelegationEnabled,
+                    command: .setEmberDelegationEnabled(!emberDelegationEnabled)
+                )
+            )
+        }
 
         // 4. Service Mode (Cloud / Outbound) vs Local Mode
         let serviceOptions: [HotMenuDrawerOption] = [
