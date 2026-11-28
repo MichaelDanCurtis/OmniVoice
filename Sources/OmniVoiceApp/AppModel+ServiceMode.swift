@@ -136,23 +136,24 @@ extension AppModel {
         userPrompt: String,
         attachments: [AIChatAttachment] = [],
         isCleanup: Bool = false,
+        sanitize: Bool = true,
         agentTimeoutSeconds: Double? = nil
     ) async -> String? {
         switch preferences.serviceMode.llmRoute {
         case .configuredTextLLM(let provider):
             let cfg = preferences.textLLMConfiguration(for: provider)
-            if let text = await callTextLLMConfiguration(cfg, systemPrompt: systemPrompt, userPrompt: userPrompt, attachments: attachments) {
+            if let text = await callTextLLMConfiguration(cfg, systemPrompt: systemPrompt, userPrompt: userPrompt, attachments: attachments, sanitize: sanitize) {
                 return text
             }
             if let fallbackCfg = configuredConversationTextLLMConfiguration(), fallbackCfg.provider != provider {
-                return await callTextLLMConfiguration(fallbackCfg, systemPrompt: systemPrompt, userPrompt: userPrompt, attachments: attachments)
+                return await callTextLLMConfiguration(fallbackCfg, systemPrompt: systemPrompt, userPrompt: userPrompt, attachments: attachments, sanitize: sanitize)
             }
             return nil
 
         case .subscriptionAgent(let agentID):
             guard attachments.isEmpty else {
                 if let cfg = configuredConversationTextLLMConfiguration() {
-                    return await callTextLLMConfiguration(cfg, systemPrompt: systemPrompt, userPrompt: userPrompt, attachments: attachments)
+                    return await callTextLLMConfiguration(cfg, systemPrompt: systemPrompt, userPrompt: userPrompt, attachments: attachments, sanitize: sanitize)
                 }
                 return nil
             }
@@ -169,8 +170,8 @@ extension AppModel {
                             purpose: .cleanup,
                             timeoutSeconds: 8.5
                         ) {
-                            let sanitized = MLXLocalCleanupService.sanitizeOutput(output)
-                            if !sanitized.isEmpty { return sanitized }
+                            let formatted = sanitize ? MLXLocalCleanupService.sanitizeOutput(output) : output.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !formatted.isEmpty { return formatted }
                         }
                         return nil
                     }
@@ -180,8 +181,8 @@ extension AppModel {
                         purpose: .interactive,
                         timeoutSeconds: agentTimeoutSeconds
                     ) {
-                        let sanitized = MLXLocalCleanupService.sanitizeOutput(output)
-                        if !sanitized.isEmpty { return sanitized }
+                        let formatted = sanitize ? MLXLocalCleanupService.sanitizeOutput(output) : output.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !formatted.isEmpty { return formatted }
                     }
                 }
                 if let output = try? await meetingAgentRunner.run(
@@ -190,8 +191,8 @@ extension AppModel {
                     timeoutSeconds: agentTimeoutSeconds,
                     onChunk: { _ in }
                 ) {
-                    let sanitized = MLXLocalCleanupService.sanitizeOutput(output)
-                    if !sanitized.isEmpty { return sanitized }
+                    let formatted = sanitize ? MLXLocalCleanupService.sanitizeOutput(output) : output.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !formatted.isEmpty { return formatted }
                 }
             }
             return nil
@@ -209,8 +210,8 @@ extension AppModel {
                         purpose: .cleanup,
                         timeoutSeconds: 8.5
                     ) {
-                        let sanitized = MLXLocalCleanupService.sanitizeOutput(output)
-                        if !sanitized.isEmpty { return sanitized }
+                        let formatted = sanitize ? MLXLocalCleanupService.sanitizeOutput(output) : output.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !formatted.isEmpty { return formatted }
                     }
                     return nil
                 }
@@ -220,13 +221,14 @@ extension AppModel {
                 userPrompt: userPrompt,
                 attachments: attachments,
                 routeOverride: route,
-                agentTimeoutSeconds: agentTimeoutSeconds
+                agentTimeoutSeconds: agentTimeoutSeconds,
+                sanitize: sanitize
             ) {
                 return text
             }
             if route != .auto,
                let cfg = configuredConversationTextLLMConfiguration(),
-               let text = await callTextLLMConfiguration(cfg, systemPrompt: systemPrompt, userPrompt: userPrompt, attachments: attachments) {
+               let text = await callTextLLMConfiguration(cfg, systemPrompt: systemPrompt, userPrompt: userPrompt, attachments: attachments, sanitize: sanitize) {
                 return text
             }
             return nil
@@ -237,7 +239,8 @@ extension AppModel {
         _ configuration: TextLLMProviderConfiguration,
         systemPrompt: String,
         userPrompt: String,
-        attachments: [AIChatAttachment]
+        attachments: [AIChatAttachment],
+        sanitize: Bool = true
     ) async -> String? {
         guard configuration.isConfigured else { return nil }
         do {
@@ -258,7 +261,9 @@ extension AppModel {
                     webSearchEnabled: false
                 )
             )
-            let cleaned = MLXLocalCleanupService.sanitizeOutput(result.text)
+            let cleaned = sanitize
+                ? MLXLocalCleanupService.sanitizeOutput(result.text)
+                : result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             return cleaned.isEmpty ? nil : cleaned
         } catch {
             return nil

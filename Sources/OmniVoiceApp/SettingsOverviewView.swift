@@ -37,6 +37,8 @@ struct SettingsOverviewView<RecoveryContent: View>: View {
 
             productivityStatsCard(theme: theme)
 
+            nativeEngineInspectorCard(theme: theme)
+
             recoveryContent()
 
             recentDictationsCard(theme: theme)
@@ -236,14 +238,6 @@ struct SettingsOverviewView<RecoveryContent: View>: View {
                     }
 
                     Spacer()
-
-                    Button {
-                        NSWorkspace.shared.open(
-                            EngineAuthTokenStore.shared.authenticatedURL(URL(string: "http://127.0.0.1:8765/")!)
-                        )
-                    } label: {
-                        Label("Dashboard", systemImage: "safari")
-                    }
                 }
                 .controlSize(.small)
                 .buttonStyle(.bordered)
@@ -407,6 +401,145 @@ struct SettingsOverviewView<RecoveryContent: View>: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func nativeEngineInspectorCard(theme: OmniVoiceTheme) -> some View {
+        let runtime = model.engineRuntimeStatus
+        let profileNames: [String] = {
+            var names = model.engineVoiceProfiles.map(\.profileId)
+            if !names.contains("default") {
+                names.insert("default", at: 0)
+            }
+            return names
+        }()
+
+        OmniGlassCard(theme: theme, cornerRadius: 14, strong: false, padding: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Label("Local Engine Inspector", systemImage: "cpu")
+                        .font(.subheadline.weight(.semibold))
+
+                    OmniStatusPill(
+                        title: runtime?.engine ?? model.activeEngineBackendLabel,
+                        tint: engineStatusColor,
+                        pulsing: model.engineState == .online,
+                        theme: theme
+                    )
+
+                    Spacer()
+
+                    Button {
+                        Task { await model.refreshEngineStatus() }
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                    .controlSize(.mini)
+                    .buttonStyle(.bordered)
+                }
+
+                HStack(spacing: 10) {
+                    statPill(title: "Endpoint", value: "127.0.0.1:8765", theme: theme)
+                    statPill(
+                        title: "Uptime",
+                        value: runtime.map { formattedUptime($0.uptimeSeconds) } ?? "—",
+                        theme: theme
+                    )
+                    statPill(
+                        title: "Stored",
+                        value: runtime.map { "\($0.transcripts) txt · \($0.conversations) calls" } ?? "\(model.transcripts.count) txt",
+                        theme: theme
+                    )
+                    statPill(
+                        title: "Security",
+                        value: EngineAuthTokenStore.shared.token == nil ? "Loopback" : "Token · 0600",
+                        theme: theme
+                    )
+                }
+
+                HStack(spacing: 6) {
+                    Text("Voice profiles:")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    ForEach(profileNames, id: \.self) { profile in
+                        Text(profile)
+                            .font(.caption2.weight(.medium).monospaced())
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(
+                                (profile == "default"
+                                    ? Color.secondary.opacity(0.16)
+                                    : Color(themeColor: theme.accentColor).opacity(0.16)),
+                                in: Capsule()
+                            )
+                    }
+                    Spacer()
+                }
+
+                if !model.engineEvents.isEmpty {
+                    Divider().opacity(0.35)
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Recent Engine Events")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                        ForEach(model.engineEvents.prefix(5)) { event in
+                            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                                Circle()
+                                    .fill(eventLevelColor(event.level))
+                                    .frame(width: 6, height: 6)
+                                Text(event.eventType)
+                                    .font(.caption2.monospaced().weight(.medium))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                Text(event.message)
+                                    .font(.caption2)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Spacer(minLength: 4)
+                                Text(shortEventTime(event.createdAt))
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func formattedUptime(_ seconds: Int) -> String {
+        guard seconds > 0 else { return "<1m" }
+        let hours = seconds / 3600
+        let minutes = (seconds % 3600) / 60
+        let secs = seconds % 60
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        }
+        if minutes > 0 {
+            return "\(minutes)m \(secs)s"
+        }
+        return "\(secs)s"
+    }
+
+    private func eventLevelColor(_ level: String) -> Color {
+        switch level.lowercased() {
+        case "error":
+            .red
+        case "warning", "warn":
+            .orange
+        default:
+            .green
+        }
+    }
+
+    private func shortEventTime(_ iso: String) -> String {
+        if let tRange = iso.range(of: "T") {
+            let afterT = iso[tRange.upperBound...]
+            return String(afterT.prefix(8))
+        }
+        return String(iso.prefix(8))
     }
 
     private var engineStatusColor: Color {

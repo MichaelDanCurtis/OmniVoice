@@ -4,29 +4,35 @@ import CoreGraphics
 import Foundation
 import OmniVoiceCore
 
-/// Lightweight background monitor that detects when the user starts a Teams,
-/// FaceTime, Phone, Zoom, Google Meet, Slack Huddle, Webex, or Discord call
-/// using native CoreAudio mic-activity status and on-screen window metadata.
+/// Lightweight background monitor that detects active and about-to-join Teams,
+/// FaceTime, Phone, Zoom, Google Meet, Slack Huddle, Webex, Discord, WhatsApp,
+/// Signal, Telegram, RingCentral, Dialpad, Chime, upcoming Calendar meetings, and
+/// any generic two-way audio conversation using CoreAudio input+output activity and
+/// on-screen window metadata.
 @MainActor
 final class MeetingDetectionService {
     var onMeetingDetected: ((DetectedMeetingEvent) -> Void)?
     var onMeetingEnded: ((DetectedMeetingEvent) -> Void)?
     var isEnabled: () -> Bool = { true }
     var isRecordingConversation: () -> Bool = { false }
+    var isDictating: () -> Bool = { false }
+    var upcomingMeetingSoon: () -> MeetingCalendarContext? = { nil }
 
     private var timer: Timer?
     private var activeCall: DetectedMeetingEvent?
     private var dismissedCallKey: String?
     private var consecutiveIdleChecks = 0
+    private var consecutiveGenericTwoWayChecks = 0
+    private var promptedCalendarKeys: Set<String> = []
 
     func start() {
         guard timer == nil else { return }
-        let poll = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [weak self] _ in
+        let poll = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.pollOnce()
             }
         }
-        poll.tolerance = 1.0
+        poll.tolerance = 0.5
         timer = poll
     }
 
@@ -36,6 +42,7 @@ final class MeetingDetectionService {
         activeCall = nil
         dismissedCallKey = nil
         consecutiveIdleChecks = 0
+        consecutiveGenericTwoWayChecks = 0
     }
 
     func dismissCurrentPrompt() {
@@ -49,6 +56,28 @@ final class MeetingDetectionService {
         "com.microsoft.teams2",
         "com.microsoft.teams",
         "us.zoom.xos",
+        "cisco-systems.spark",
+        "com.webex.meetingmanager",
+        "com.tinyspeck.slackmacgap",
+        "net.whatsapp.whatsapp",
+        "desktop.whatsapp",
+        "org.whispersystems.signal-desktop",
+        "com.ringcentral.glip",
+        "com.ringcentral.ringcentral",
+        "com.dialpad.dialpad",
+        "com.amazon.amazonchime",
+    ]
+
+    private static let browserBundleIDs: Set<String> = [
+        "com.apple.safari",
+        "com.google.chrome",
+        "com.google.chrome.canary",
+        "com.brave.browser",
+        "com.microsoft.edgemac",
+        "company.thebrowser.browser",
+        "org.mozilla.firefox",
+        "com.vivaldi.vivaldi",
+        "com.operasoftware.opera",
     ]
 
     private func pollOnce() {
@@ -56,15 +85,48 @@ final class MeetingDetectionService {
 
         let runningApps = NSWorkspace.shared.runningApplications
         let runningBundleIDs = Set(runningApps.compactMap(\.bundleIdentifier))
-        // If OmniSpeak itself is recording, the mic is obviously active; still inspect
-        // meeting windows so we can detect when the call ends.
-        let micActive = Self.isDefaultInputDeviceRunning()
-        let effectiveMicActive = isRecordingConversation() ? false : micActive
+        let frontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let frontLower = frontmostBundleID?.lowercased() ?? ""
 
-        // Skip expensive WindowServer CGWindowListCopyWindowInfo IPC when idle with no
-        // active call, no mic usage, and no native muted-call app running.
+        // Ignore OmniSpeak's own push-to-talk dictation mic usage so dictating never
+        // falsely triggers the two-way call popup.
+        let micActive = Self.isDefaultAudioDeviceRunning(selector: kAudioHardwarePropertyDefaultInputDevice)
+        let effectiveMicActive = (isRecordingConversation() || isDictating()) ? false : micActive
+        let systemAudioActive = Self.isDefaultAudioDeviceRunning(selector: kAudioHardwarePropertyDefaultOutputDevice)
+
+        // Check if an upcoming Calendar meeting starts within the next 2 minutes
+        // (catches "about to join a Teams/Zoom meeting" before the user even clicks Join!).
+        if activeCall == nil, !isRecordingConversation(), let upcoming = upcomingMeetingSoon() {
+            let stamp = Int((upcoming.startDate ?? Date()).timeIntervalSince1970 / 60)
+            let calKey = "cal|\(upcoming.title.lowercased())|\(stamp)"
+            if promptedCalendarKeys.insert(calKey).inserted {
+                let isTeams = upcoming.title.lowercased().contains("teams")
+                    || (upcoming.notes?.lowercased().contains("teams.microsoft.com") ?? false)
+                    || (upcoming.notes?.lowercased().contains("teams.live.com") ?? false)
+                let event = DetectedMeetingEvent(
+                    app: isTeams ? .teams : .upcomingMeeting,
+                    bundleIdentifier: isTeams ? "com.microsoft.teams2" : "com.apple.iCal",
+                    windowTitle: upcoming.title,
+                    isPreJoin: true
+                )
+                activeCall = event
+                if dismissedCallKey != callKey(for: event) {
+                    onMeetingDetected?(event)
+                }
+                return
+            }
+        }
+
+        // Inspect windows when in a call, mic is active, a comms app is running, or a browser/PWA is frontmost
+        // (so we catch Teams Web / Meet / Zoom pre-join lobbies immediately while staying idle otherwise).
         let hasPassiveCallApp = runningBundleIDs.contains { Self.passiveWindowCallBundleIDs.contains($0.lowercased()) }
-        guard activeCall != nil || effectiveMicActive || hasPassiveCallApp else {
+        let frontIsBrowserOrPWA = Self.browserBundleIDs.contains(frontLower)
+            || frontLower.hasPrefix("com.google.chrome.app.")
+            || frontLower.hasPrefix("com.microsoft.edgemac.app.")
+            || frontLower.hasPrefix("com.brave.browser.app.")
+
+        guard activeCall != nil || effectiveMicActive || hasPassiveCallApp || frontIsBrowserOrPWA else {
+            consecutiveGenericTwoWayChecks = 0
             return
         }
 
@@ -80,8 +142,19 @@ final class MeetingDetectionService {
         if let detected = MeetingAppMatcher.detect(
             runningBundleIDs: runningBundleIDs,
             windows: windows,
-            microphoneActive: effectiveMicActive
+            microphoneActive: effectiveMicActive,
+            systemAudioActive: systemAudioActive,
+            frontmostBundleID: frontmostBundleID
         ) {
+            // Require 2 consecutive polls (~6s) for generic unknown two-way calls so brief
+            // mic taps never spam; known calling apps and pre-join lobbies prompt immediately.
+            if detected.app == .twoWayCall && activeCall == nil {
+                consecutiveGenericTwoWayChecks += 1
+                guard consecutiveGenericTwoWayChecks >= 2 else { return }
+            } else {
+                consecutiveGenericTwoWayChecks = 0
+            }
+
             consecutiveIdleChecks = 0
             let key = callKey(for: detected)
             if activeCall == nil {
@@ -91,18 +164,25 @@ final class MeetingDetectionService {
                 }
             }
         } else if let previous = activeCall {
+            consecutiveGenericTwoWayChecks = 0
+            // Don't prematurely end an upcoming calendar pre-join prompt before 15 polls (~45s)
+            let idleThreshold = previous.app == .upcomingMeeting ? 15 : 3
             consecutiveIdleChecks += 1
-            if consecutiveIdleChecks >= 3 {
+            if consecutiveIdleChecks >= idleThreshold {
                 activeCall = nil
                 dismissedCallKey = nil
                 consecutiveIdleChecks = 0
-                onMeetingEnded?(previous)
+                if previous.app != .upcomingMeeting {
+                    onMeetingEnded?(previous)
+                }
             }
+        } else {
+            consecutiveGenericTwoWayChecks = 0
         }
     }
 
     private func callKey(for event: DetectedMeetingEvent) -> String {
-        "\(event.app.rawValue)|\(event.bundleIdentifier.lowercased())"
+        "\(event.app.rawValue)|\(event.bundleIdentifier.lowercased())|\(event.windowTitle?.lowercased() ?? "")"
     }
 
     private static func captureOnScreenWindows(pidToApp: [pid_t: NSRunningApplication]) -> [RunningWindowSnapshot] {
@@ -129,11 +209,11 @@ final class MeetingDetectionService {
         return snapshots
     }
 
-    private static func isDefaultInputDeviceRunning() -> Bool {
+    private static func isDefaultAudioDeviceRunning(selector: AudioObjectPropertySelector) -> Bool {
         var deviceID = AudioDeviceID(kAudioObjectUnknown)
         var propertySize = UInt32(MemoryLayout<AudioDeviceID>.size)
         var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )

@@ -218,12 +218,18 @@ extension AppModel {
 
     func planCommandModeTools(systemPrompt: String, userPrompt: String) async -> String? {
         if preferences.serviceMode.enabled,
-           let servicePlan = await runServiceModeLLM(systemPrompt: systemPrompt, userPrompt: userPrompt) {
+           let servicePlan = await runServiceModeLLM(
+               systemPrompt: systemPrompt,
+               userPrompt: userPrompt,
+               sanitize: false,
+               agentTimeoutSeconds: 18
+           ) {
             return servicePlan
         }
         if let unified = await runUnifiedAIPrompt(
             systemPrompt: systemPrompt,
             userPrompt: userPrompt,
+            agentTimeoutSeconds: 18,
             sanitize: false
         ) {
             return unified

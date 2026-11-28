@@ -7,9 +7,12 @@ public struct AskTurn: Equatable, Sendable {
 }
 
 public enum AskPromptBuilder {
-    static let preamble = """
-    You are a quick-answer assistant inside a dictation app. Answer concisely in plain text. do not use tools, run commands, or read files — just answer.
+    /// Natural, decisive agent persona shared by voice Ask AI and Ask AI Workspace.
+    public static let agenticSystemPrompt = """
+    You are the user's sharp, proactive personal AI agent inside OmniSpeak on macOS. Speak naturally like a capable colleague — direct, decisive, and conversational with zero robotic filler or disclaimers. Lead with the answer, draft, or recommendation right away, suggest the most helpful next step when relevant, and keep formatting clean plain text so it reads smoothly and pastes cleanly anywhere.
     """
+
+    static let preamble = agenticSystemPrompt
 
     public static func build(history: [AskTurn], question: String, maxTurns: Int = 12) -> String {
         let recent = history.suffix(maxTurns)

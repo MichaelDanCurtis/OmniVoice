@@ -22,12 +22,16 @@ final class CommandModeController {
     // VAD state for hands-free open-mic utterance segmentation
     private var speechStartedAt: TimeInterval?
     private var lastVoiceAt: TimeInterval?
+    private var ambientNoiseFloor: Float = 0.004
     private var vadMonitorTask: Task<Void, Never>?
+    private var activeUtteranceTask: Task<Void, Never>?
     private var lastLevelUIUpdate: TimeInterval = 0
 
     /// Provided by AppDelegate to transcribe a finished open-mic WAV utterance using
-    /// the user's active ASR provider (Parakeet CoreML ANE or Engine ASR).
+    /// the user's active ASR provider (Deepgram, Parakeet CoreML ANE, or Engine ASR).
     var onTranscribeAudio: ((Data) async throws -> String)?
+    /// Notifies AppModel/UI when Command Mode activates or exits.
+    var onActiveStateChanged: ((Bool) -> Void)?
 
     func attach(model: AppModel) {
         attachedModel = model
@@ -75,6 +79,7 @@ final class CommandModeController {
         attachedModel = model
         isActive = true
         isMicMuted = false
+        onActiveStateChanged?(true)
         model.statusText = "Command Mode active (hands-free mic open)"
         overlay.show(
             corner: model.preferences.commandModeCorner,
@@ -91,22 +96,30 @@ final class CommandModeController {
     }
 
     func exit(model: AppModel) {
+        activeUtteranceTask?.cancel()
+        activeUtteranceTask = nil
         stopHandsFreeListening()
         isActive = false
         isMicMuted = false
+        onActiveStateChanged?(false)
         overlay.hide()
         model.statusText = "Exited Command Mode"
     }
 
     func shutdown() {
+        activeUtteranceTask?.cancel()
+        activeUtteranceTask = nil
         stopHandsFreeListening()
         isActive = false
+        onActiveStateChanged?(false)
         overlay.hide()
     }
 
     /// Temporarily pauses open-mic capture if the user presses the PTT hotkey manually.
     func pauseOpenMicForManualDictation() {
         guard isActive else { return }
+        activeUtteranceTask?.cancel()
+        activeUtteranceTask = nil
         stopHandsFreeListening()
     }
 
@@ -133,6 +146,7 @@ final class CommandModeController {
 
         speechStartedAt = nil
         lastVoiceAt = nil
+        ambientNoiseFloor = 0.004
 
         audioCapture.onLevel = { [weak self] level in
             Task { @MainActor [weak self] in
@@ -140,6 +154,7 @@ final class CommandModeController {
             }
         }
         audioCapture.onPCMChunk = nil
+        audioCapture.onPCM16Chunk = nil
 
         do {
             _ = try audioCapture.start(deviceUID: model.preferences.microphoneID)
@@ -174,13 +189,20 @@ final class CommandModeController {
     private func handleMicLevel(_ level: Float) {
         guard isActive, isMicCapturing, !isExecutingCommand else { return }
         let now = Date.timeIntervalSinceReferenceDate
-        let speechThreshold: Float = 0.015
 
-        if level >= speechThreshold {
+        // Adaptive threshold: works for both quiet studio mics and rooms with light fan noise.
+        let triggerThreshold = max(Float(0.0075), min(Float(0.035), ambientNoiseFloor * 2.6))
+        let holdThreshold = max(Float(0.0055), triggerThreshold * 0.72)
+        let activeThreshold = speechStartedAt == nil ? triggerThreshold : holdThreshold
+
+        if level >= activeThreshold {
             if speechStartedAt == nil {
                 speechStartedAt = now
             }
             lastVoiceAt = now
+        } else if speechStartedAt == nil {
+            // Smoothly track ambient noise floor while waiting for speech.
+            ambientNoiseFloor = ambientNoiseFloor * 0.92 + level * 0.08
         }
 
         if now - lastLevelUIUpdate >= 0.07 {
@@ -205,6 +227,9 @@ final class CommandModeController {
                 }
 
                 guard let start = self.speechStartedAt, let lastVoice = self.lastVoiceAt else {
+                    // Keep only a tight 0.55s pre-roll buffer while waiting for speech so
+                    // ASR never receives 30+ seconds of dead leading silence!
+                    self.audioCapture.trimToTrailingSeconds(0.55)
                     continue
                 }
 
@@ -212,22 +237,27 @@ final class CommandModeController {
                 let silenceDuration = now - lastVoice
                 let utteranceDuration = lastVoice - start
 
-                // End of utterance: ~0.90s of trailing silence (or 10s max single command)
-                let finishedBySilence = silenceDuration >= 0.90
+                // End of utterance: ~0.80s of trailing silence (or 10s max single command)
+                let finishedBySilence = silenceDuration >= 0.80
                 let finishedByMaxLength = (now - start) >= 10.0
 
                 if finishedBySilence || finishedByMaxLength {
-                    // Ignore tiny accidental bumps/clicks (< 0.25s)
-                    if utteranceDuration < 0.25 {
+                    // Ignore tiny accidental bumps/clicks (< 0.22s)
+                    if utteranceDuration < 0.22 {
                         self.speechStartedAt = nil
                         self.lastVoiceAt = nil
-                        self.audioCapture.stop()
-                        self.isMicCapturing = false
-                        self.startHandsFreeListening(model: model)
-                        return
+                        self.audioCapture.trimToTrailingSeconds(0.35)
+                        continue
                     }
 
-                    await self.finalizeHandsFreeUtterance(model: model)
+                    // Detach utterance finalization into its own uncancelled task so stopping the
+                    // VAD monitor loop can NEVER cancel the transcription or tool execution!
+                    self.vadMonitorTask = nil
+                    self.activeUtteranceTask?.cancel()
+                    self.activeUtteranceTask = Task { @MainActor [weak self, weak model] in
+                        guard let self, let model else { return }
+                        await self.finalizeHandsFreeUtterance(model: model)
+                    }
                     return
                 }
             }
@@ -235,8 +265,7 @@ final class CommandModeController {
     }
 
     private func finalizeHandsFreeUtterance(model: AppModel) async {
-        vadMonitorTask?.cancel()
-        vadMonitorTask = nil
+        defer { activeUtteranceTask = nil }
         speechStartedAt = nil
         lastVoiceAt = nil
 
@@ -254,6 +283,10 @@ final class CommandModeController {
         overlay.setExecuting(true)
         do {
             let rawText = try await transcribe(wavData)
+            guard !Task.isCancelled, isActive else {
+                overlay.setExecuting(false)
+                return
+            }
             let cleaned = TextInsertionEdit.sanitizedInsertionText(rawText)
             overlay.setExecuting(false)
 
@@ -269,8 +302,17 @@ final class CommandModeController {
             }
 
             await execute(spokenCommand: cleaned, model: model)
+        } catch is CancellationError {
+            overlay.setExecuting(false)
+            return
         } catch {
             overlay.setExecuting(false)
+            overlay.appendLog(CommandModeLogEntry(
+                icon: "exclamationmark.triangle.fill",
+                title: "Transcription failed",
+                detail: error.localizedDescription,
+                isError: true
+            ))
         }
 
         resumeOpenMicIfActive()
@@ -316,6 +358,18 @@ final class CommandModeController {
         ))
 
         let desktopState = nativeDriver.captureDesktopState()
+
+        // 0. Instant voice summon for the Ember agent ("Ember", "Call Ember", "Talk to Ember")
+        if let emberSummon = EmberVoiceCommandParser.parse(trimmed) {
+            let summary = await model.summonEmber(initialMessage: emberSummon.initialMessage)
+            overlay.appendLog(CommandModeLogEntry(
+                icon: summary.contains("isn't installed") ? "exclamationmark.triangle.fill" : "flame.fill",
+                title: "Ember",
+                detail: summary,
+                isError: summary.contains("isn't installed")
+            ))
+            return
+        }
 
         // 1. Instant zero-latency fast path for simple single-step voice commands
         if let fast = NativeDesktopFastPath.match(trimmed) {
@@ -417,14 +471,56 @@ final class CommandModeController {
     }
 
     private static func parseToolCalls(from response: String) -> [PlannedCall] {
-        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let start = trimmed.firstIndex(of: "{"),
-              let end = trimmed.lastIndex(of: "}"),
-              start < end,
-              let data = String(trimmed[start...end]).data(using: .utf8),
+        var cleaned = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.hasPrefix("```") {
+            if let firstNewline = cleaned.firstIndex(of: "\n") {
+                cleaned = String(cleaned[cleaned.index(after: firstNewline)...])
+            }
+            if let fenceEnd = cleaned.range(of: "```", options: .backwards) {
+                cleaned = String(cleaned[..<fenceEnd.lowerBound])
+            }
+            cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        // Try direct decode first, then scan balanced top-level JSON objects containing "calls".
+        if let direct = decodeCalls(from: cleaned), !direct.isEmpty {
+            return direct
+        }
+        var depth = 0
+        var inString = false
+        var escaped = false
+        var startIdx: String.Index?
+        for idx in cleaned.indices {
+            let ch = cleaned[idx]
+            if inString {
+                if escaped { escaped = false }
+                else if ch == "\\" { escaped = true }
+                else if ch == "\"" { inString = false }
+                continue
+            }
+            if ch == "\"" {
+                inString = true
+            } else if ch == "{" {
+                if depth == 0 { startIdx = idx }
+                depth += 1
+            } else if ch == "}" {
+                depth -= 1
+                if depth == 0, let s = startIdx {
+                    if let parsed = decodeCalls(from: String(cleaned[s...idx])), !parsed.isEmpty {
+                        return parsed
+                    }
+                    startIdx = nil
+                }
+            }
+        }
+        return []
+    }
+
+    private static func decodeCalls(from jsonText: String) -> [PlannedCall]? {
+        guard let data = jsonText.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let rawCalls = obj["calls"] as? [[String: Any]] else {
-            return []
+            return nil
         }
         return rawCalls.compactMap { item in
             guard let name = item["tool"] as? String, !name.isEmpty else { return nil }

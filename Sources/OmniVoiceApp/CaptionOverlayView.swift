@@ -701,9 +701,11 @@ private extension View {
         glassOpacity: Double,
         colorScheme: ColorScheme
     ) -> some View {
-        let radius: CGFloat = theme.look == .liquidGlass
-            ? 24
-            : theme.look.cardRadius(forRequested: 18)
+        let radius: CGFloat = switch theme.look {
+        case .liquidGlass: 24
+        case .omniGlass: 20
+        default: theme.look.cardRadius(forRequested: 18)
+        }
         captionGlassSurface(
             cornerRadius: radius,
             accent: accent,

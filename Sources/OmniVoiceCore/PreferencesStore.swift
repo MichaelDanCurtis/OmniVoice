@@ -83,6 +83,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
     public var clipboardAskContextEnabled: Bool
     public var captionGlassOpacity: Double
     public var serviceMode: ServiceModeConfiguration
+    public var emberDelegation: EmberDelegationConfiguration
+    public var localStreamPolish: LocalStreamPolishConfiguration
     public var recordingSoundCuesEnabled: Bool
     public var recordingStartCueEnabled: Bool
     public var recordingStopCueEnabled: Bool
@@ -173,7 +175,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         hotMenuLeftActions: HotMenuAction.defaultActions(for: .left),
         hotMenuRightActions: HotMenuAction.defaultActions(for: .right),
         hotMenuDownActions: HotMenuAction.defaultActions(for: .down),
-        themeID: .auroraBlue,
+        themeID: .omniSignal,
         themeLookOverride: nil,
         customAccentColor: ThemeColor(hex: "#38BDF8"),
         appearanceMode: .system,
@@ -242,7 +244,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         hotMenuLeftActions: [HotMenuAction]? = nil,
         hotMenuRightActions: [HotMenuAction]? = nil,
         hotMenuDownActions: [HotMenuAction]? = nil,
-        themeID: OmniVoiceThemeID = .auroraBlue,
+        themeID: OmniVoiceThemeID = .omniSignal,
         themeLookOverride: ThemeLook? = nil,
         customAccentColor: ThemeColor = ThemeColor(hex: "#38BDF8"),
         appearanceMode: AppAppearanceMode = .system,
@@ -287,6 +289,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         clipboardAskContextEnabled: Bool = true,
         captionGlassOpacity: Double = 0.05,
         serviceMode: ServiceModeConfiguration = .defaults,
+        emberDelegation: EmberDelegationConfiguration = .defaults,
+        localStreamPolish: LocalStreamPolishConfiguration = .defaults,
         recordingSoundCuesEnabled: Bool = true,
         recordingStartCueEnabled: Bool = true,
         recordingStopCueEnabled: Bool = true,
@@ -396,6 +400,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         self.clipboardAskContextEnabled = clipboardAskContextEnabled
         self.captionGlassOpacity = min(max(captionGlassOpacity, 0), 1)
         self.serviceMode = serviceMode
+        self.emberDelegation = emberDelegation
+        self.localStreamPolish = localStreamPolish
         self.recordingSoundCuesEnabled = recordingSoundCuesEnabled
         self.recordingStartCueEnabled = recordingStartCueEnabled
         self.recordingStopCueEnabled = recordingStopCueEnabled
@@ -487,7 +493,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             hotMenuLeftActions: try container.decodeIfPresent([HotMenuAction].self, forKey: .hotMenuLeftActions),
             hotMenuRightActions: try container.decodeIfPresent([HotMenuAction].self, forKey: .hotMenuRightActions),
             hotMenuDownActions: try container.decodeIfPresent([HotMenuAction].self, forKey: .hotMenuDownActions),
-            themeID: try container.decodeIfPresent(OmniVoiceThemeID.self, forKey: .themeID) ?? .auroraBlue,
+            themeID: try container.decodeIfPresent(OmniVoiceThemeID.self, forKey: .themeID) ?? .omniSignal,
             themeLookOverride: try container.decodeIfPresent(ThemeLook.self, forKey: .themeLookOverride),
             customAccentColor: try container.decodeIfPresent(ThemeColor.self, forKey: .customAccentColor) ?? ThemeColor(hex: "#38BDF8"),
             appearanceMode: try container.decodeIfPresent(AppAppearanceMode.self, forKey: .appearanceMode) ?? .system,
@@ -549,6 +555,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             clipboardAskContextEnabled: try container.decodeIfPresent(Bool.self, forKey: .clipboardAskContextEnabled) ?? true,
             captionGlassOpacity: try container.decodeIfPresent(Double.self, forKey: .captionGlassOpacity) ?? 0.05,
             serviceMode: try container.decodeIfPresent(ServiceModeConfiguration.self, forKey: .serviceMode) ?? .defaults,
+            emberDelegation: try container.decodeIfPresent(EmberDelegationConfiguration.self, forKey: .emberDelegation) ?? .defaults,
+            localStreamPolish: try container.decodeIfPresent(LocalStreamPolishConfiguration.self, forKey: .localStreamPolish) ?? .defaults,
             recordingSoundCuesEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingSoundCuesEnabled) ?? true,
             recordingStartCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStartCueEnabled) ?? true,
             recordingStopCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStopCueEnabled) ?? true,
@@ -606,7 +614,7 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             hotMenuLeftActions: try container.decodeIfPresent([HotMenuAction].self, forKey: .hotMenuLeftActions),
             hotMenuRightActions: try container.decodeIfPresent([HotMenuAction].self, forKey: .hotMenuRightActions),
             hotMenuDownActions: try container.decodeIfPresent([HotMenuAction].self, forKey: .hotMenuDownActions),
-            themeID: try container.decodeIfPresent(OmniVoiceThemeID.self, forKey: .themeID) ?? .auroraBlue,
+            themeID: try container.decodeIfPresent(OmniVoiceThemeID.self, forKey: .themeID) ?? .omniSignal,
             themeLookOverride: try container.decodeIfPresent(ThemeLook.self, forKey: .themeLookOverride),
             customAccentColor: try container.decodeIfPresent(ThemeColor.self, forKey: .customAccentColor) ?? ThemeColor(hex: "#38BDF8"),
             appearanceMode: try container.decodeIfPresent(AppAppearanceMode.self, forKey: .appearanceMode) ?? .system,
@@ -662,6 +670,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
             clipboardAskContextEnabled: try container.decodeIfPresent(Bool.self, forKey: .clipboardAskContextEnabled) ?? true,
             captionGlassOpacity: try container.decodeIfPresent(Double.self, forKey: .captionGlassOpacity) ?? 0.05,
             serviceMode: try container.decodeIfPresent(ServiceModeConfiguration.self, forKey: .serviceMode) ?? .defaults,
+            emberDelegation: try container.decodeIfPresent(EmberDelegationConfiguration.self, forKey: .emberDelegation) ?? .defaults,
+            localStreamPolish: try container.decodeIfPresent(LocalStreamPolishConfiguration.self, forKey: .localStreamPolish) ?? .defaults,
             recordingSoundCuesEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingSoundCuesEnabled) ?? true,
             recordingStartCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStartCueEnabled) ?? true,
             recordingStopCueEnabled: try container.decodeIfPresent(Bool.self, forKey: .recordingStopCueEnabled) ?? true,
@@ -1053,6 +1063,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case clipboardAskContextEnabled = "clipboard_ask_context_enabled"
         case captionGlassOpacity = "caption_glass_opacity"
         case serviceMode = "service_mode"
+        case emberDelegation = "ember_delegation"
+        case localStreamPolish = "local_stream_polish"
         case recordingSoundCuesEnabled = "recording_sound_cues_enabled"
         case recordingStartCueEnabled = "recording_start_cue_enabled"
         case recordingStopCueEnabled = "recording_stop_cue_enabled"
@@ -1135,6 +1147,8 @@ public struct OmniVoicePreferences: Codable, Equatable, Sendable {
         case clipboardAskContextEnabled
         case captionGlassOpacity
         case serviceMode
+        case emberDelegation
+        case localStreamPolish
         case recordingSoundCuesEnabled
         case recordingStartCueEnabled
         case recordingStopCueEnabled

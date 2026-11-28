@@ -364,11 +364,13 @@ extension AppModel {
         via route: UnifiedAIRoute,
         rawTranscript: String,
         style: StyleProfile,
-        appContext: String
+        appContext: String,
+        dictionaryTerms: [String]? = nil
     ) async throws -> CleanupResult? {
+        let effectiveDictionaryTerms = dictionaryTerms ?? preferences.dictionaryTerms
         let instructions = MLXLocalCleanupService.systemPrompt(
             style: style,
-            dictionaryTerms: preferences.dictionaryTerms,
+            dictionaryTerms: effectiveDictionaryTerms,
             appContext: appContext
         )
 
@@ -425,7 +427,7 @@ extension AppModel {
                 let cleaned = try await MLXLocalCleanupService.shared.cleanup(
                     rawTranscript: rawTranscript,
                     style: style,
-                    dictionaryTerms: preferences.dictionaryTerms,
+                    dictionaryTerms: effectiveDictionaryTerms,
                     appContext: appContext,
                     providerID: preferences.llmCleanupLocalModelID
                 )
@@ -457,7 +459,7 @@ extension AppModel {
                 CleanupRequest(
                     rawTranscript: rawTranscript,
                     style: style,
-                    dictionaryTerms: preferences.dictionaryTerms,
+                    dictionaryTerms: effectiveDictionaryTerms,
                     dictionaryEntries: CleanupRequest.entries(from: preferences.dictionaryEntries),
                     appContext: appContext,
                     llm: llmConfig
@@ -470,7 +472,8 @@ extension AppModel {
                 via: resolvedUnifiedAIRoute(override: .auto),
                 rawTranscript: rawTranscript,
                 style: style,
-                appContext: appContext
+                appContext: appContext,
+                dictionaryTerms: effectiveDictionaryTerms
             )
         }
     }

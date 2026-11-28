@@ -149,6 +149,13 @@ final class AppModel {
     var localDownloadMessages: [String: String] = [:]
     var installedMLXModelIDs: Set<String> = []
     var transcripts: [EngineTranscriptRecord]
+    var engineRuntimeStatus: EngineRuntimeStatus?
+    var engineVoiceProfiles: [EngineVoiceProfileInfo] = []
+    var engineEvents: [EngineEventRecord] = []
+    var isCoreMLPunctuationInstalled: Bool = CoreMLPunctuationService.isInstalled
+    var isDownloadingCoreMLPunctuation: Bool = false
+    var coreMLPunctuationDownloadProgress: Double = 0
+    var coreMLPunctuationStatusMessage: String?
     var microphoneDevices: [MicrophoneDevice]
     var lastTestResult: String
     var textLLMModelOptions: [TextLLMProviderKind: [String]]
@@ -194,6 +201,7 @@ final class AppModel {
     @ObservationIgnored let llmSecretStore = LLMSecretStore()
     private static let legacyOpenAIProviderID = "openai_compatible_legacy"
     static let deepgramSecretProviderID = "deepgram"
+    static let emberSecretProviderID = "ember"
     private static let logger = Logger(subsystem: "com.omnispeak.OmniVoiceApp", category: "AppModel")
     /// True when saved preferences couldn't be decoded at launch and defaults were used.
     @ObservationIgnored private(set) var preferencesLoadFailed = false
@@ -249,6 +257,13 @@ final class AppModel {
     var deepgramAPIKey: String = ""
     var deepgramConnectionStatus: String?
     var isTestingDeepgramConnection = false
+    var emberAPIToken: String = ""
+    var emberConnectionStatus: String?
+    var isTestingEmberConnection = false
+    var emberInfernoEnvironment = EmberInfernoEnvironmentStatus()
+    var infernoInstalledAgents: [InfernoInstalledAgent] = []
+    var isCommandModeActive = false
+    @ObservationIgnored var onToggleCommandMode: (() -> Void)?
 
     init(
         preferences: OmniVoicePreferences? = nil,
@@ -486,17 +501,129 @@ final class AppModel {
         persistWorkspace()
     }
 
+    func setLocalPunctuationEngine(_ engine: LocalPunctuationEngine) {
+        guard preferences.localStreamPolish.punctuationEngine != engine else { return }
+        preferences.localStreamPolish.punctuationEngine = engine
+        _ = persistPreferences()
+        statusText = "Local punctuation → \(engine.displayName)"
+    }
+
+    func setLocalGrammarEngine(_ engine: LocalGrammarEngine) {
+        guard preferences.localStreamPolish.grammarEngine != engine else { return }
+        preferences.localStreamPolish.grammarEngine = engine
+        _ = persistPreferences()
+        statusText = "Local grammar → \(engine.displayName)"
+    }
+
+    func setLiveStreamPunctuationEnabled(_ enabled: Bool) {
+        guard preferences.localStreamPolish.liveStreamPunctuationEnabled != enabled else { return }
+        preferences.localStreamPolish.liveStreamPunctuationEnabled = enabled
+        _ = persistPreferences()
+        statusText = enabled ? "Live-stream punctuation enabled" : "Live-stream punctuation off"
+    }
+
+    func setActiveWindowVocabularyEnabled(_ enabled: Bool) {
+        guard preferences.localStreamPolish.activeWindowVocabularyEnabled != enabled else { return }
+        preferences.localStreamPolish.activeWindowVocabularyEnabled = enabled
+        _ = persistPreferences()
+        statusText = enabled ? "Active-window vocabulary hints enabled" : "Active-window vocabulary hints off"
+    }
+
+    func downloadCoreMLPunctuationModel() async {
+        guard !isDownloadingCoreMLPunctuation else { return }
+        isDownloadingCoreMLPunctuation = true
+        coreMLPunctuationDownloadProgress = 0.02
+        coreMLPunctuationStatusMessage = "Starting download…"
+        defer { isDownloadingCoreMLPunctuation = false }
+
+        do {
+            try await CoreMLPunctuationService.shared.downloadModel { [weak self] progress, message in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.coreMLPunctuationDownloadProgress = progress
+                    self.coreMLPunctuationStatusMessage = message
+                }
+            }
+            isCoreMLPunctuationInstalled = CoreMLPunctuationService.isInstalled
+            coreMLPunctuationDownloadProgress = 1.0
+            coreMLPunctuationStatusMessage = "Installed on Apple Neural Engine"
+            statusText = "CoreML ANE Punctuation ready"
+        } catch {
+            isCoreMLPunctuationInstalled = CoreMLPunctuationService.isInstalled
+            coreMLPunctuationStatusMessage = error.localizedDescription
+            statusText = "Punctuation model download failed"
+        }
+    }
+
+    func removeCoreMLPunctuationModel() async {
+        do {
+            try await CoreMLPunctuationService.shared.removeInstalledModel()
+            isCoreMLPunctuationInstalled = false
+            coreMLPunctuationDownloadProgress = 0
+            coreMLPunctuationStatusMessage = "Removed (using fast built-in rules)"
+            statusText = "CoreML punctuation model removed"
+        } catch {
+            coreMLPunctuationStatusMessage = error.localizedDescription
+        }
+    }
+
     func performCleanup(
         rawTranscript: String,
         style: StyleProfile,
-        appContext: String = ""
+        appContext: String = "",
+        ephemeralVocabulary: [String] = []
     ) async throws -> CleanupResult {
-        if preferences.serviceMode.enabled,
-           preferences.llmCleanupEnabled,
-           style != .raw {
+        let mergedDictionaryTerms = LocalDictationCleanupService.mergeVocabularyTerms(
+            preferences.dictionaryTerms,
+            ephemeralVocabulary
+        )
+
+        // Fast on-device, zero-LLM pass: spoken self-correction resolver + configurable local punctuation
+        // (CoreML ANE or fast rules) + configurable local grammar (Harper Rust and/or macOS NSSpellChecker).
+        let localOutcome = await LocalDictationCleanupService.clean(
+            rawTranscript: rawTranscript,
+            style: style,
+            dictionaryTerms: preferences.dictionaryTerms,
+            dictionaryEntries: preferences.dictionaryEntries,
+            ephemeralVocabulary: ephemeralVocabulary,
+            polishConfig: preferences.localStreamPolish,
+            engineClient: engineClient
+        )
+
+        // Tier 1 — Raw Dictation: Pure Zero-LLM (always returns local self-correction + macOS grammar).
+        if style == .raw {
+            return CleanupResult(
+                text: localOutcome.text,
+                cleanupApplied: localOutcome.cleanupApplied,
+                llmApplied: false,
+                llmFallbackReason: nil
+            )
+        }
+
+        // Tier 2 — Neutral (Standard): Smart Hybrid.
+        // Handles clean speech and deterministic self-corrections locally in <15 ms with zero LLM calls,
+        // escalating to the configured LLM ONLY when an ambiguous spoken repair cue needs semantic rewriting.
+        let shouldInvokeLLM: Bool
+        if style == .neutral {
+            shouldInvokeLLM = preferences.llmCleanupEnabled && localOutcome.needsLLMEscalation
+        } else {
+            // Tier 3 — Professional / Concise / Expanded: LLM-first style rewriting.
+            shouldInvokeLLM = preferences.llmCleanupEnabled
+        }
+
+        if !shouldInvokeLLM {
+            return CleanupResult(
+                text: localOutcome.text,
+                cleanupApplied: localOutcome.cleanupApplied,
+                llmApplied: false,
+                llmFallbackReason: nil
+            )
+        }
+
+        if preferences.serviceMode.enabled {
             let instructions = MLXLocalCleanupService.systemPrompt(
                 style: style,
-                dictionaryTerms: preferences.dictionaryTerms,
+                dictionaryTerms: mergedDictionaryTerms,
                 appContext: appContext
             )
             if let response = await runServiceModeLLM(
@@ -515,105 +642,107 @@ final class AppModel {
                     )
                 }
             }
-            // Service Mode LLM already attempted (and timed out or returned nil);
-            // fall straight back to instant rule-based cleanup rather than running a
-            // second slow LLM pass.
-            return try await engineClient.cleanup(
-                CleanupRequest(
-                    rawTranscript: rawTranscript,
-                    style: style,
-                    dictionaryTerms: preferences.dictionaryTerms,
-                    dictionaryEntries: CleanupRequest.entries(from: preferences.dictionaryEntries),
-                    appContext: appContext,
-                    llm: nil
-                )
+            return CleanupResult(
+                text: localOutcome.text,
+                cleanupApplied: localOutcome.cleanupApplied,
+                llmApplied: false,
+                llmFallbackReason: "Service Mode LLM fallback to local grammar & self-correction"
             )
         }
 
-        if preferences.llmCleanupEnabled, style != .raw {
-            switch preferences.llmCleanupBackend {
-            case .aiConfiguration:
-                if let result = try await runDictationCleanup(
-                    via: resolvedUnifiedAIRoute(),
+        switch preferences.llmCleanupBackend {
+        case .aiConfiguration:
+            if let result = try await runDictationCleanup(
+                via: resolvedUnifiedAIRoute(),
+                rawTranscript: rawTranscript,
+                style: style,
+                appContext: appContext,
+                dictionaryTerms: mergedDictionaryTerms
+            ) {
+                return result
+            }
+
+        case .agent:
+            if let result = try await runDictationCleanup(
+                via: .agent(agentID: preferences.llmCleanupAgentID),
+                rawTranscript: rawTranscript,
+                style: style,
+                appContext: appContext,
+                dictionaryTerms: mergedDictionaryTerms
+            ) {
+                return result
+            }
+
+        case .localMLX:
+            do {
+                let cleaned = try await MLXLocalCleanupService.shared.cleanup(
                     rawTranscript: rawTranscript,
                     style: style,
-                    appContext: appContext
-                ) {
-                    return result
-                }
-
-            case .agent:
-                if let result = try await runDictationCleanup(
-                    via: .agent(agentID: preferences.llmCleanupAgentID),
-                    rawTranscript: rawTranscript,
-                    style: style,
-                    appContext: appContext
-                ) {
-                    return result
-                }
-
-            case .localMLX:
-                do {
-                    let cleaned = try await MLXLocalCleanupService.shared.cleanup(
+                    dictionaryTerms: mergedDictionaryTerms,
+                    appContext: appContext,
+                    providerID: preferences.llmCleanupLocalModelID
+                )
+                return CleanupResult(
+                    text: cleaned,
+                    cleanupApplied: true,
+                    llmApplied: true,
+                    llmFallbackReason: nil
+                )
+            } catch {
+                if let fallback = try? await engineClient.cleanup(
+                    CleanupRequest(
                         rawTranscript: rawTranscript,
                         style: style,
-                        dictionaryTerms: preferences.dictionaryTerms,
+                        dictionaryTerms: mergedDictionaryTerms,
+                        dictionaryEntries: CleanupRequest.entries(from: preferences.dictionaryEntries),
                         appContext: appContext,
-                        providerID: preferences.llmCleanupLocalModelID
+                        llm: preferences.resolvedLLMCleanupConfig()
                     )
-                    return CleanupResult(
-                        text: cleaned,
-                        cleanupApplied: true,
-                        llmApplied: true,
-                        llmFallbackReason: nil
-                    )
-                } catch {
-                    let fallback = try await engineClient.cleanup(
-                        CleanupRequest(
-                            rawTranscript: rawTranscript,
-                            style: style,
-                            dictionaryTerms: preferences.dictionaryTerms,
-                            dictionaryEntries: CleanupRequest.entries(from: preferences.dictionaryEntries),
-                            appContext: appContext,
-                            llm: preferences.resolvedLLMCleanupConfig()
-                        )
-                    )
-                    if fallback.llmApplied {
-                        return fallback
-                    }
-                    return CleanupResult(
-                        text: fallback.text,
-                        cleanupApplied: fallback.cleanupApplied,
-                        llmApplied: false,
-                        llmFallbackReason: "MLX-Swift: \(error.localizedDescription)"
-                    )
+                ), fallback.llmApplied {
+                    return fallback
                 }
+                return CleanupResult(
+                    text: localOutcome.text,
+                    cleanupApplied: localOutcome.cleanupApplied,
+                    llmApplied: false,
+                    llmFallbackReason: "MLX-Swift: \(error.localizedDescription)"
+                )
+            }
 
-            case .textLLM:
-                if preferences.resolvedLLMCleanupConfig() == nil {
-                    let unified = resolvedUnifiedAIRoute()
-                    if case .agent = unified,
-                       let result = try await runDictationCleanup(
-                           via: unified,
-                           rawTranscript: rawTranscript,
-                           style: style,
-                           appContext: appContext
-                       ) {
-                        return result
-                    }
+        case .textLLM:
+            if preferences.resolvedLLMCleanupConfig() == nil {
+                let unified = resolvedUnifiedAIRoute()
+                if case .agent = unified,
+                   let result = try await runDictationCleanup(
+                       via: unified,
+                       rawTranscript: rawTranscript,
+                       style: style,
+                       appContext: appContext,
+                       dictionaryTerms: mergedDictionaryTerms
+                   ) {
+                    return result
                 }
             }
         }
 
-        return try await engineClient.cleanup(
+        if let engineResult = try? await engineClient.cleanup(
             CleanupRequest(
                 rawTranscript: rawTranscript,
                 style: style,
-                dictionaryTerms: preferences.dictionaryTerms,
+                dictionaryTerms: mergedDictionaryTerms,
                 dictionaryEntries: CleanupRequest.entries(from: preferences.dictionaryEntries),
                 appContext: appContext,
                 llm: preferences.resolvedLLMCleanupConfig()
             )
+        ), engineResult.llmApplied {
+            return engineResult
+        }
+
+        return CleanupResult(
+            text: localOutcome.text,
+            cleanupApplied: localOutcome.cleanupApplied,
+            llmApplied: false,
+            llmFallbackReason: nil
         )
     }
 
@@ -1205,8 +1334,11 @@ final class AppModel {
             statusText = "Configure an AI provider or agent in Settings → AI first"
             return
         }
+        let delegateToEmber = isEmberDelegationActive
+            && askAIThreads[index].routeOverride == nil
+            && askAIThreads[index].providerOverride == nil
         let route = effectiveAskAIRoute(for: askAIThreads[index])
-        guard isUnifiedAIRouteReady(route) else {
+        guard delegateToEmber || isUnifiedAIRouteReady(route) else {
             statusText = "Configure an AI provider or agent in Settings → AI first"
             return
         }
@@ -1222,22 +1354,40 @@ final class AppModel {
         persistWorkspace()
 
         do {
-            let outboundMessages = askAIThreads[index].messages.map {
-                AIChatMessage(role: $0.role, content: $0.text)
+            let reply: String
+            if delegateToEmber {
+                let attachmentSummary = askAIThreads[index].attachments
+                    .map { "[\($0.title)]\n\($0.text.prefix(1_200))" }
+                    .joined(separator: "\n\n")
+                let combinedPrompt = attachmentSummary.isEmpty
+                    ? prompt
+                    : "\(prompt)\n\nAttached context:\n\(attachmentSummary)"
+                reply = try await EmberClient.sendMessage(
+                    prompt: combinedPrompt,
+                    config: preferences.emberDelegation,
+                    apiToken: effectiveEmberAPIToken
+                )
+            } else {
+                var outboundMessages: [AIChatMessage] = [
+                    AIChatMessage(role: .system, content: AskPromptBuilder.agenticSystemPrompt),
+                ]
+                outboundMessages.append(contentsOf: askAIThreads[index].messages.map {
+                    AIChatMessage(role: $0.role, content: $0.text)
+                })
+                let outboundAttachments = askAIThreads[index].attachments.map(AIChatAttachment.init)
+                reply = try await runUnifiedAI(
+                    messages: outboundMessages,
+                    attachments: outboundAttachments,
+                    webSearchEnabled: askAIThreads[index].webSearchEnabled,
+                    routeOverride: route,
+                    modelOverride: askAIThreads[index].modelOverride
+                )
             }
-            let outboundAttachments = askAIThreads[index].attachments.map(AIChatAttachment.init)
-            let reply = try await runUnifiedAI(
-                messages: outboundMessages,
-                attachments: outboundAttachments,
-                webSearchEnabled: askAIThreads[index].webSearchEnabled,
-                routeOverride: route,
-                modelOverride: askAIThreads[index].modelOverride
-            )
             if let updatedIndex = askAIThreads.firstIndex(where: { $0.id == threadID }) {
                 askAIThreads[updatedIndex].messages.append(AskAIMessage(role: .assistant, text: reply))
                 askAIThreads[updatedIndex].updatedAt = OmniWorkspaceClock.now()
             }
-            statusText = "AI replied"
+            statusText = delegateToEmber ? "Ember replied" : "AI replied"
         } catch {
             if let updatedIndex = askAIThreads.firstIndex(where: { $0.id == threadID }) {
                 askAIThreads[updatedIndex].messages.append(AskAIMessage(role: .assistant, text: "AI request failed: \(error.localizedDescription)"))
@@ -2519,6 +2669,7 @@ final class AppModel {
         }
         onCustomAgentsChanged?(preferences.customAgents)
         warmUpConfiguredACPAgents()
+        await refreshEmberInfernoEnvironment()
     }
 
     func testTextLLMProvider(_ provider: TextLLMProviderKind) async {
@@ -3038,6 +3189,9 @@ final class AppModel {
             modelStatuses = try await engineClient.models()
             await refreshTranslationCapabilities()
             transcripts = (try? await engineClient.transcripts(limit: 100)) ?? transcripts
+            engineRuntimeStatus = try? await engineClient.engineStatus()
+            engineVoiceProfiles = (try? await engineClient.voiceSettingsProfiles()) ?? engineVoiceProfiles
+            engineEvents = (try? await engineClient.events(limit: 10)) ?? engineEvents
             engineState = .online
             statusText = "Engine online"
         } catch {
@@ -4689,6 +4843,9 @@ final class AppModel {
         migrateSecret(&preferences.openAICompatibleAPIKey, provider: Self.legacyOpenAIProviderID, field: .apiKey, migrated: &migrated)
         if let storedDeepgram = llmSecretStore.value(provider: Self.deepgramSecretProviderID, field: .apiKey), !storedDeepgram.isEmpty {
             deepgramAPIKey = storedDeepgram
+        }
+        if let storedEmber = llmSecretStore.value(provider: Self.emberSecretProviderID, field: .apiKey), !storedEmber.isEmpty {
+            emberAPIToken = storedEmber
         }
         let cooldownMinutes = preferences.idleMLXAutoUnloadMinutes
         Task {

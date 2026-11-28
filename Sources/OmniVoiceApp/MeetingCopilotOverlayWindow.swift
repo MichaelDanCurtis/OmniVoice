@@ -14,6 +14,16 @@ struct MeetingCopilotModalItem: Identifiable, Equatable {
     var isPinned: Bool = false
 }
 
+struct MeetingStartOptions: Equatable, Sendable {
+    var captureTwoWayAudio: Bool
+    var diarizationEnabled: Bool
+
+    static let defaultMeeting = MeetingStartOptions(
+        captureTwoWayAudio: true,
+        diarizationEnabled: true
+    )
+}
+
 // MARK: - Meeting Detected Prompt Banner
 
 @MainActor
@@ -22,16 +32,19 @@ private final class MeetingDetectedBannerState {
     var event: DetectedMeetingEvent?
     var theme: OmniVoiceTheme = .defaultTheme
     var appearanceMode: AppAppearanceMode = .system
+    var captureTwoWayAudio: Bool = true
+    var diarizationEnabled: Bool = true
+    var diarizationEngineLabel: String = "CoreML Sortformer"
 }
 
 @MainActor
 final class MeetingDetectedBannerWindow {
-    private static let bannerSize = CGSize(width: 376, height: 118)
+    private static let bannerSize = CGSize(width: 408, height: 174)
 
     private var panel: NSPanel?
     private let state = MeetingDetectedBannerState()
     private var autoDismissTask: Task<Void, Never>?
-    var onStartMeeting: ((DetectedMeetingEvent) -> Void)?
+    var onStartMeeting: ((DetectedMeetingEvent, MeetingStartOptions) -> Void)?
     var onDismiss: (() -> Void)?
 
     func show(
@@ -39,12 +52,18 @@ final class MeetingDetectedBannerWindow {
         corner: MeetingCopilotCorner,
         stealthMode: Bool,
         theme: OmniVoiceTheme,
-        appearanceMode: AppAppearanceMode
+        appearanceMode: AppAppearanceMode,
+        defaultTwoWayAudio: Bool = true,
+        defaultDiarizationEnabled: Bool = true,
+        diarizationEngineLabel: String = "Speaker Diarization"
     ) {
         autoDismissTask?.cancel()
         state.event = event
         state.theme = theme
         state.appearanceMode = appearanceMode
+        state.captureTwoWayAudio = defaultTwoWayAudio
+        state.diarizationEnabled = defaultDiarizationEnabled
+        state.diarizationEngineLabel = diarizationEngineLabel
 
         if panel == nil {
             let created = NSPanel(
@@ -64,9 +83,9 @@ final class MeetingDetectedBannerWindow {
             created.contentView = NSHostingView(
                 rootView: MeetingDetectedBannerView(
                     state: state,
-                    onStart: { [weak self] event in
+                    onStart: { [weak self] event, options in
                         self?.hide()
-                        self?.onStartMeeting?(event)
+                        self?.onStartMeeting?(event, options)
                     },
                     onDismiss: { [weak self] in
                         self?.hide()
@@ -89,7 +108,7 @@ final class MeetingDetectedBannerWindow {
         }
 
         autoDismissTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(18))
+            try? await Task.sleep(for: .seconds(25))
             guard !Task.isCancelled else { return }
             self?.hide()
         }
@@ -114,11 +133,28 @@ final class MeetingDetectedBannerWindow {
 
 private struct MeetingDetectedBannerView: View {
     @Bindable var state: MeetingDetectedBannerState
-    let onStart: (DetectedMeetingEvent) -> Void
+    let onStart: (DetectedMeetingEvent, MeetingStartOptions) -> Void
     let onDismiss: () -> Void
 
     var body: some View {
         if let event = state.event {
+            let headline: String = {
+                if event.app == .upcomingMeeting {
+                    return "Starting Soon"
+                }
+                return event.isPreJoin
+                    ? "Joining \(event.app.displayName)"
+                    : "\(event.app.displayName) detected"
+            }()
+            let detailLine: String = {
+                if let title = event.windowTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !title.isEmpty,
+                   title.caseInsensitiveCompare(event.app.displayName) != .orderedSame {
+                    return title
+                }
+                return "Record live two-way audio with speaker diarization & Co-Pilot?"
+            }()
+
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     ZStack {
@@ -131,22 +167,81 @@ private struct MeetingDetectedBannerView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("\(event.app.displayName) detected")
+                        Text(headline)
                             .font(.headline)
-                        Text("Start live meeting notes with Me + Them diarization & Co-Pilot insights?")
+                        Text(detailLine)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .lineLimit(2)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
 
                     Spacer(minLength: 0)
                 }
 
+                // Interactive 2-Way Audio & Speaker Diarization options right in the popup
                 HStack(spacing: 8) {
                     Button {
-                        onStart(event)
+                        state.captureTwoWayAudio.toggle()
                     } label: {
-                        Label("Start Meeting", systemImage: "record.circle")
+                        HStack(spacing: 5) {
+                            Image(systemName: state.captureTwoWayAudio ? "waveform.and.mic" : "mic.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text(state.captureTwoWayAudio ? "2-Way (Me+Them)" : "Mic Only")
+                                .font(.caption2.weight(.semibold))
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(state.captureTwoWayAudio ? Color.accentColor.opacity(0.20) : Color.primary.opacity(0.08))
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(state.captureTwoWayAudio ? Color.accentColor.opacity(0.45) : Color.primary.opacity(0.14), lineWidth: 0.8)
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        state.diarizationEnabled.toggle()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: state.diarizationEnabled ? "person.2.wave.2.fill" : "person.2.slash")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text(state.diarizationEnabled ? "Diarize: \(state.diarizationEngineLabel)" : "Diarization Off")
+                                .font(.caption2.weight(.semibold))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .frame(maxWidth: .infinity)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(state.diarizationEnabled ? Color.green.opacity(0.20) : Color.primary.opacity(0.08))
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(state.diarizationEnabled ? Color.green.opacity(0.45) : Color.primary.opacity(0.14), lineWidth: 0.8)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                HStack(spacing: 8) {
+                    Button {
+                        onStart(
+                            event,
+                            MeetingStartOptions(
+                                captureTwoWayAudio: state.captureTwoWayAudio,
+                                diarizationEnabled: state.diarizationEnabled
+                            )
+                        )
+                    } label: {
+                        Label("Start Recording", systemImage: "record.circle")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
@@ -160,7 +255,7 @@ private struct MeetingDetectedBannerView: View {
                 }
             }
             .padding(14)
-            .frame(width: 376, height: 118, alignment: .topLeading)
+            .frame(width: 408, height: 174, alignment: .topLeading)
             .themeSurface(state.theme, cornerRadius: 16, strong: true, interactive: false)
             .preferredColorScheme(state.appearanceMode.colorScheme)
         }

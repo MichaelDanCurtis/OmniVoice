@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastLevelOverlayUpdate = Date.distantPast
     private var insertionTarget: TextInsertionService.Target?
     private var liveDraft: TextInsertionService.LiveDraft?
+    private var activeSessionEphemeralVocabulary: [String] = []
     // AppleSpeechTranscriber on macOS 26+; stored as Any because stored
     // properties cannot be availability-gated.
     private var appleSpeechSession: Any?
@@ -64,6 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var onOpenEditor: (() -> Void)?
     var onOpenEditorNotes: (() -> Void)?
     var onOpenAskAI: (() -> Void)?
+    var onOpenControlPanel: (() -> Void)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Menu-bar-only by default: no Dock icon while OmniSpeak is just listening
@@ -140,6 +142,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             model.statusText = "Saved settings couldn't be read — using defaults"
         }
         askController.updateConfiguration(model.preferences)
+        askController.emberAPITokenProvider = { [weak model] in
+            model?.effectiveEmberAPIToken ?? ""
+        }
         Task { [weak self, weak model] in
             await ACPAgentPool.shared.setOnStateChange { [weak self] agentID, purpose, state in
                 Task { @MainActor [weak self] in
@@ -156,6 +161,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         configureMeetingCopilot(model: model)
         commandModeController.attach(model: model)
+        commandModeController.onActiveStateChanged = { [weak model] active in
+            model?.isCommandModeActive = active
+        }
+        model.onToggleCommandMode = { [weak self, weak model] in
+            guard let self, let model else { return }
+            if self.commandModeController.isActive {
+                self.commandModeController.exit(model: model)
+            } else {
+                Task { @MainActor in
+                    await self.commandModeController.enter(model: model)
+                }
+            }
+        }
         commandModeController.onTranscribeAudio = { [weak self, weak model] wavData in
             guard let self, let model else { return "" }
             if model.isServiceModeReady {
@@ -171,8 +189,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let engineProvider: ASRProviderKind = model.preferences.asrProvider.isEngineBacked
                 ? model.preferences.asrProvider
                 : .parakeetTDTMLX
-            let result = try await self.engineClient.transcribe(audio: wavData, provider: engineProvider)
-            return result.text
+            do {
+                let result = try await self.engineClient.transcribe(audio: wavData, provider: engineProvider)
+                return result.text
+            } catch {
+                // If the local engine isn't running yet, fall back cleanly to on-device CoreML Parakeet.
+                if let fallbackText = try? await self.coreMLParakeet.transcribe(wavData: wavData) {
+                    return fallbackText
+                }
+                throw error
+            }
         }
         hotMenuOverlay.onExecuteCommand = { [weak self, weak model] command in
             guard let self, let model else { return }
@@ -180,12 +206,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.executeHotMenuCommand(command, model: model)
         }
         correctionWatcher.onLearn = { [weak self, weak model] correction in
-            guard let self, let model, model.preferences.autoLearnCorrectionsEnabled else { return }
-            self.commitLearnedCorrection(correction, model: model)
+            guard let self, let model, model.preferences.autoLearnCorrectionsEnabled else { return nil }
+            return self.commitLearnedCorrection(correction, model: model)
+        }
+        correctionWatcher.onRefine = { [weak self, weak model] previousID, refined in
+            guard let self, let model, model.preferences.autoLearnCorrectionsEnabled else { return nil }
+            return self.refineLearnedCorrection(previousID: previousID, refined: refined, model: model)
         }
         teachCorrectionWindow.onLearn = { [weak self, weak model] correction in
             guard let self, let model else { return }
-            self.commitLearnedCorrection(correction, model: model)
+            _ = self.commitLearnedCorrection(correction, model: model)
         }
         learnedWordToast.onUndo = { [weak model] id in
             model?.removeDictionaryEntry(id: id)
@@ -275,12 +305,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         meetingDetector.isRecordingConversation = { [weak model] in
             model?.isConversationRecording ?? false
         }
+        meetingDetector.isDictating = { [weak self, weak model] in
+            model?.session.state == .listening || self?.commandModeController.isActive == true
+        }
+        meetingDetector.upcomingMeetingSoon = { [weak model] in
+            model?.upcomingMeetingSoonForBanner()
+        }
         meetingDetector.onMeetingDetected = { [weak self, weak model] event in
             guard let self, let model else { return }
             guard !model.isConversationRecording else { return }
-            if model.preferences.meetingAutoStartWithoutPrompt {
+            if model.preferences.meetingAutoStartWithoutPrompt && !event.isPreJoin {
                 Task { @MainActor in
-                    await model.startDetectedMeeting(event)
+                    await model.startDetectedMeeting(event, options: .defaultMeeting)
                 }
             } else {
                 self.meetingDetectedBanner.show(
@@ -288,7 +324,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     corner: model.preferences.meetingCopilotCorner,
                     stealthMode: model.preferences.meetingStealthModeEnabled,
                     theme: model.activeTheme,
-                    appearanceMode: model.preferences.appearanceMode
+                    appearanceMode: model.preferences.appearanceMode,
+                    defaultTwoWayAudio: true,
+                    defaultDiarizationEnabled: true,
+                    diarizationEngineLabel: model.activeDiarizationBannerLabel
                 )
             }
         }
@@ -299,10 +338,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        meetingDetectedBanner.onStartMeeting = { [weak model] event in
+        meetingDetectedBanner.onStartMeeting = { [weak model] event, options in
             guard let model else { return }
             Task { @MainActor in
-                await model.startDetectedMeeting(event)
+                await model.startDetectedMeeting(event, options: options)
             }
         }
         meetingDetectedBanner.onDismiss = { [weak self] in
@@ -890,6 +929,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             serviceModeSummary: model.serviceModeStatusSummary,
             asrProviderLabel: model.label(for: model.preferences.asrProvider),
             muteBackgroundAudioWhileDictating: model.preferences.muteBackgroundAudioWhileDictating,
+            emberDelegationEnabled: model.preferences.emberDelegation.enabled,
+            emberAvailable: model.preferences.emberDelegation.isConfigured || model.emberInfernoEnvironment.isEmberOrFuegoDetectedLocally,
+            commandModeActive: commandModeController.isActive,
             liveTranslationEnabled: model.preferences.liveTranslationEnabled,
             activeLanguageCode: model.preferences.translationTargetLanguage,
             quickLanguages: model.preferences.translationQuickTargetLanguages,
@@ -963,6 +1005,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 theme: model.activeTheme
             )
             scheduleOverlayAutoHide(after: 1.1, resetSession: false)
+        case .setEmberDelegationEnabled(let enabled):
+            model.setEmberDelegationEnabled(enabled)
+            showOverlay(
+                text: enabled ? "Ask AI → Ember" : "Ask AI → OmniSpeak (\(model.resolvedUnifiedAILabel))",
+                styleName: enabled ? "Ember" : "Ask AI",
+                theme: model.activeTheme
+            )
+            scheduleOverlayAutoHide(after: 1.2, resetSession: false)
+        case .toggleCommandMode:
+            model.onToggleCommandMode?()
         case .selectTranslationLanguage(let code):
             model.selectQuickTranslationLanguage(code)
             let label = code.flatMap { InlineTranslationParser.languageInfo(forCode: $0)?.name } ?? "Off"
@@ -1067,8 +1119,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.hideOverlay()
             }
         case .openDashboard:
-            NSWorkspace.shared.open(EngineAuthTokenStore.shared.authenticatedURL(URL(string: "http://127.0.0.1:8765/")!))
-            model.statusText = "Dashboard opened"
+            onOpenControlPanel?()
+            Task { @MainActor in
+                await model.refreshEngineStatus()
+            }
+            model.statusText = "Engine status opened"
         }
     }
 
@@ -1118,7 +1173,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor [weak self] in
                 guard let self, let model = self.model else { return }
                 guard model.session.state == .listening else { return }
-                let displayText = TextInsertionEdit.sanitizedInsertionText(text)
+                let displayText = await LocalDictationCleanupService.polishLivePartial(
+                    text,
+                    polishConfig: model.preferences.localStreamPolish,
+                    dictionaryTerms: model.preferences.dictionaryTerms,
+                    dictionaryEntries: model.preferences.dictionaryEntries,
+                    ephemeralVocabulary: self.activeSessionEphemeralVocabulary
+                )
+                guard !displayText.isEmpty, model.session.state == .listening else { return }
                 model.session.receivePartial(displayText)
                 self.updateLiveDraft(with: displayText)
                 model.captionText = displayText
@@ -1203,6 +1265,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             commandModeController.pauseOpenMicForManualDictation()
         }
         insertionTarget = insertionService.captureTarget()
+        activeSessionEphemeralVocabulary = model.preferences.localStreamPolish.activeWindowVocabularyEnabled
+            ? ActiveWindowContextReader.captureEphemeralVocabulary(for: insertionTarget)
+            : []
         liveDraft = model.preferences.liveDraftInsertionEnabled
             ? insertionService.beginLiveDraft(target: insertionTarget)
             : nil
@@ -1264,8 +1329,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     Task { @MainActor [weak self] in
                         guard let self, let model = self.model else { return }
                         guard model.session.state == .listening else { return }
-                        let displayText = TextInsertionEdit.sanitizedInsertionText(text)
-                        guard !displayText.isEmpty else { return }
+                        let displayText = await LocalDictationCleanupService.polishLivePartial(
+                            text,
+                            polishConfig: model.preferences.localStreamPolish,
+                            dictionaryTerms: model.preferences.dictionaryTerms,
+                            dictionaryEntries: model.preferences.dictionaryEntries,
+                            ephemeralVocabulary: self.activeSessionEphemeralVocabulary
+                        )
+                        guard !displayText.isEmpty, model.session.state == .listening else { return }
                         model.session.receivePartial(displayText)
                         self.updateLiveDraft(with: displayText)
                         model.captionText = displayText
@@ -1397,17 +1468,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
-        // Snapshot target & live draft immediately so a subsequent dictation can never
-        // share or mutate this session's insertion state.
+        // Snapshot target, live draft & ephemeral active-window vocabulary immediately so a
+        // subsequent dictation can never share or mutate this session's state.
         let capturedTarget = insertionTarget
         var capturedLiveDraft = liveDraft
+        let capturedEphemeralVocabulary = activeSessionEphemeralVocabulary
         if dictationSessionID == sessionID {
             insertionTarget = nil
             liveDraft = nil
+            activeSessionEphemeralVocabulary = []
         }
 
         defer {
             if dictationSessionID == sessionID {
+                activeSessionEphemeralVocabulary = []
                 backgroundAudioMuter.endDictationMute()
                 pendingAudioCaptureStartTask?.cancel()
                 pendingAudioCaptureStartTask = nil
@@ -1544,6 +1618,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        // 1b. Voice summon for the Ember agent ("Ember", "Call Ember", "Talk to Ember", …)
+        if let emberSummon = EmberVoiceCommandParser.parse(rawTranscript) {
+            model.session.reset()
+            streamingClient.cancel()
+            cancelAppleSpeechIfNeeded()
+            if let draft = capturedLiveDraft {
+                insertionService.cancelLiveDraft(draft)
+            }
+            showOverlay(
+                text: emberSummon.initialMessage == nil ? "Opening Ember…" : "Calling Ember…",
+                styleName: "Ember",
+                level: 0,
+                anchorFrame: activeOverlayAnchor
+            )
+            let summary = await model.summonEmber(initialMessage: emberSummon.initialMessage)
+            showOverlay(
+                text: summary,
+                styleName: "Ember",
+                level: 0,
+                anchorFrame: activeOverlayAnchor
+            )
+            scheduleOverlayAutoHide(after: summary.contains("isn't installed") ? 2.6 : 1.4)
+            return
+        }
+
         // 2. Route "ask <agent> …" (and follow-ups / actions while the bubble is open)
         // to Ask AI instead of typing the transcript.
         if askController.handle(transcript: rawTranscript, captureTarget: capturedTarget) {
@@ -1637,7 +1736,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.session.releaseHotkey(finalTranscript: rawTranscript)
         model.captionText = rawTranscript
         let polishingBadge: String
-        if model.preferences.llmCleanupEnabled && model.preferences.style != .raw {
+        if model.preferences.style == .raw {
+            polishingBadge = "Raw · Zero-LLM"
+        } else if model.preferences.style == .neutral {
+            polishingBadge = model.preferences.llmCleanupEnabled ? "Standard · Hybrid" : "Standard · Local"
+        } else if model.preferences.llmCleanupEnabled {
             polishingBadge = model.isActiveCleanupAgentColdACP
                 ? "\(model.preferences.style.displayName) · Warming ACP"
                 : "Polishing (\(model.resolvedUnifiedAILabel))…"
@@ -1668,7 +1771,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let cleanup = try await model.performCleanup(
                     rawTranscript: rawTranscript,
                     style: cleanupStyle,
-                    appContext: appContext
+                    appContext: appContext,
+                    ephemeralVocabulary: capturedEphemeralVocabulary
                 )
                 guard !Task.isCancelled, dictationSessionID == sessionID else { return }
                 finalText = TextInsertionEdit.sanitizedInsertionText(cleanup.text)
@@ -1734,10 +1838,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return text
     }
 
-    private func commitLearnedCorrection(_ correction: LearnedCorrection, model: AppModel) {
-        guard let entry = model.upsertLearnedCorrection(correction) else { return }
+    @discardableResult
+    private func commitLearnedCorrection(_ correction: LearnedCorrection, model: AppModel) -> String? {
+        guard let entry = model.upsertLearnedCorrection(correction) else { return nil }
         model.statusText = "Learned “\(correction.to)”"
         learnedWordToast.show(correction: correction, entryID: entry.id)
+        return entry.id
+    }
+
+    @discardableResult
+    private func refineLearnedCorrection(
+        previousID: String,
+        refined: LearnedCorrection,
+        model: AppModel
+    ) -> String? {
+        model.removeDictionaryEntry(id: previousID)
+        return commitLearnedCorrection(refined, model: model)
     }
 
     private func insertFinalText(
@@ -1996,7 +2112,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 do {
                     let partial = try await self.coreMLParakeet.transcribe(samples16kHz: snapshot.samples)
                     guard !Task.isCancelled, model.session.state == .listening else { break }
-                    let displayText = TextInsertionEdit.sanitizedInsertionText(partial)
+                    let displayText = await LocalDictationCleanupService.polishLivePartial(
+                        partial,
+                        polishConfig: model.preferences.localStreamPolish,
+                        dictionaryTerms: model.preferences.dictionaryTerms,
+                        dictionaryEntries: model.preferences.dictionaryEntries,
+                        ephemeralVocabulary: self.activeSessionEphemeralVocabulary
+                    )
+                    guard !Task.isCancelled, model.session.state == .listening else { break }
                     guard !displayText.isEmpty, displayText != model.captionText else { continue }
                     model.session.receivePartial(displayText)
                     self.updateLiveDraft(with: displayText)

@@ -9,6 +9,8 @@ struct MenuBarControlsView: View {
     let openConversationMode: () -> Void
     let openEditor: () -> Void
     let openAskAI: () -> Void
+    var openControlPanel: (() -> Void)? = nil
+    var openHistory: (() -> Void)? = nil
     var checkForUpdates: (() -> Void)? = nil
     var canCheckForUpdates: Bool = false
 
@@ -249,18 +251,16 @@ struct MenuBarControlsView: View {
                 .buttonStyle(.link)
                 .font(.caption2)
 
-                Button("Dashboard") {
-                    NSWorkspace.shared.open(
-                        EngineAuthTokenStore.shared.authenticatedURL(URL(string: "http://127.0.0.1:8765/")!)
-                    )
+                Button("Engine Status") {
+                    openControlPanel?()
+                    Task { await model.refreshEngineStatus() }
                 }
                 .buttonStyle(.link)
                 .font(.caption2)
 
                 Button("History") {
-                    NSWorkspace.shared.open(
-                        EngineAuthTokenStore.shared.authenticatedURL(URL(string: "http://127.0.0.1:8765/api/transcripts")!)
-                    )
+                    openHistory?()
+                    Task { await model.refreshTranscripts(updateStatus: false) }
                 }
                 .buttonStyle(.link)
                 .font(.caption2)

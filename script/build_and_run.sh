@@ -150,7 +150,8 @@ ensure_local_codesign_identity() {
   mkdir -p "$LOCAL_CODESIGN_DIR"
 
   if /usr/bin/security find-identity -v -p codesigning "$LOCAL_CODESIGN_KEYCHAIN" 2>/dev/null | grep -q "$LOCAL_CODESIGN_NAME"; then
-    /usr/bin/security unlock-keychain -p "" "$LOCAL_CODESIGN_KEYCHAIN"
+    /usr/bin/security unlock-keychain -p "$LOCAL_CODESIGN_P12_PASSWORD" "$LOCAL_CODESIGN_KEYCHAIN" >/dev/null 2>&1 \
+      || /usr/bin/security unlock-keychain -p "" "$LOCAL_CODESIGN_KEYCHAIN"
     add_local_keychain_to_search_list
     return
   fi
@@ -162,9 +163,9 @@ ensure_local_codesign_identity() {
     "$LOCAL_CODESIGN_DIR/omnivoice.crt" \
     "$LOCAL_CODESIGN_DIR/omnivoice.p12"
 
-  /usr/bin/security create-keychain -p "" "$LOCAL_CODESIGN_KEYCHAIN"
-  /usr/bin/security unlock-keychain -p "" "$LOCAL_CODESIGN_KEYCHAIN"
-  /usr/bin/security set-keychain-settings -lut 21600 "$LOCAL_CODESIGN_KEYCHAIN"
+  /usr/bin/security create-keychain -p "$LOCAL_CODESIGN_P12_PASSWORD" "$LOCAL_CODESIGN_KEYCHAIN"
+  /usr/bin/security unlock-keychain -p "$LOCAL_CODESIGN_P12_PASSWORD" "$LOCAL_CODESIGN_KEYCHAIN"
+  /usr/bin/security set-keychain-settings "$LOCAL_CODESIGN_KEYCHAIN"
 
   /usr/bin/openssl req \
     -newkey rsa:2048 \
@@ -197,7 +198,7 @@ ensure_local_codesign_identity() {
   /usr/bin/security set-key-partition-list \
     -S apple-tool:,apple:,codesign: \
     -s \
-    -k "" \
+    -k "$LOCAL_CODESIGN_P12_PASSWORD" \
     "$LOCAL_CODESIGN_KEYCHAIN" >/dev/null 2>&1 || true
 
   add_local_keychain_to_search_list

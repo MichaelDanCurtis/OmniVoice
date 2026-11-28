@@ -164,7 +164,9 @@ struct TranscriptHistoryFloatingPanelBridge: NSViewRepresentable {
         }
 
         private static func panelFrame(for parent: NSWindow, side: EngineFrameSide) -> NSRect {
-            let gap: CGFloat = 10
+            // Leave room for the exterior sticking-out pull-tab so clicking the tab to open
+            // and clicking again to close never gets covered by the drawer.
+            let gap: CGFloat = EngineFrameView.handleWidth - EngineFrameView.handleOverlapIntoParent + 8
             let verticalInset: CGFloat = 14
             let width = EngineFrameView.drawerWidth
             let height = max(420, parent.frame.height - (verticalInset * 2))

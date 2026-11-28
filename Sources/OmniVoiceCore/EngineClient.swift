@@ -32,6 +32,97 @@ public struct EngineHealth: Codable, Equatable, Sendable {
     }
 }
 
+public struct EngineRuntimeStatus: Codable, Equatable, Sendable {
+    public let status: String
+    public let engine: String
+    public let uptimeSeconds: Int
+    public let transcripts: Int
+    public let events: Int
+    public let conversations: Int
+
+    public init(
+        status: String,
+        engine: String = "omnivoice-core-rs",
+        uptimeSeconds: Int = 0,
+        transcripts: Int = 0,
+        events: Int = 0,
+        conversations: Int = 0
+    ) {
+        self.status = status
+        self.engine = engine
+        self.uptimeSeconds = uptimeSeconds
+        self.transcripts = transcripts
+        self.events = events
+        self.conversations = conversations
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.status = (try? container.decode(String.self, forKey: .status)) ?? "ok"
+        self.engine = (try? container.decode(String.self, forKey: .engine)) ?? "omnivoice-engine"
+        self.uptimeSeconds = (try? container.decode(Int.self, forKey: .uptimeSeconds)) ?? 0
+        self.transcripts = (try? container.decode(Int.self, forKey: .transcripts)) ?? 0
+        self.events = (try? container.decode(Int.self, forKey: .events)) ?? 0
+        self.conversations = (try? container.decode(Int.self, forKey: .conversations)) ?? 0
+    }
+}
+
+public struct EngineVoiceProfileInfo: Codable, Equatable, Identifiable, Sendable {
+    public let profileId: String
+    public let updatedAt: String?
+
+    public var id: String { profileId }
+
+    public init(profileId: String, updatedAt: String? = nil) {
+        self.profileId = profileId
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct EngineEventRecord: Codable, Equatable, Identifiable, Sendable {
+    public let id: String
+    public let createdAt: String
+    public let eventType: String
+    public let message: String
+    public let level: String
+
+    public init(
+        id: String,
+        createdAt: String,
+        eventType: String,
+        message: String,
+        level: String = "info"
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.eventType = eventType
+        self.message = message
+        self.level = level
+    }
+}
+
+public struct GrammarCheckRequest: Codable, Equatable, Sendable {
+    public let text: String
+    public let protectedTerms: [String]
+
+    public init(text: String, protectedTerms: [String] = []) {
+        self.text = text
+        self.protectedTerms = protectedTerms
+    }
+}
+
+public struct GrammarCheckResponse: Codable, Equatable, Sendable {
+    public let text: String
+    public let appliedCount: Int
+    public let engine: String
+
+    public init(text: String, appliedCount: Int = 0, engine: String = "harper-core") {
+        self.text = text
+        self.appliedCount = appliedCount
+        self.engine = engine
+    }
+}
+
 public struct EngineProviderInfo: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public let label: String
@@ -817,6 +908,52 @@ public struct EngineClient: Sendable {
         let (data, response) = try await perform(urlRequest)
         try validate(response, data: data)
         return try EngineCoding.decoder.decode(TranscribeResult.self, from: data)
+    }
+
+    public func engineStatus() async throws -> EngineRuntimeStatus {
+        let endpoint = baseURL.appending(path: "api").appending(path: "status")
+        let (data, response) = try await performGET(endpoint)
+        try validate(response, data: data)
+        return try EngineCoding.decoder.decode(EngineRuntimeStatus.self, from: data)
+    }
+
+    public func voiceSettingsProfiles() async throws -> [EngineVoiceProfileInfo] {
+        struct ProfilesEnvelope: Decodable {
+            let profiles: [EngineVoiceProfileInfo]
+        }
+        let endpoint = baseURL
+            .appending(path: "api")
+            .appending(path: "settings")
+            .appending(path: "profiles")
+        let (data, response) = try await performGET(endpoint)
+        try validate(response, data: data)
+        return try JSONDecoder().decode(ProfilesEnvelope.self, from: data).profiles
+    }
+
+    public func events(limit: Int = 12) async throws -> [EngineEventRecord] {
+        var components = URLComponents(
+            url: baseURL.appending(path: "api").appending(path: "events"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [URLQueryItem(name: "limit", value: String(max(1, limit)))]
+        guard let endpoint = components?.url else { throw EngineError.invalidURL }
+        let (data, response) = try await performGET(endpoint)
+        try validate(response, data: data)
+        return try EngineCoding.decoder.decode([EngineEventRecord].self, from: data)
+    }
+
+    public func checkGrammar(text: String, protectedTerms: [String] = []) async throws -> GrammarCheckResponse {
+        let endpoint = baseURL.appending(path: "api").appending(path: "grammar")
+        var urlRequest = URLRequest(url: endpoint)
+        urlRequest.httpMethod = "POST"
+        urlRequest.timeoutInterval = 1.5
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try EngineCoding.encoder.encode(
+            GrammarCheckRequest(text: text, protectedTerms: protectedTerms)
+        )
+        let (data, response) = try await perform(urlRequest)
+        try validate(response, data: data)
+        return try EngineCoding.decoder.decode(GrammarCheckResponse.self, from: data)
     }
 
     private func performGET(_ url: URL) async throws -> (Data, URLResponse) {

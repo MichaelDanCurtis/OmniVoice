@@ -154,6 +154,11 @@ struct OmniWorkspaceTile: View {
                         accent.opacity(isHovered ? 0.42 : 0.16),
                         lineWidth: isHovered ? 1 : 0.75
                     )
+                } else if theme.look == .omniGlass && isHovered {
+                    shape.stroke(
+                        accent.opacity(colorScheme == .dark ? 0.65 : 0.55),
+                        lineWidth: 1.0
+                    )
                 }
             }
         }

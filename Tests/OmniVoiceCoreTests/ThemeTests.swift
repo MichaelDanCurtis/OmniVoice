@@ -2,9 +2,12 @@ import XCTest
 @testable import OmniVoiceCore
 
 final class ThemeTests: XCTestCase {
-    func testBuiltInThemesContainFortyPresets() {
-        XCTAssertEqual(OmniVoiceTheme.builtIn.count, 40)
-        XCTAssertEqual(Set(OmniVoiceTheme.builtIn.map(\.id)).count, 40)
+    func testBuiltInThemesContainFortyOnePresets() {
+        XCTAssertEqual(OmniVoiceTheme.builtIn.count, 41)
+        XCTAssertEqual(Set(OmniVoiceTheme.builtIn.map(\.id)).count, 41)
+        XCTAssertNotNil(OmniVoiceTheme.builtInTheme(id: .omniSignal))
+        XCTAssertEqual(OmniVoiceTheme.defaultTheme.id, .omniSignal)
+        XCTAssertEqual(OmniVoiceTheme.defaultTheme.look, .omniGlass)
         XCTAssertNotNil(OmniVoiceTheme.builtInTheme(id: .synthwaveHorizon))
         XCTAssertNotNil(OmniVoiceTheme.builtInTheme(id: .bioluminescentReef))
         XCTAssertNotNil(OmniVoiceTheme.builtInTheme(id: .tokyoRain))
@@ -190,11 +193,16 @@ final class ThemeTests: XCTestCase {
         XCTAssertEqual(theme.cssVariables["--ov-glow"], "rgba(56, 189, 248, 0.34)")
     }
 
-    func testThemeLooksAreStructurallyDistinctAndSignatureLooksCoverAllTen() throws {
-        XCTAssertEqual(ThemeLook.allCases.count, 10)
-        XCTAssertEqual(OmniVoiceTheme.signatureLooks.count, 10)
-        XCTAssertEqual(Set(OmniVoiceTheme.signatureLooks.map(\.look)).count, 10)
+    func testThemeLooksAreStructurallyDistinctAndSignatureLooksCoverAllEleven() throws {
+        XCTAssertEqual(ThemeLook.allCases.count, 11)
+        XCTAssertEqual(OmniVoiceTheme.signatureLooks.count, 11)
+        XCTAssertEqual(Set(OmniVoiceTheme.signatureLooks.map(\.look)).count, 11)
+        XCTAssertEqual(ThemeLook.allCases.first, .omniGlass)
 
+        XCTAssertTrue(ThemeLook.omniGlass.usesGlassMaterial)
+        XCTAssertEqual(ThemeLook.omniGlass.cardCornerRadius, 14)
+        XCTAssertEqual(ThemeLook.omniGlass.pillCornerRadius, 999)
+        XCTAssertEqual(ThemeLook.omniGlass.borderWidth, 1.0)
         XCTAssertTrue(ThemeLook.liquidGlass.usesGlassMaterial)
         XCTAssertTrue(ThemeLook.crystalPrism.usesGlassMaterial)
         XCTAssertFalse(ThemeLook.studioPro.usesGlassMaterial)
